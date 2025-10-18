@@ -34,8 +34,21 @@ from enum import Enum
 import streamlit as st
 import io
 import csv
+from datetime import datetime
 
 import pandas as pd
+
+# PDF generation
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    _REPORTLAB_AVAILABLE = True
+except ImportError:
+    _REPORTLAB_AVAILABLE = False
 
 # ---------------------------
 # Domain Models & Computation
@@ -431,6 +444,199 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
         raise ValueError(f"Error parsing CSV: {str(e)}")
 
 
+def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inputs: Dict) -> bytes:
+    """Generate a comprehensive PDF report of the retirement analysis."""
+    if not _REPORTLAB_AVAILABLE:
+        raise ImportError("reportlab is required for PDF generation. Install with: pip install reportlab")
+    
+    # Create PDF in memory
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        alignment=TA_CENTER,
+        textColor=colors.darkblue
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        spaceAfter=12,
+        textColor=colors.darkblue
+    )
+    
+    subheading_style = ParagraphStyle(
+        'CustomSubHeading',
+        parent=styles['Heading3'],
+        fontSize=14,
+        spaceAfter=8,
+        textColor=colors.darkgreen
+    )
+    
+    # Build PDF content
+    story = []
+    
+    # Title
+    story.append(Paragraph("Retirement Planning Analysis Report", title_style))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Executive Summary
+    story.append(Paragraph("Executive Summary", heading_style))
+    
+    summary_data = [
+        ["Metric", "Value"],
+        ["Years Until Retirement", f"{result.get('Years Until Retirement', 0):.0f} years"],
+        ["Total Future Value (Pre-Tax)", f"${result.get('Total Future Value (Pre-Tax)', 0):,.0f}"],
+        ["Total After-Tax Balance", f"${result.get('Total After-Tax Balance', 0):,.0f}"],
+        ["Total Tax Liability", f"${result.get('Total Tax Liability', 0):,.0f}"],
+        ["Tax Efficiency", f"{result.get('Tax Efficiency (%)', 0):.1f}%"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Portfolio Breakdown
+    story.append(Paragraph("Portfolio Breakdown", heading_style))
+    
+    # Asset details table
+    asset_data = [["Account", "Type", "Current Balance", "Annual Contribution", "Growth Rate", "Tax Rate"]]
+    for asset in assets:
+        asset_data.append([
+            asset.name,
+            asset.asset_type.value.replace('_', ' ').title(),
+            f"${asset.current_balance:,.0f}",
+            f"${asset.annual_contribution:,.0f}",
+            f"{asset.growth_rate_pct}%",
+            f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+        ])
+    
+    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1.2*inch, 1.2*inch, 0.8*inch, 0.8*inch])
+    asset_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 9)
+    ]))
+    
+    story.append(asset_table)
+    story.append(Spacer(1, 20))
+    
+    # Individual Asset Results
+    story.append(Paragraph("Individual Asset Projections", heading_style))
+    
+    # Find individual asset results
+    asset_results = []
+    for key, value in result.items():
+        if "Asset" in key and "After-Tax" in key:
+            asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+            asset_results.append([asset_name, f"${value:,.0f}"])
+    
+    if asset_results:
+        asset_results_data = [["Account", "After-Tax Value at Retirement"]]
+        asset_results_data.extend(asset_results)
+        
+        results_table = Table(asset_results_data, colWidths=[3*inch, 2*inch])
+        results_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        story.append(results_table)
+        story.append(Spacer(1, 20))
+    
+    # Tax Analysis
+    story.append(Paragraph("Tax Analysis", heading_style))
+    
+    tax_liability = result.get("Total Tax Liability", 0)
+    total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
+    tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0
+    tax_efficiency = result.get("Tax Efficiency (%)", 0)
+    
+    tax_analysis = f"""
+    <b>Tax Efficiency Rating:</b> {tax_efficiency:.1f}%<br/>
+    <b>Total Tax Liability:</b> ${tax_liability:,.0f}<br/>
+    <b>Tax as % of Pre-Tax Value:</b> {tax_percentage:.1f}%<br/>
+    <b>Current Marginal Tax Rate:</b> {user_inputs.get('current_marginal_tax_rate_pct', 0)}%<br/>
+    <b>Projected Retirement Tax Rate:</b> {user_inputs.get('retirement_marginal_tax_rate_pct', 0)}%
+    """
+    
+    story.append(Paragraph(tax_analysis, styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Recommendations
+    story.append(Paragraph("Recommendations", heading_style))
+    
+    recommendations = []
+    if tax_efficiency > 85:
+        recommendations.append("🎉 <b>Excellent tax efficiency!</b> Your portfolio is well-optimized.")
+    elif tax_efficiency > 75:
+        recommendations.append("⚠️ <b>Good tax efficiency</b>, but there may be room for improvement.")
+    else:
+        recommendations.append("🚨 <b>Consider tax optimization</b> strategies to improve efficiency.")
+    
+    if len(assets) < 3:
+        recommendations.append("💡 Consider diversifying across more account types for better tax optimization.")
+    
+    # Check for high-growth assets
+    high_growth_assets = [a for a in assets if a.growth_rate_pct > 8]
+    if high_growth_assets:
+        recommendations.append("📈 You have high-growth assets - ensure proper risk management.")
+    
+    # Check for low-growth assets
+    low_growth_assets = [a for a in assets if a.growth_rate_pct < 5]
+    if low_growth_assets:
+        recommendations.append("💰 Consider if low-growth assets align with your retirement timeline.")
+    
+    for rec in recommendations:
+        story.append(Paragraph(rec, styles['Normal']))
+        story.append(Spacer(1, 6))
+    
+    story.append(Spacer(1, 20))
+    
+    # Footer
+    story.append(Paragraph("This report was generated by the Financial Advisor - Stage 2 application.", 
+                          ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER)))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 st.set_page_config(page_title="Financial Advisor - Stage 2", layout="wide")
 st.title("💰 Financial Advisor - Advanced Retirement Planning")
@@ -673,28 +879,65 @@ try:
             else:
                 st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
     
-    with detail_tab3:
-        # Summary table
-        summary_data = {
-            "Metric": [
-                "Years Until Retirement",
-                "Total Future Value (Pre-Tax)",
-                "Total After-Tax Balance", 
-                "Total Tax Liability",
-                "Tax Efficiency (%)"
-            ],
-            "Value": [
-                f"{result['Years Until Retirement']:.0f} years",
-                f"${result['Total Future Value (Pre-Tax)']:,.0f}",
-                f"${result['Total After-Tax Balance']:,.0f}",
-                f"${result['Total Tax Liability']:,.0f}",
-                f"{result['Tax Efficiency (%)']:.1f}%"
-            ]
-        }
-        
-        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
-        
-        st.success("✅ **Stage 2 analysis completed!** Next: Monte Carlo simulation and AI optimization.")
+            with detail_tab3:
+                # Summary table
+                summary_data = {
+                    "Metric": [
+                        "Years Until Retirement",
+                        "Total Future Value (Pre-Tax)",
+                        "Total After-Tax Balance", 
+                        "Total Tax Liability",
+                        "Tax Efficiency (%)"
+                    ],
+                    "Value": [
+                        f"{result['Years Until Retirement']:.0f} years",
+                        f"${result['Total Future Value (Pre-Tax)']:,.0f}",
+                        f"${result['Total After-Tax Balance']:,.0f}",
+                        f"${result['Total Tax Liability']:,.0f}",
+                        f"{result['Tax Efficiency (%)']:.1f}%"
+                    ]
+                }
+                
+                st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+                
+                # PDF Report Download
+                st.markdown("---")
+                st.subheader("📄 Download Report")
+                
+                if _REPORTLAB_AVAILABLE:
+                    try:
+                        # Prepare user inputs for PDF
+                        user_inputs = {
+                            'current_marginal_tax_rate_pct': current_tax_rate,
+                            'retirement_marginal_tax_rate_pct': retirement_tax_rate,
+                            'inflation_rate_pct': inflation_rate,
+                            'age': age,
+                            'retirement_age': retirement_age,
+                            'annual_income': annual_income
+                        }
+                        
+                        # Generate PDF
+                        pdf_bytes = generate_pdf_report(result, assets, user_inputs)
+                        
+                        # Download button
+                        st.download_button(
+                            label="📥 Download PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"retirement_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            help="Download a comprehensive PDF report with all your retirement analysis details"
+                        )
+                        
+                        st.info("💡 **PDF Report includes:** Executive summary, portfolio breakdown, individual asset projections, tax analysis, and personalized recommendations.")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error generating PDF: {str(e)}")
+                        st.info("💡 Try refreshing the page and running the analysis again.")
+                else:
+                    st.warning("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
+                    st.code("pip install reportlab", language="bash")
+                
+                st.success("✅ **Stage 2 analysis completed!** Next: Monte Carlo simulation and AI optimization.")
     
 except Exception as e:
     st.error(f"❌ **Error in calculation**: {e}")
