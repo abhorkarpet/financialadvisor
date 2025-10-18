@@ -427,16 +427,25 @@ try:
     
     # Create a cleaner dataframe for display
     display_data = {}
+    
+    # First, add summary metrics
+    summary_metrics = ["Total Future Value (Pre-Tax)", "Total After-Tax Balance", "Total Tax Liability", "Tax Efficiency (%)"]
+    for key in summary_metrics:
+        if key in result:
+            if "Efficiency" in key:
+                display_data[key] = {"Value": f"{result[key]:.1f}%"}
+            else:
+                display_data[key] = {"Value": f"${result[key]:,.0f}"}
+    
+    # Then, add individual asset breakdown
+    asset_breakdown = {}
     for key, value in result.items():
-        if "Asset" in key and "Pre-Tax" in key:
-            continue  # Skip individual asset pre-tax values
-        elif "Asset" in key and "After-Tax" in key:
+        if "Asset" in key and "After-Tax" in key:
             asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
-            if asset_name not in display_data:
-                display_data[asset_name] = {}
-            display_data[asset_name]["After-Tax Value"] = f"${value:,.0f}"
-        elif key not in ["Years Until Retirement", "Number of Assets"]:
-            display_data[key] = {"Value": f"${value:,.0f}" if "Value" in key or "Balance" in key or "Liability" in key else f"{value:.1f}%" if "Efficiency" in key else value}
+            asset_breakdown[asset_name] = f"${value:,.0f}"
+    
+    if asset_breakdown:
+        display_data["Individual Assets (After-Tax)"] = asset_breakdown
     
     if display_data:
         st.dataframe(pd.DataFrame(display_data).T, use_container_width=True)
