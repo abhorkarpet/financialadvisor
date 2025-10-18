@@ -32,6 +32,8 @@ from enum import Enum
 
 # Streamlit import
 import streamlit as st
+import io
+import csv
 
 import pandas as pd
 
@@ -304,8 +306,129 @@ def create_default_assets() -> List[Asset]:
             annual_contribution=3000,
             growth_rate_pct=7.0,
             tax_rate_pct=15.0  # Capital gains rate
+        ),
+        Asset(
+            name="High-Yield Savings Account",
+            asset_type=AssetType.POST_TAX,
+            current_balance=25000,
+            annual_contribution=2000,
+            growth_rate_pct=4.5,
+            tax_rate_pct=0.0  # Interest taxed as ordinary income, but no capital gains
         )
     ]
+
+
+def create_asset_template_csv() -> str:
+    """Create a CSV template for asset configuration."""
+    template_data = [
+        {
+            "Account Name": "401(k) / Traditional IRA",
+            "Asset Type": "pre_tax",
+            "Current Balance": 50000,
+            "Annual Contribution": 12000,
+            "Growth Rate (%)": 7.0,
+            "Tax Rate (%)": 0.0
+        },
+        {
+            "Account Name": "Roth IRA",
+            "Asset Type": "post_tax",
+            "Current Balance": 10000,
+            "Annual Contribution": 6000,
+            "Growth Rate (%)": 7.0,
+            "Tax Rate (%)": 0.0
+        },
+        {
+            "Account Name": "Brokerage Account",
+            "Asset Type": "post_tax",
+            "Current Balance": 15000,
+            "Annual Contribution": 3000,
+            "Growth Rate (%)": 7.0,
+            "Tax Rate (%)": 15.0
+        },
+        {
+            "Account Name": "High-Yield Savings Account",
+            "Asset Type": "post_tax",
+            "Current Balance": 25000,
+            "Annual Contribution": 2000,
+            "Growth Rate (%)": 4.5,
+            "Tax Rate (%)": 0.0
+        }
+    ]
+    
+    # Create CSV string
+    output = io.StringIO()
+    fieldnames = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(template_data)
+    
+    return output.getvalue()
+
+
+def parse_uploaded_csv(csv_content: str) -> List[Asset]:
+    """Parse uploaded CSV content into Asset objects."""
+    assets = []
+    
+    try:
+        # Read CSV content
+        csv_reader = csv.DictReader(io.StringIO(csv_content))
+        
+        for row in csv_reader:
+            # Validate required fields
+            required_fields = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)"]
+            for field in required_fields:
+                if field not in row or not row[field].strip():
+                    raise ValueError(f"Missing or empty required field: {field}")
+            
+            # Parse asset type
+            asset_type_str = row["Asset Type"].strip().lower()
+            if asset_type_str == "pre_tax":
+                asset_type = AssetType.PRE_TAX
+            elif asset_type_str == "post_tax":
+                asset_type = AssetType.POST_TAX
+            elif asset_type_str == "tax_deferred":
+                asset_type = AssetType.TAX_DEFERRED
+            else:
+                raise ValueError(f"Invalid asset type: {asset_type_str}. Must be 'pre_tax', 'post_tax', or 'tax_deferred'")
+            
+            # Parse numeric values
+            try:
+                current_balance = float(row["Current Balance"])
+                annual_contribution = float(row["Annual Contribution"])
+                growth_rate = float(row["Growth Rate (%)"])
+                tax_rate = float(row.get("Tax Rate (%)", 0))
+            except ValueError as e:
+                raise ValueError(f"Invalid numeric value in row: {e}")
+            
+            # Validate ranges
+            if current_balance < 0:
+                raise ValueError("Current Balance cannot be negative")
+            if annual_contribution < 0:
+                raise ValueError("Annual Contribution cannot be negative")
+            if growth_rate < 0 or growth_rate > 50:
+                raise ValueError("Growth Rate must be between 0% and 50%")
+            if tax_rate < 0 or tax_rate > 50:
+                raise ValueError("Tax Rate must be between 0% and 50%")
+            
+            # Create asset
+            asset = Asset(
+                name=row["Account Name"].strip(),
+                asset_type=asset_type,
+                current_balance=current_balance,
+                annual_contribution=annual_contribution,
+                growth_rate_pct=growth_rate,
+                tax_rate_pct=tax_rate
+            )
+            
+            assets.append(asset)
+        
+        if not assets:
+            raise ValueError("No valid assets found in CSV")
+        
+        return assets
+        
+    except Exception as e:
+        raise ValueError(f"Error parsing CSV: {str(e)}")
 
 
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
@@ -352,7 +475,7 @@ with tab3:
     # Quick setup options
     setup_option = st.radio(
         "Choose setup method:",
-        ["Use Default Portfolio", "Configure Individual Assets", "Legacy Mode (Simple)"],
+        ["Use Default Portfolio", "Upload CSV File", "Configure Individual Assets", "Legacy Mode (Simple)"],
         help="Select how you want to configure your retirement accounts"
     )
 
@@ -360,7 +483,7 @@ with tab3:
 
     if setup_option == "Use Default Portfolio":
         assets = create_default_assets()
-        st.success("✅ Using default portfolio with 401(k), Roth IRA, and Brokerage account")
+        st.success("✅ Using default portfolio with 401(k), Roth IRA, Brokerage, and Savings accounts")
         
         # Show default portfolio details in table format
         with st.expander("📋 Default Portfolio Details", expanded=True):
@@ -378,8 +501,57 @@ with tab3:
             
             # Display as table
             st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+    
+    elif setup_option == "Upload CSV File":
+        st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
+        
+        # Download template button
+        csv_template = create_asset_template_csv()
+        st.download_button(
+            label="📥 Download CSV Template",
+            data=csv_template,
+            file_name="asset_template.csv",
+            mime="text/csv",
+            help="Download a pre-filled template with example data"
+        )
+        
+        # Upload file
+        uploaded_file = st.file_uploader(
+            "📤 Upload Your CSV File",
+            type=['csv'],
+            help="Upload your modified CSV file with your asset data"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                # Read uploaded file
+                csv_content = uploaded_file.read().decode('utf-8')
+                assets = parse_uploaded_csv(csv_content)
+                
+                st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
+                
+                # Show uploaded assets in table format
+                with st.expander("📋 Uploaded Assets", expanded=True):
+                    table_data = []
+                    for asset in assets:
+                        row = {
+                            "Account": asset.name,
+                            "Current Balance": f"${asset.current_balance:,.0f}",
+                            "Annual Contribution": f"${asset.annual_contribution:,.0f}",
+                            "Growth Rate": f"{asset.growth_rate_pct}%",
+                            "Tax Rate": f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+                        }
+                        table_data.append(row)
+                    
+                    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+                
+            except Exception as e:
+                st.error(f"❌ Error processing CSV file: {str(e)}")
+                st.info("💡 **Tip**: Make sure your CSV has the correct format. Download the template and use it as a guide.")
         
     elif setup_option == "Configure Individual Assets":
+        st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
+        
         num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
         
         for i in range(num_assets):
