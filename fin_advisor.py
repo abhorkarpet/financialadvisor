@@ -312,93 +312,119 @@ def create_default_assets() -> List[Asset]:
 st.set_page_config(page_title="Financial Advisor - Stage 2", layout="wide")
 st.title("💰 Financial Advisor - Advanced Retirement Planning")
 
-st.markdown(
-    """
-    ### Stage 2: Asset Classification & Advanced Tax Logic
-    This enhanced version includes:
-    - **Asset Classification**: Pre-tax, Post-tax, and Tax-deferred accounts
-    - **Per-Asset Growth Simulation**: Individual tracking of each account
-    - **Sophisticated Tax Logic**: IRS tax brackets and capital gains calculations
-    - **Tax Efficiency Analysis**: Optimize your retirement strategy
-    """
-)
+# Collapsible description to reduce above-the-fold content
+with st.expander("ℹ️ About This Application", expanded=False):
+    st.markdown(
+        """
+        ### Stage 2: Asset Classification & Advanced Tax Logic
+        This enhanced version includes:
+        - **Asset Classification**: Pre-tax, Post-tax, and Tax-deferred accounts
+        - **Per-Asset Growth Simulation**: Individual tracking of each account
+        - **Sophisticated Tax Logic**: IRS tax brackets and capital gains calculations
+        - **Tax Efficiency Analysis**: Optimize your retirement strategy
+        """
+    )
 
-# Basic inputs
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("Personal Information")
-    age = st.number_input("Current Age", min_value=18, max_value=90, value=30)
-    retirement_age = st.number_input("Target Retirement Age", min_value=40, max_value=80, value=65)
-    annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000)
-    
-with col2:
-    st.subheader("Tax Information")
-    current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22)
-    retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25)
-    inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3)
+# Input Section with clear visual separation
+st.markdown("---")
+st.header("📝 Input Parameters")
 
-# Asset configuration
-st.subheader("Asset Configuration")
+# Create tabs for better organization
+tab1, tab2, tab3 = st.tabs(["👤 Personal Info", "💰 Tax Settings", "🏦 Asset Configuration"])
 
-# Quick setup options
-setup_option = st.radio(
-    "Choose setup method:",
-    ["Use Default Portfolio", "Configure Individual Assets", "Legacy Mode (Simple)"]
-)
+with tab1:
+    col1, col2 = st.columns(2)
+    with col1:
+        age = st.number_input("Current Age", min_value=18, max_value=90, value=30, help="Your current age")
+        retirement_age = st.number_input("Target Retirement Age", min_value=40, max_value=80, value=65, help="When you plan to retire")
+    with col2:
+        annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000, help="Your current annual income")
 
-assets = []
+with tab2:
+    col1, col2 = st.columns(2)
+    with col1:
+        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket")
+        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+    with col2:
+        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption")
 
-if setup_option == "Use Default Portfolio":
-    assets = create_default_assets()
-    st.info("Using default portfolio with 401(k), Roth IRA, and Brokerage account")
-    
-elif setup_option == "Configure Individual Assets":
-    num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3)
-    
-    for i in range(num_assets):
-        with st.expander(f"Asset {i+1}"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}")
-                asset_type = st.selectbox(
-                    f"Asset Type {i+1}",
-                    options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
-                    format_func=lambda x: f"{x[0]} ({x[1].value})"
-                )
-            with col2:
-                current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000)
-                annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500)
-            with col3:
-                growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, 7)
-                if asset_type[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
-                    tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15)
-                else:
-                    tax_rate = 0
-            
-            assets.append(Asset(
-                name=asset_name,
-                asset_type=asset_type[1],
-                current_balance=current_balance,
-                annual_contribution=annual_contribution,
-                growth_rate_pct=growth_rate,
-                tax_rate_pct=tax_rate
-            ))
+with tab3:
+    # Quick setup options
+    setup_option = st.radio(
+        "Choose setup method:",
+        ["Use Default Portfolio", "Configure Individual Assets", "Legacy Mode (Simple)"],
+        help="Select how you want to configure your retirement accounts"
+    )
 
-else:  # Legacy mode
-    st.info("Legacy mode: Single blended calculation")
-    contribution_rate = st.slider("Annual Savings Rate (% of income)", 0, 50, 15)
-    current_balance = st.number_input("Current Total Savings ($)", min_value=0, value=50000, step=1000)
-    expected_growth_rate = st.slider("Expected Annual Growth Rate (%)", 0, 20, 7)
-    
-    # Create legacy asset
-    total_contribution = annual_income * (contribution_rate / 100.0)
-    assets = [Asset(
-        name="401(k) / Traditional IRA (Pre-Tax)",
-        asset_type=AssetType.PRE_TAX,
-        current_balance=current_balance,
-        annual_contribution=total_contribution,
-        growth_rate_pct=expected_growth_rate
-    )]
+    assets = []
+
+    if setup_option == "Use Default Portfolio":
+        assets = create_default_assets()
+        st.success("✅ Using default portfolio with 401(k), Roth IRA, and Brokerage account")
+        
+        # Show default portfolio details
+        with st.expander("📋 Default Portfolio Details", expanded=True):
+            for i, asset in enumerate(assets, 1):
+                st.write(f"**{i}. {asset.name}**")
+                st.write(f"   - Current Balance: ${asset.current_balance:,.0f}")
+                st.write(f"   - Annual Contribution: ${asset.annual_contribution:,.0f}")
+                st.write(f"   - Growth Rate: {asset.growth_rate_pct}%")
+                if asset.tax_rate_pct > 0:
+                    st.write(f"   - Tax Rate: {asset.tax_rate_pct}%")
+                st.write("")
+        
+    elif setup_option == "Configure Individual Assets":
+        num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
+        
+        for i in range(num_assets):
+            with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}", help="Name of your account")
+                    asset_type = st.selectbox(
+                        f"Asset Type {i+1}",
+                        options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
+                        format_func=lambda x: f"{x[0]} ({x[1].value})",
+                        help="Type of account for tax treatment"
+                    )
+                with col2:
+                    current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000, help="Current account balance")
+                    annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
+                with col3:
+                    growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, 7, help="Expected annual return")
+                    if asset_type[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
+                        tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
+                    else:
+                        tax_rate = 0
+                
+                assets.append(Asset(
+                    name=asset_name,
+                    asset_type=asset_type[1],
+                    current_balance=current_balance,
+                    annual_contribution=annual_contribution,
+                    growth_rate_pct=growth_rate,
+                    tax_rate_pct=tax_rate
+                ))
+
+    else:  # Legacy mode
+        st.info("📊 Legacy mode: Single blended calculation")
+        contribution_rate = st.slider("Annual Savings Rate (% of income)", 0, 50, 15, help="Percentage of income you save")
+        current_balance = st.number_input("Current Total Savings ($)", min_value=0, value=50000, step=1000, help="Total current savings")
+        expected_growth_rate = st.slider("Expected Annual Growth Rate (%)", 0, 20, 7, help="Expected annual return")
+        
+        # Create legacy asset
+        total_contribution = annual_income * (contribution_rate / 100.0)
+        assets = [Asset(
+            name="401(k) / Traditional IRA (Pre-Tax)",
+            asset_type=AssetType.PRE_TAX,
+            current_balance=current_balance,
+            annual_contribution=total_contribution,
+            growth_rate_pct=expected_growth_rate
+        )]
+
+# Results Section with clear visual separation
+st.markdown("---")
+st.header("📊 Retirement Projection Results")
 
 try:
     inputs = UserInputs(
@@ -415,68 +441,87 @@ try:
     
     result = project(inputs)
     
-    st.markdown("---")
-    st.subheader("📊 Retirement Projection Results")
+    # Key metrics in a prominent container
+    with st.container():
+        st.subheader("🎯 Key Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Years to Retirement", f"{result['Years Until Retirement']:.0f}")
+        with col2:
+            st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
+        with col3:
+            st.metric("Total After-Tax Value", f"${result['Total After-Tax Balance']:,.0f}")
+        with col4:
+            st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
     
-    # Summary metrics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Years to Retirement", f"{result['Years Until Retirement']:.0f}")
-    with col2:
-        st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
-    with col3:
-        st.metric("Total After-Tax Value", f"${result['Total After-Tax Balance']:,.0f}")
-    with col4:
-        st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
+    # Detailed breakdown in tabs
+    st.subheader("📈 Detailed Analysis")
     
-    # Detailed results
-    st.subheader("📈 Detailed Breakdown")
+    detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Portfolio Breakdown", "📊 Tax Analysis", "📋 Summary"])
     
-    # Create a cleaner dataframe for display
-    display_data = {}
-    
-    # First, add summary metrics
-    summary_metrics = ["Total Future Value (Pre-Tax)", "Total After-Tax Balance", "Total Tax Liability", "Tax Efficiency (%)"]
-    for key in summary_metrics:
-        if key in result:
-            if "Efficiency" in key:
-                display_data[key] = {"Value": f"{result[key]:.1f}%"}
-            else:
-                display_data[key] = {"Value": f"${result[key]:,.0f}"}
-    
-    # Then, add individual asset breakdown
-    asset_breakdown = {}
-    for key, value in result.items():
-        if "Asset" in key and "After-Tax" in key:
-            asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
-            asset_breakdown[asset_name] = f"${value:,.0f}"
-    
-    if asset_breakdown:
-        display_data["Individual Assets (After-Tax)"] = asset_breakdown
-    
-    if display_data:
-        st.dataframe(pd.DataFrame(display_data).T, use_container_width=True)
-    
-    # Tax analysis
-    st.subheader("💡 Tax Analysis")
-    tax_liability = result.get("Total Tax Liability", 0)
-    total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
-    tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0
-    
-    st.info(f"**Total Tax Liability**: ${tax_liability:,.0f} ({tax_percentage:.1f}% of pre-tax value)")
-    
-    if result["Tax Efficiency (%)"] > 85:
-        st.success("🎉 Excellent tax efficiency! Your portfolio is well-optimized.")
-    elif result["Tax Efficiency (%)"] > 75:
-        st.warning("⚠️ Good tax efficiency, but there may be room for improvement.")
-    else:
-        st.error("🚨 Consider tax optimization strategies to improve efficiency.")
+    with detail_tab1:
+        st.write("**Individual Asset Values (After-Tax)**")
         
-    st.success("✅ Stage 2 analysis completed! Next: Monte Carlo simulation and AI optimization.")
+        # Create asset breakdown
+        asset_data = []
+        for key, value in result.items():
+            if "Asset" in key and "After-Tax" in key:
+                asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+                asset_data.append({
+                    "Account": asset_name,
+                    "After-Tax Value": f"${value:,.0f}"
+                })
+        
+        if asset_data:
+            st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+        else:
+            st.info("No individual asset breakdown available")
+    
+    with detail_tab2:
+        tax_liability = result.get("Total Tax Liability", 0)
+        total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
+        tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Tax Liability", f"${tax_liability:,.0f}")
+            st.metric("Tax as % of Pre-Tax Value", f"{tax_percentage:.1f}%")
+        
+        with col2:
+            if result["Tax Efficiency (%)"] > 85:
+                st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized.")
+            elif result["Tax Efficiency (%)"] > 75:
+                st.warning("⚠️ **Good tax efficiency**, but there may be room for improvement.")
+            else:
+                st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
+    
+    with detail_tab3:
+        # Summary table
+        summary_data = {
+            "Metric": [
+                "Years Until Retirement",
+                "Total Future Value (Pre-Tax)",
+                "Total After-Tax Balance", 
+                "Total Tax Liability",
+                "Tax Efficiency (%)"
+            ],
+            "Value": [
+                f"{result['Years Until Retirement']:.0f} years",
+                f"${result['Total Future Value (Pre-Tax)']:,.0f}",
+                f"${result['Total After-Tax Balance']:,.0f}",
+                f"${result['Total Tax Liability']:,.0f}",
+                f"{result['Tax Efficiency (%)']:.1f}%"
+            ]
+        }
+        
+        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+        
+        st.success("✅ **Stage 2 analysis completed!** Next: Monte Carlo simulation and AI optimization.")
     
 except Exception as e:
-    st.error(f"Error: {e}")
-    st.exception(e)
+    st.error(f"❌ **Error in calculation**: {e}")
+    with st.expander("🔍 Error Details", expanded=False):
+        st.exception(e)
 
 
 # ---------------------------
