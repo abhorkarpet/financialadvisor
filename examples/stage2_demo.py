@@ -177,7 +177,6 @@ def main():
         print("=" * 70)
         print("\nNext Steps:")
         print("  • Try the Streamlit UI: streamlit run fin_advisor.py")
-        print("  • Run CLI examples: python fin_advisor.py --no-ui --help")
         print("  • Explore the test suite: python fin_advisor.py --run-tests")
         print("  • Stage 3: Monte Carlo simulation and risk analysis")
         
