@@ -362,16 +362,22 @@ with tab3:
         assets = create_default_assets()
         st.success("✅ Using default portfolio with 401(k), Roth IRA, and Brokerage account")
         
-        # Show default portfolio details
+        # Show default portfolio details in table format
         with st.expander("📋 Default Portfolio Details", expanded=True):
-            for i, asset in enumerate(assets, 1):
-                st.write(f"**{i}. {asset.name}**")
-                st.write(f"   - Current Balance: ${asset.current_balance:,.0f}")
-                st.write(f"   - Annual Contribution: ${asset.annual_contribution:,.0f}")
-                st.write(f"   - Growth Rate: {asset.growth_rate_pct}%")
-                if asset.tax_rate_pct > 0:
-                    st.write(f"   - Tax Rate: {asset.tax_rate_pct}%")
-                st.write("")
+            # Create table data
+            table_data = []
+            for asset in assets:
+                row = {
+                    "Account": asset.name,
+                    "Current Balance": f"${asset.current_balance:,.0f}",
+                    "Annual Contribution": f"${asset.annual_contribution:,.0f}",
+                    "Growth Rate": f"{asset.growth_rate_pct}%",
+                    "Tax Rate": f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+                }
+                table_data.append(row)
+            
+            # Display as table
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
         
     elif setup_option == "Configure Individual Assets":
         num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
