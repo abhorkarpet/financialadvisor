@@ -307,7 +307,8 @@ def create_default_assets() -> List[Asset]:
 
 
 def run_streamlit_ui() -> None:
-    assert _STREAMLIT_AVAILABLE and st is not None
+    if not _STREAMLIT_AVAILABLE or st is None:
+        raise RuntimeError("Streamlit is not available")
 
     st.set_page_config(page_title="Financial Advisor - Stage 2", layout="wide")
     st.title("💰 Financial Advisor - Advanced Retirement Planning")
@@ -660,5 +661,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-# Streamlit will automatically call this when running with 'streamlit run fin_advisor.py'
-# This is the proper way to handle Streamlit execution
+# Streamlit entry point - this code runs when using 'streamlit run fin_advisor.py'
+# When Streamlit runs this file, it will execute the UI code below
+if _STREAMLIT_AVAILABLE and st is not None:
+    run_streamlit_ui()
