@@ -1,17 +1,23 @@
-# Financial Advisor - Retirement Planning Tool
+# Financial Advisor - Advanced Retirement Planning Tool
 
-A comprehensive Python-based financial planning tool that helps users project their retirement savings and analyze post-tax retirement income scenarios.
+A comprehensive Python-based financial planning tool that helps users project their retirement savings with sophisticated asset classification and tax optimization.
 
 ## Features
 
-- **Retirement Projection Calculator**: Calculate future value of retirement savings with annual contributions
-- **Tax-Aware Planning**: Simplified post-tax retirement balance estimation
+### Stage 2: Advanced Asset Classification & Tax Logic
+- **Asset Classification System**: Pre-tax, Post-tax, and Tax-deferred account types
+- **Per-Asset Growth Simulation**: Individual tracking and projection for each account
+- **Sophisticated Tax Logic**: 
+  - IRS tax bracket projections for future tax rates
+  - Capital gains calculations for brokerage accounts
+  - Tax-free withdrawals for Roth IRAs
+  - Complex rules for HSAs and annuities
+- **Tax Efficiency Analysis**: Optimize your retirement strategy with detailed tax impact analysis
 - **Multiple Interface Options**: 
-  - Interactive Streamlit web interface
+  - Interactive Streamlit web interface with asset configuration
   - Command-line interface for automation
   - Programmatic API for integration
-- **Flexible Asset Types**: Support for 401(k), Roth IRA, brokerage accounts, and savings accounts
-- **Comprehensive Testing**: Built-in unit test suite
+- **Comprehensive Testing**: Built-in unit test suite with 13 test cases
 
 ## Installation
 
@@ -42,7 +48,7 @@ streamlit run fin_advisor.py
 ### Command Line Interface
 Run calculations directly from the command line:
 ```bash
-python fin_advisor.py \
+python fin_advisor.py --no-ui \
   --age 30 \
   --retirement-age 65 \
   --income 85000 \
@@ -50,7 +56,8 @@ python fin_advisor.py \
   --current-balance 50000 \
   --growth-rate 7 \
   --inflation-rate 3 \
-  --tax-rate 25
+  --current-tax-rate 22 \
+  --retirement-tax-rate 25
 ```
 
 ### Run Tests
@@ -70,14 +77,24 @@ python fin_advisor.py --run-tests
 | `--current-balance` | Current total savings ($) | 50,000 | 0+ |
 | `--growth-rate` | Expected annual growth rate (%) | 7 | 0-20 |
 | `--inflation-rate` | Expected inflation rate (%) | 3 | 0-10 |
-| `--tax-rate` | Estimated retirement tax rate (%) | 25 | 0-50 |
+| `--current-tax-rate` | Current marginal tax rate (%) | 22 | 0-50 |
+| `--retirement-tax-rate` | Projected retirement tax rate (%) | 25 | 0-50 |
 
-## Supported Asset Types
+## Asset Classification System
 
-- 401(k) / Traditional IRA (Pre-Tax)
-- Roth IRA (Post-Tax)
-- Brokerage Account
-- Savings Account
+### Pre-Tax Assets
+- **401(k) / Traditional IRA**: Taxed at withdrawal using projected retirement tax rate
+- **Tax Treatment**: Full future value subject to income tax
+
+### Post-Tax Assets
+- **Roth IRA**: Tax-free withdrawals (no tax on qualified distributions)
+- **Brokerage Account**: Only capital gains are taxed (default 15% rate)
+- **Tax Treatment**: Roth = no tax, Brokerage = capital gains tax only
+
+### Tax-Deferred Assets
+- **HSA (Health Savings Account)**: Tax-free for medical expenses, taxed for other withdrawals
+- **Annuity**: Taxed as ordinary income at withdrawal
+- **Tax Treatment**: Complex rules with partial tax benefits
 
 ## Project Structure
 
@@ -116,24 +133,33 @@ The project follows PEP 8 style guidelines. Consider using:
 
 ## Roadmap
 
-### Stage 1 (Current)
+### Stage 1 (Completed)
 - ✅ Basic retirement projection calculator
 - ✅ Simplified tax calculations
 - ✅ Streamlit web interface
 - ✅ Command-line interface
 - ✅ Unit test suite
 
-### Stage 2 (Planned)
-- [ ] Monte Carlo simulation for risk analysis
-- [ ] Per-account tax optimization
-- [ ] Advanced withdrawal strategies
-- [ ] Historical market data integration
+### Stage 2 (Current)
+- ✅ Asset classification system (pre_tax, post_tax, tax_deferred)
+- ✅ Per-asset growth simulation with individual tracking
+- ✅ Sophisticated tax logic with IRS tax brackets
+- ✅ Capital gains calculations for brokerage accounts
+- ✅ Tax efficiency analysis and optimization insights
+- ✅ Enhanced UI with asset configuration options
+- ✅ Comprehensive test suite (13 test cases)
 
-### Stage 3 (Future)
-- [ ] AI-powered financial advice
-- [ ] Goal-based planning
+### Stage 3 (Planned)
+- [ ] Monte Carlo simulation for risk analysis
+- [ ] Advanced withdrawal strategies and sequencing
+- [ ] Historical market data integration
+- [ ] Scenario analysis and stress testing
+
+### Stage 4 (Future)
+- [ ] AI-powered financial advice and optimization
+- [ ] Goal-based planning with multiple objectives
 - [ ] Multi-currency support
-- [ ] Integration with financial APIs
+- [ ] Integration with financial APIs and real-time data
 
 ## Mathematical Model
 
