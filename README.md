@@ -39,52 +39,43 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Web Interface (Recommended)
+### Web Interface (Primary)
 Launch the interactive Streamlit web application:
 ```bash
 streamlit run fin_advisor.py
 ```
 
-### Command Line Interface
-Run calculations directly from the command line:
-```bash
-# With specific parameters
-python fin_advisor.py \
-  --age 30 \
-  --retirement-age 65 \
-  --income 85000 \
-  --contribution-rate 15 \
-  --current-balance 50000 \
-  --growth-rate 7 \
-  --inflation-rate 3 \
-  --current-tax-rate 22 \
-  --retirement-tax-rate 25
+This will open your web browser with the full-featured interface including:
+- Asset configuration and management
+- Real-time tax efficiency analysis
+- Interactive charts and visualizations
+- Multiple portfolio scenarios
 
-# With default parameters (no arguments needed)
-python fin_advisor.py
-```
-
-**Note**: The script defaults to CLI mode when run directly. Use `streamlit run fin_advisor.py` for the web interface.
-
-### Run Tests
+### Testing
 Execute the built-in test suite:
 ```bash
 python fin_advisor.py --run-tests
 ```
 
-## Parameters
+### Direct Execution
+If you run the script directly without Streamlit:
+```bash
+python fin_advisor.py
+```
 
-| Parameter | Description | Default | Range |
-|-----------|-------------|---------|-------|
-| `--age` | Current age | 30 | 18-90 |
-| `--retirement-age` | Target retirement age | 65 | 40-80 |
-| `--income` | Annual income ($) | 85,000 | 10,000+ |
-| `--contribution-rate` | Annual savings rate (% of income) | 15 | 0-50 |
-| `--current-balance` | Current total savings ($) | 50,000 | 0+ |
-| `--growth-rate` | Expected annual growth rate (%) | 7 | 0-20 |
-| `--inflation-rate` | Expected inflation rate (%) | 3 | 0-10 |
-| `--current-tax-rate` | Current marginal tax rate (%) | 22 | 0-50 |
-| `--retirement-tax-rate` | Projected retirement tax rate (%) | 25 | 0-50 |
+You'll get helpful instructions on how to properly launch the application.
+
+**Note**: This application is designed for the Streamlit web interface. The complex asset configuration and tax optimization features require the interactive UI for the best experience.
+
+## Interface Features
+
+The Streamlit web interface provides intuitive controls for:
+
+- **Personal Information**: Age, retirement age, annual income
+- **Tax Settings**: Current and projected retirement tax rates
+- **Asset Configuration**: Multiple account types with individual settings
+- **Portfolio Setup**: Three modes - Default Portfolio, Individual Assets, Legacy
+- **Real-time Analysis**: Instant tax efficiency calculations and recommendations
 
 ## Asset Classification System
 
@@ -143,7 +134,6 @@ The project follows PEP 8 style guidelines. Consider using:
 - ✅ Basic retirement projection calculator
 - ✅ Simplified tax calculations
 - ✅ Streamlit web interface
-- ✅ Command-line interface
 - ✅ Unit test suite
 
 ### Stage 2 (Current)

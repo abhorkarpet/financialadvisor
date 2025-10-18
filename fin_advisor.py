@@ -470,94 +470,6 @@ def run_streamlit_ui() -> None:
         st.exception(e)
 
 
-def run_cli(args: argparse.Namespace) -> None:
-    """Run CLI with enhanced asset classification support."""
-    def _coalesce(v, default):
-        return v if v is not None else default
-
-    age = _coalesce(args.age, 30)
-    retirement_age = _coalesce(args.retirement_age, 65)
-    annual_income = _coalesce(args.income, 85000.0)
-    contribution_rate = _coalesce(args.contribution_rate, 15.0)
-    current_balance = _coalesce(args.current_balance, 50000.0)
-    growth_rate = _coalesce(args.growth_rate, 7.0)
-    inflation_rate = _coalesce(args.inflation_rate, 3.0)
-    current_tax_rate = _coalesce(args.current_tax_rate, 22.0)
-    retirement_tax_rate = _coalesce(args.retirement_tax_rate, 25.0)
-    
-    # Create default assets for CLI
-    total_contribution = annual_income * (contribution_rate / 100.0)
-    assets = [
-        Asset(
-            name="401(k) / Traditional IRA",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=current_balance * 0.7,  # 70% in pre-tax
-            annual_contribution=total_contribution * 0.6,  # 60% to pre-tax
-            growth_rate_pct=growth_rate
-        ),
-        Asset(
-            name="Roth IRA",
-            asset_type=AssetType.POST_TAX,
-            current_balance=current_balance * 0.2,  # 20% in Roth
-            annual_contribution=total_contribution * 0.3,  # 30% to Roth
-            growth_rate_pct=growth_rate
-        ),
-        Asset(
-            name="Brokerage Account",
-            asset_type=AssetType.POST_TAX,
-            current_balance=current_balance * 0.1,  # 10% in brokerage
-            annual_contribution=total_contribution * 0.1,  # 10% to brokerage
-            growth_rate_pct=growth_rate,
-            tax_rate_pct=15.0  # Capital gains rate
-        )
-    ]
-
-    inputs = UserInputs(
-        age=int(age),
-        retirement_age=int(retirement_age),
-        annual_income=float(annual_income),
-        contribution_rate_pct=float(contribution_rate),
-        expected_growth_rate_pct=float(growth_rate),
-        inflation_rate_pct=float(inflation_rate),
-        current_marginal_tax_rate_pct=float(current_tax_rate),
-        retirement_marginal_tax_rate_pct=float(retirement_tax_rate),
-        assets=assets
-    )
-
-    result = project(inputs)
-
-    print("\nFinancial Advisor - Stage 2: Advanced Retirement Planning")
-    print("=" * 60)
-    print(f"Age: {age} → Retirement: {retirement_age} ({result['Years Until Retirement']:.0f} years)")
-    print(f"Annual Income: ${annual_income:,.0f}")
-    print(f"Total Contribution: ${total_contribution:,.0f} ({contribution_rate:.0f}% of income)")
-    print()
-    
-    print("Asset Breakdown:")
-    for i, asset in enumerate(assets, 1):
-        asset_key = f"Asset {i} - {asset.name} (After-Tax)"
-        if asset_key in result:
-            print(f"  {asset.name}: ${result[asset_key]:,.0f}")
-    print()
-    
-    print("Summary:")
-    print(f"  Total Pre-Tax Value: ${result['Total Future Value (Pre-Tax)']:,.0f}")
-    print(f"  Total After-Tax Value: ${result['Total After-Tax Balance']:,.0f}")
-    print(f"  Total Tax Liability: ${result['Total Tax Liability']:,.0f}")
-    print(f"  Tax Efficiency: {result['Tax Efficiency (%)']:.1f}%")
-    
-    # Tax analysis
-    tax_percentage = (result['Total Tax Liability'] / result['Total Future Value (Pre-Tax)'] * 100)
-    print(f"  Tax Rate: {tax_percentage:.1f}% of pre-tax value")
-    
-    if result['Tax Efficiency (%)'] > 85:
-        print("\n🎉 Excellent tax efficiency!")
-    elif result['Tax Efficiency (%)'] > 75:
-        print("\n⚠️ Good tax efficiency, room for improvement.")
-    else:
-        print("\n🚨 Consider tax optimization strategies.")
-
-
 # ---------------------------
 # Tests (unittest)
 # ---------------------------
@@ -707,17 +619,6 @@ class TestComputation(unittest.TestCase):
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Financial Advisor - Stage 2: Advanced Retirement Planning")
     p.add_argument("--run-tests", action="store_true", help="Run unit tests and exit")
-    p.add_argument("--age", type=int, help="Current age")
-    p.add_argument("--retirement-age", type=int, help="Target retirement age")
-    p.add_argument("--income", type=float, help="Annual income")
-    p.add_argument("--contribution-rate", type=float, help="Annual savings rate (percent of income)")
-    p.add_argument("--current-balance", type=float, help="Current total savings")
-    p.add_argument("--growth-rate", type=float, help="Expected annual growth rate (percent)")
-    p.add_argument("--inflation-rate", type=float, help="Expected inflation rate (percent)")
-    p.add_argument("--current-tax-rate", type=float, help="Current marginal tax rate (percent)")
-    p.add_argument("--retirement-tax-rate", type=float, help="Projected retirement tax rate (percent)")
-    p.add_argument("--asset-types", nargs="*", default=[], help="Asset types (legacy)")
-    p.add_argument("--no-ui", action="store_true", help="Force non-UI CLI mode")
     return p
 
 
@@ -730,9 +631,28 @@ def main(argv: List[str] | None = None) -> int:
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 
-    # Always default to CLI mode when running the script directly
-    # Streamlit UI should only be accessed via 'streamlit run fin_advisor.py'
-    run_cli(args)
+    # Check if Streamlit is available
+    if not _STREAMLIT_AVAILABLE:
+        print("❌ Streamlit is not installed or not available.")
+        print("\nThis Financial Advisor requires Streamlit for the interactive web interface.")
+        print("\nTo install Streamlit:")
+        print("  pip install streamlit")
+        print("\nThen run the application with:")
+        print("  streamlit run fin_advisor.py")
+        print("\nAlternatively, you can run tests with:")
+        print("  python fin_advisor.py --run-tests")
+        return 1
+
+    # If we reach here, Streamlit is available but we're not in a Streamlit context
+    print("🚀 Financial Advisor - Advanced Retirement Planning")
+    print("=" * 60)
+    print("\nThis application requires the Streamlit web interface.")
+    print("\nTo run the application:")
+    print("  streamlit run fin_advisor.py")
+    print("\nThis will open your web browser with the interactive interface.")
+    print("\nFor testing, use:")
+    print("  python fin_advisor.py --run-tests")
+    
     return 0
 
 
