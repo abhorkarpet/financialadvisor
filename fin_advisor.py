@@ -156,12 +156,19 @@ def apply_tax_logic(asset: Asset, future_value: float, total_contributions: floa
     Returns:
         Tuple of (after_tax_value, tax_liability)
     """
-    if asset.asset_type == AssetType.PRE_TAX:
+    # Handle both enum and string asset types for robustness
+    asset_type = asset.asset_type
+    if hasattr(asset_type, 'value'):
+        asset_type_value = asset_type.value
+    else:
+        asset_type_value = str(asset_type)
+    
+    if asset_type == AssetType.PRE_TAX or asset_type_value == "pre_tax":
         # Pre-tax accounts: taxed at withdrawal
         tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
         after_tax_value = future_value - tax_liability
         
-    elif asset.asset_type == AssetType.POST_TAX:
+    elif asset_type == AssetType.POST_TAX or asset_type_value == "post_tax":
         if "Roth" in asset.name:
             # Roth IRA: no tax on withdrawal
             after_tax_value = future_value
@@ -172,7 +179,7 @@ def apply_tax_logic(asset: Asset, future_value: float, total_contributions: floa
             tax_liability = gains * (asset.tax_rate_pct / 100.0)
             after_tax_value = future_value - tax_liability
             
-    elif asset.asset_type == AssetType.TAX_DEFERRED:
+    elif asset_type == AssetType.TAX_DEFERRED or asset_type_value == "tax_deferred":
         # Annuities, HSA: complex rules, simplified for now
         if "HSA" in asset.name:
             # HSA: tax-free for medical expenses, taxed for other withdrawals
@@ -186,7 +193,7 @@ def apply_tax_logic(asset: Asset, future_value: float, total_contributions: floa
             tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
             after_tax_value = future_value - tax_liability
     else:
-        raise ValueError(f"Unknown asset type: {asset.asset_type}")
+        raise ValueError(f"Unknown asset type: {asset.asset_type} (type: {type(asset.asset_type)}, value: {asset_type_value})")
     
     return after_tax_value, tax_liability
 
