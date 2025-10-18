@@ -710,12 +710,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--age", type=int, help="Current age")
     p.add_argument("--retirement-age", type=int, help="Target retirement age")
     p.add_argument("--income", type=float, help="Annual income")
-    p.add_argument("--contribution-rate", type=float, help="Annual savings rate (% of income)")
+    p.add_argument("--contribution-rate", type=float, help="Annual savings rate (percent of income)")
     p.add_argument("--current-balance", type=float, help="Current total savings")
-    p.add_argument("--growth-rate", type=float, help="Expected annual growth rate (%)")
-    p.add_argument("--inflation-rate", type=float, help="Expected inflation rate (%)")
-    p.add_argument("--current-tax-rate", type=float, help="Current marginal tax rate (%)")
-    p.add_argument("--retirement-tax-rate", type=float, help="Projected retirement tax rate (%)")
+    p.add_argument("--growth-rate", type=float, help="Expected annual growth rate (percent)")
+    p.add_argument("--inflation-rate", type=float, help="Expected inflation rate (percent)")
+    p.add_argument("--current-tax-rate", type=float, help="Current marginal tax rate (percent)")
+    p.add_argument("--retirement-tax-rate", type=float, help="Projected retirement tax rate (percent)")
     p.add_argument("--asset-types", nargs="*", default=[], help="Asset types (legacy)")
     p.add_argument("--no-ui", action="store_true", help="Force non-UI CLI mode")
     return p
@@ -730,13 +730,15 @@ def main(argv: List[str] | None = None) -> int:
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 
-    if (not args.no_ui) and _STREAMLIT_AVAILABLE:
-        run_streamlit_ui()
-        return 0
-
+    # Always default to CLI mode when running the script directly
+    # Streamlit UI should only be accessed via 'streamlit run fin_advisor.py'
     run_cli(args)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# Streamlit will automatically call this when running with 'streamlit run fin_advisor.py'
+# This is the proper way to handle Streamlit execution

@@ -48,7 +48,8 @@ streamlit run fin_advisor.py
 ### Command Line Interface
 Run calculations directly from the command line:
 ```bash
-python fin_advisor.py --no-ui \
+# With specific parameters
+python fin_advisor.py \
   --age 30 \
   --retirement-age 65 \
   --income 85000 \
@@ -58,7 +59,12 @@ python fin_advisor.py --no-ui \
   --inflation-rate 3 \
   --current-tax-rate 22 \
   --retirement-tax-rate 25
+
+# With default parameters (no arguments needed)
+python fin_advisor.py
 ```
+
+**Note**: The script defaults to CLI mode when run directly. Use `streamlit run fin_advisor.py` for the web interface.
 
 ### Run Tests
 Execute the built-in test suite:
