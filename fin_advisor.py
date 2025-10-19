@@ -834,22 +834,106 @@ with tab3:
         assets = create_default_assets()
         st.success("✅ Using default portfolio with 401(k), Roth IRA, Brokerage, and Savings accounts")
         
-        # Show default portfolio details in table format
-        with st.expander("📋 Default Portfolio Details", expanded=True):
-            # Create table data
+        # Show default portfolio details in editable table format
+        with st.expander("📋 Default Portfolio Details (Editable)", expanded=True):
+            # Create editable table data
             table_data = []
-            for asset in assets:
+            for i, asset in enumerate(assets):
                 row = {
+                    "Index": i,
                     "Account": asset.name,
-                    "Current Balance": f"${asset.current_balance:,.0f}",
-                    "Annual Contribution": f"${asset.annual_contribution:,.0f}",
-                    "Growth Rate": f"{asset.growth_rate_pct}%",
-                    "Tax Rate": f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+                    "Asset Type": asset.asset_type.value,
+                    "Current Balance": asset.current_balance,
+                    "Annual Contribution": asset.annual_contribution,
+                    "Growth Rate (%)": asset.growth_rate_pct,
+                    "Tax Rate (%)": asset.tax_rate_pct
                 }
                 table_data.append(row)
             
-            # Display as table
-            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+            # Create editable dataframe
+            df = pd.DataFrame(table_data)
+            
+            # Define column configuration for editing
+            column_config = {
+                "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
+                "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                "Asset Type": st.column_config.SelectboxColumn(
+                    "Asset Type", 
+                    options=["pre_tax", "post_tax", "tax_deferred"],
+                    help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA/Annuities)"
+                ),
+                "Current Balance": st.column_config.NumberColumn(
+                    "Current Balance ($)", 
+                    min_value=0, 
+                    format="$%d",
+                    help="Current account balance"
+                ),
+                "Annual Contribution": st.column_config.NumberColumn(
+                    "Annual Contribution ($)", 
+                    min_value=0, 
+                    format="$%d",
+                    help="Annual contribution amount"
+                ),
+                "Growth Rate (%)": st.column_config.NumberColumn(
+                    "Growth Rate (%)", 
+                    min_value=0, 
+                    max_value=50, 
+                    format="%.1f%%",
+                    help="Expected annual growth rate"
+                ),
+                "Tax Rate (%)": st.column_config.NumberColumn(
+                    "Tax Rate (%)", 
+                    min_value=0, 
+                    max_value=50, 
+                    format="%.1f%%",
+                    help="Tax rate (0% for Roth, 15% for brokerage capital gains)"
+                )
+            }
+            
+            # Display editable table
+            st.info("💡 **Edit the default portfolio directly in the table below. Changes will be applied when you run the analysis.**")
+            edited_df = st.data_editor(
+                df, 
+                column_config=column_config,
+                use_container_width=True, 
+                hide_index=True,
+                num_rows="dynamic"
+            )
+            
+            # Convert edited dataframe back to Asset objects
+            if not edited_df.empty:
+                try:
+                    updated_assets = []
+                    for _, row in edited_df.iterrows():
+                        # Parse asset type
+                        asset_type_str = row["Asset Type"]
+                        if asset_type_str == "pre_tax":
+                            asset_type = AssetType.PRE_TAX
+                        elif asset_type_str == "post_tax":
+                            asset_type = AssetType.POST_TAX
+                        elif asset_type_str == "tax_deferred":
+                            asset_type = AssetType.TAX_DEFERRED
+                        else:
+                            raise ValueError(f"Invalid asset type: {asset_type_str}")
+                        
+                        # Create updated asset
+                        updated_asset = Asset(
+                            name=row["Account"],
+                            asset_type=asset_type,
+                            current_balance=float(row["Current Balance"]),
+                            annual_contribution=float(row["Annual Contribution"]),
+                            growth_rate_pct=float(row["Growth Rate (%)"]),
+                            tax_rate_pct=float(row["Tax Rate (%)"])
+                        )
+                        updated_assets.append(updated_asset)
+                    
+                    # Update the assets list
+                    assets = updated_assets
+                    st.success(f"✅ Default portfolio updated! {len(assets)} assets ready for analysis.")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error updating default portfolio: {str(e)}")
+                    st.info("💡 Please check your input values and try again.")
     
     elif setup_option == "Upload CSV File":
         st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
@@ -879,20 +963,106 @@ with tab3:
                 
                 st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
                 
-                # Show uploaded assets in table format
-                with st.expander("📋 Uploaded Assets", expanded=True):
+                # Show uploaded assets in editable table format
+                with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
+                    # Create editable table data
                     table_data = []
-                    for asset in assets:
+                    for i, asset in enumerate(assets):
                         row = {
+                            "Index": i,
                             "Account": asset.name,
-                            "Current Balance": f"${asset.current_balance:,.0f}",
-                            "Annual Contribution": f"${asset.annual_contribution:,.0f}",
-                            "Growth Rate": f"{asset.growth_rate_pct}%",
-                            "Tax Rate": f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+                            "Asset Type": asset.asset_type.value,
+                            "Current Balance": asset.current_balance,
+                            "Annual Contribution": asset.annual_contribution,
+                            "Growth Rate (%)": asset.growth_rate_pct,
+                            "Tax Rate (%)": asset.tax_rate_pct
                         }
                         table_data.append(row)
                     
-                    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+                    # Create editable dataframe
+                    df = pd.DataFrame(table_data)
+                    
+                    # Define column configuration for editing
+                    column_config = {
+                        "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
+                        "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                        "Asset Type": st.column_config.SelectboxColumn(
+                            "Asset Type", 
+                            options=["pre_tax", "post_tax", "tax_deferred"],
+                            help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA/Annuities)"
+                        ),
+                        "Current Balance": st.column_config.NumberColumn(
+                            "Current Balance ($)", 
+                            min_value=0, 
+                            format="$%d",
+                            help="Current account balance"
+                        ),
+                        "Annual Contribution": st.column_config.NumberColumn(
+                            "Annual Contribution ($)", 
+                            min_value=0, 
+                            format="$%d",
+                            help="Annual contribution amount"
+                        ),
+                        "Growth Rate (%)": st.column_config.NumberColumn(
+                            "Growth Rate (%)", 
+                            min_value=0, 
+                            max_value=50, 
+                            format="%.1f%%",
+                            help="Expected annual growth rate"
+                        ),
+                        "Tax Rate (%)": st.column_config.NumberColumn(
+                            "Tax Rate (%)", 
+                            min_value=0, 
+                            max_value=50, 
+                            format="%.1f%%",
+                            help="Tax rate (0% for Roth, 15% for brokerage capital gains)"
+                        )
+                    }
+                    
+                    # Display editable table
+                    st.info("💡 **Edit your assets directly in the table below. Changes will be applied when you run the analysis.**")
+                    edited_df = st.data_editor(
+                        df, 
+                        column_config=column_config,
+                        use_container_width=True, 
+                        hide_index=True,
+                        num_rows="dynamic"
+                    )
+                    
+                    # Convert edited dataframe back to Asset objects
+                    if not edited_df.empty:
+                        try:
+                            updated_assets = []
+                            for _, row in edited_df.iterrows():
+                                # Parse asset type
+                                asset_type_str = row["Asset Type"]
+                                if asset_type_str == "pre_tax":
+                                    asset_type = AssetType.PRE_TAX
+                                elif asset_type_str == "post_tax":
+                                    asset_type = AssetType.POST_TAX
+                                elif asset_type_str == "tax_deferred":
+                                    asset_type = AssetType.TAX_DEFERRED
+                                else:
+                                    raise ValueError(f"Invalid asset type: {asset_type_str}")
+                                
+                                # Create updated asset
+                                updated_asset = Asset(
+                                    name=row["Account"],
+                                    asset_type=asset_type,
+                                    current_balance=float(row["Current Balance"]),
+                                    annual_contribution=float(row["Annual Contribution"]),
+                                    growth_rate_pct=float(row["Growth Rate (%)"]),
+                                    tax_rate_pct=float(row["Tax Rate (%)"])
+                                )
+                                updated_assets.append(updated_asset)
+                            
+                            # Update the assets list
+                            assets = updated_assets
+                            st.success(f"✅ Assets updated! {len(assets)} assets ready for analysis.")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error updating assets: {str(e)}")
+                            st.info("💡 Please check your input values and try again.")
                 
             except Exception as e:
                 st.error(f"❌ Error processing CSV file: {str(e)}")
