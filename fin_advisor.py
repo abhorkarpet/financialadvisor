@@ -404,12 +404,19 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
             else:
                 raise ValueError(f"Invalid asset type: {asset_type_str}. Must be 'pre_tax', 'post_tax', or 'tax_deferred'")
             
-            # Parse numeric values
+            # Parse numeric values (handle commas in numbers)
             try:
-                current_balance = float(row["Current Balance"])
-                annual_contribution = float(row["Annual Contribution"])
-                growth_rate = float(row["Growth Rate (%)"])
-                tax_rate = float(row.get("Tax Rate (%)", 0))
+                def parse_number(value_str):
+                    """Parse a number string, removing commas and handling empty values."""
+                    if not value_str or value_str.strip() == '':
+                        return 0.0
+                    # Remove commas and convert to float
+                    return float(value_str.replace(',', ''))
+                
+                current_balance = parse_number(row["Current Balance"])
+                annual_contribution = parse_number(row["Annual Contribution"])
+                growth_rate = parse_number(row["Growth Rate (%)"])
+                tax_rate = parse_number(row.get("Tax Rate (%)", 0))
             except ValueError as e:
                 raise ValueError(f"Invalid numeric value in row: {e}")
             
