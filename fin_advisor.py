@@ -486,7 +486,10 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story = []
     
     # Title
-    story.append(Paragraph("Retirement Planning Analysis Report", title_style))
+    client_name = user_inputs.get('client_name', 'Client')
+    story.append(Paragraph(f"Retirement Planning Analysis Report", title_style))
+    story.append(Paragraph(f"Prepared for: {client_name}", 
+                          ParagraphStyle('ClientName', parent=styles['Heading2'], fontSize=16, alignment=TA_CENTER, textColor=colors.darkgreen)))
     story.append(Spacer(1, 12))
     story.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal']))
     story.append(Spacer(1, 20))
@@ -664,18 +667,86 @@ tab1, tab2, tab3 = st.tabs(["👤 Personal Info", "💰 Tax Settings", "🏦 Ass
 with tab1:
     col1, col2 = st.columns(2)
     with col1:
-        age = st.number_input("Current Age", min_value=18, max_value=90, value=30, help="Your current age")
+        # Birth year input instead of age
+        current_year = datetime.now().year
+        birth_year = st.number_input("Birth Year", min_value=current_year-90, max_value=current_year-18, value=current_year-30, help="Your birth year (age will be calculated automatically)")
+        age = current_year - birth_year
+        st.info(f"📅 **Current Age**: {age} years old")
+        
         retirement_age = st.number_input("Target Retirement Age", min_value=40, max_value=80, value=65, help="When you plan to retire")
+        st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
     with col2:
         annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000, help="Your current annual income")
+        
+        # Client name for personalization
+        client_name = st.text_input("Client Name (for report personalization)", value="", placeholder="Enter your name for the PDF report", help="Optional: Your name will appear on the PDF report")
 
 with tab2:
     col1, col2 = st.columns(2)
     with col1:
-        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket")
-        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+        # Current tax rate with helpful guidance
+        st.subheader("📊 Current Tax Rate")
+        with st.expander("💡 How to find your current tax rate", expanded=False):
+            st.markdown("""
+            **To find your current marginal tax rate:**
+            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+            2. **Use IRS tax brackets**: Find which bracket your income falls into
+            3. **Online calculator**: Use IRS.gov tax bracket calculator
+            4. **Tax software**: Most tax software shows your marginal rate
+            
+            **2024 Tax Brackets (Single):**
+            - 10%: $0 - $11,600
+            - 12%: $11,601 - $47,150  
+            - 22%: $47,151 - $100,525
+            - 24%: $100,526 - $191,950
+            - 32%: $191,951 - $243,725
+            - 35%: $243,726 - $609,350
+            - 37%: $609,351+
+            """)
+        
+        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+        
+        # Retirement tax rate with guidance
+        st.subheader("🏖️ Retirement Tax Rate")
+        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
+            st.markdown("""
+            **Consider these factors for retirement tax rate:**
+            1. **Lower income**: Most people have lower income in retirement
+            2. **Social Security**: Only 85% is taxable for most people
+            3. **Roth withdrawals**: Tax-free if qualified
+            4. **Required Minimum Distributions**: Start at age 73 (2024)
+            5. **State taxes**: Some states don't tax retirement income
+            
+            **Common scenarios:**
+            - **Conservative estimate**: Same as current rate
+            - **Optimistic estimate**: 10-15% lower than current
+            - **Pessimistic estimate**: 5-10% higher (if tax rates increase)
+            """)
+        
+        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement (often lower than current)")
+        
     with col2:
-        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption")
+        # Inflation rate with guidance
+        st.subheader("📈 Inflation Rate")
+        with st.expander("💡 How to estimate inflation", expanded=False):
+            st.markdown("""
+            **Historical context:**
+            - **Long-term average**: 3.0-3.5% annually
+            - **Recent years**: 2-4% (2020-2024)
+            - **Federal Reserve target**: 2% annually
+            
+            **Consider:**
+            1. **Conservative estimate**: 2-3% (Fed target)
+            2. **Moderate estimate**: 3-4% (historical average)
+            3. **Aggressive estimate**: 4-5% (higher inflation periods)
+            
+            **Impact on retirement:**
+            - Higher inflation = need more money in retirement
+            - Affects purchasing power of fixed income
+            - Consider inflation-protected investments (TIPS, I-Bonds)
+            """)
+        
+        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
 
 with tab3:
     # Quick setup options
@@ -822,9 +893,9 @@ try:
         retirement_marginal_tax_rate_pct=float(retirement_tax_rate),
         assets=assets
     )
-    
+
     result = project(inputs)
-    
+
     # Key metrics in a prominent container
     with st.container():
         st.subheader("🎯 Key Metrics")
@@ -908,22 +979,27 @@ try:
                     try:
                         # Prepare user inputs for PDF
                         user_inputs = {
+                            'client_name': client_name if client_name else 'Client',
                             'current_marginal_tax_rate_pct': current_tax_rate,
                             'retirement_marginal_tax_rate_pct': retirement_tax_rate,
                             'inflation_rate_pct': inflation_rate,
                             'age': age,
                             'retirement_age': retirement_age,
-                            'annual_income': annual_income
+                            'annual_income': annual_income,
+                            'birth_year': birth_year
                         }
                         
                         # Generate PDF
                         pdf_bytes = generate_pdf_report(result, assets, user_inputs)
                         
-                        # Download button
+                        # Download button with personalized filename
+                        client_name_clean = client_name.replace(" ", "_").replace(",", "").replace(".", "") if client_name else "Client"
+                        filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        
                         st.download_button(
                             label="📥 Download PDF Report",
                             data=pdf_bytes,
-                            file_name=f"retirement_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            file_name=filename,
                             mime="application/pdf",
                             help="Download a comprehensive PDF report with all your retirement analysis details"
                         )
