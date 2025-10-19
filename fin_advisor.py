@@ -581,6 +581,39 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
         story.append(results_table)
         story.append(Spacer(1, 20))
     
+    # Retirement Income Analysis
+    story.append(Paragraph("Retirement Income Analysis", heading_style))
+    
+    total_after_tax = result.get("Total After-Tax Balance", 0)
+    years_in_retirement = 30
+    annual_retirement_income = total_after_tax / years_in_retirement
+    retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
+    income_shortfall = retirement_income_goal - annual_retirement_income
+    income_ratio = (annual_retirement_income / retirement_income_goal * 100) if retirement_income_goal > 0 else 0
+    
+    income_data = [
+        ["Metric", "Value"],
+        ["Projected Annual Retirement Income", f"${annual_retirement_income:,.0f}"],
+        ["Desired Annual Retirement Income", f"${retirement_income_goal:,.0f}"],
+        ["Annual Shortfall/Surplus", f"${income_shortfall:,.0f}"],
+        ["Income Goal Achievement", f"{income_ratio:.1f}%"]
+    ]
+    
+    income_table = Table(income_data, colWidths=[3*inch, 2*inch])
+    income_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(income_table)
+    story.append(Spacer(1, 20))
+    
     # Tax Analysis
     story.append(Paragraph("Tax Analysis", heading_style))
     
@@ -677,6 +710,38 @@ with tab1:
         st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
     with col2:
         annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000, help="Your current annual income")
+        
+        # Retirement income goal
+        st.subheader("🎯 Retirement Income Goal")
+        with st.expander("💡 How to estimate retirement income needs", expanded=False):
+            st.markdown("""
+            **Common retirement income replacement ratios:**
+            - **70-80%**: Conservative estimate (most financial advisors recommend)
+            - **60-70%**: Moderate estimate (if you plan to downsize lifestyle)
+            - **80-90%**: Higher estimate (if you plan to travel more or have health costs)
+            - **100%+**: Same or higher lifestyle in retirement
+            
+            **Factors to consider:**
+            1. **Lower expenses**: No commuting, work clothes, retirement savings
+            2. **Higher expenses**: Healthcare, travel, hobbies
+            3. **Social Security**: Will provide some income (check ssa.gov)
+            4. **Pension**: If you have one
+            5. **Lifestyle changes**: Downsizing, moving to lower-cost area
+            """)
+        
+        # Calculate suggested retirement income (75% replacement ratio)
+        suggested_retirement_income = annual_income * 0.75
+        retirement_income_goal = st.number_input(
+            "Desired Annual Retirement Income ($)", 
+            min_value=10000, 
+            value=int(suggested_retirement_income), 
+            step=1000, 
+            help=f"Based on 75% replacement ratio: ${suggested_retirement_income:,.0f}"
+        )
+        
+        # Show replacement ratio
+        replacement_ratio = (retirement_income_goal / annual_income) * 100
+        st.info(f"📊 **Income Replacement Ratio**: {replacement_ratio:.1f}% of current income")
         
         # Client name for personalization
         client_name = st.text_input("Client Name (for report personalization)", value="", placeholder="Enter your name for the PDF report", help="Optional: Your name will appear on the PDF report")
@@ -909,6 +974,81 @@ try:
         with col4:
             st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
     
+    # Income Analysis Section
+    st.markdown("---")
+    st.subheader("💰 Retirement Income Analysis")
+    
+    # Calculate retirement income from portfolio
+    total_after_tax = result['Total After-Tax Balance']
+    years_in_retirement = 30  # Assume 30 years of retirement
+    annual_retirement_income = total_after_tax / years_in_retirement
+    
+    # Calculate shortfall or surplus
+    income_shortfall = retirement_income_goal - annual_retirement_income
+    income_ratio = (annual_retirement_income / retirement_income_goal) * 100
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            "Projected Annual Income", 
+            f"${annual_retirement_income:,.0f}",
+            help="Based on 30-year retirement period"
+        )
+    with col2:
+        st.metric(
+            "Income Goal", 
+            f"${retirement_income_goal:,.0f}",
+            help="Your desired retirement income"
+        )
+    with col3:
+        if income_shortfall > 0:
+            st.metric(
+                "Annual Shortfall", 
+                f"${income_shortfall:,.0f}",
+                delta=f"-{income_ratio:.1f}%",
+                delta_color="inverse"
+            )
+        else:
+            surplus = -income_shortfall
+            st.metric(
+                "Annual Surplus", 
+                f"${surplus:,.0f}",
+                delta=f"+{income_ratio:.1f}%",
+                delta_color="normal"
+            )
+    
+    # Income status analysis
+    if income_ratio >= 100:
+        st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
+    elif income_ratio >= 80:
+        st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
+    elif income_ratio >= 60:
+        st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
+    else:
+        st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
+    
+    # Recommendations based on income analysis
+    with st.expander("💡 Income Optimization Recommendations", expanded=False):
+        if income_shortfall > 0:
+            st.markdown(f"""
+            **To close the ${income_shortfall:,.0f} annual shortfall:**
+            
+            1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
+            2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
+            3. **Optimize asset allocation**: Consider higher-growth investments
+            4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
+            5. **Consider part-time work**: Supplement retirement income
+            """)
+        else:
+            st.markdown("""
+            **You're on track! Consider these optimizations:**
+            
+            1. **Tax optimization**: Maximize Roth contributions
+            2. **Asset allocation**: Balance growth vs. preservation
+            3. **Estate planning**: Consider legacy goals
+            4. **Lifestyle upgrades**: You may be able to increase retirement spending
+            """)
+    
     # Detailed breakdown in tabs
     st.subheader("📈 Detailed Analysis")
     
@@ -986,7 +1126,8 @@ try:
                             'age': age,
                             'retirement_age': retirement_age,
                             'annual_income': annual_income,
-                            'birth_year': birth_year
+                            'birth_year': birth_year,
+                            'retirement_income_goal': retirement_income_goal
                         }
                         
                         # Generate PDF
