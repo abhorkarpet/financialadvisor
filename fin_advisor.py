@@ -824,6 +824,40 @@ with tab2:
         inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
 
 with tab3:
+    # Tax Rate Explanation
+    with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
+        st.markdown("""
+        ### 🎯 Tax Rate Column Explained
+        
+        The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
+        
+        #### **Pre-Tax Accounts (401k, Traditional IRA)**
+        - **Tax Rate**: `0%` (not applicable here)
+        - **Why**: The entire balance is taxed as ordinary income at withdrawal
+        - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
+        
+        #### **Post-Tax Accounts**
+        **Roth IRA:**
+        - **Tax Rate**: `0%` 
+        - **Why**: No tax on withdrawals (contributions already taxed)
+        - **Example**: Withdraw $100,000 tax-free
+        
+        **Brokerage Account:**
+        - **Tax Rate**: `15%` (default capital gains rate)
+        - **Why**: Only the **gains** are taxed, not original contributions
+        - **Example**: 
+          - Contributed $50,000, grew to $100,000
+          - Only $50,000 gain taxed at 15% = $7,500 tax
+          - You keep $92,500
+        
+        #### **Tax-Deferred Accounts (HSA, Annuities)**
+        - **Tax Rate**: Varies by account type
+        - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
+        - **Annuities**: Retirement tax rate on full amount
+        
+        💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
+        """)
+    
     # Quick setup options
     setup_option = st.radio(
         "Choose setup method:",
@@ -889,7 +923,7 @@ with tab3:
                     min_value=0, 
                     max_value=50, 
                     format="%.1f%%",
-                    help="Tax rate (0% for Roth, 15% for brokerage capital gains)"
+                    help="Tax rate on GAINS only: 0% for Roth IRA, 15% for brokerage capital gains, 0% for pre-tax (taxed at withdrawal)"
                 )
             }
             
@@ -1018,7 +1052,7 @@ with tab3:
                             min_value=0, 
                             max_value=50, 
                             format="%.1f%%",
-                            help="Tax rate (0% for Roth, 15% for brokerage capital gains)"
+                            help="Tax rate on GAINS only: 0% for Roth IRA, 15% for brokerage capital gains, 0% for pre-tax (taxed at withdrawal)"
                         )
                     }
                     
