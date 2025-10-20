@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 2.0.0
+Version: 2.2.0
 """
 
 from __future__ import annotations
@@ -32,6 +32,19 @@ import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
+
+# Version Management
+VERSION = "2.2.0"
+
+def bump_minor_version(version: str) -> str:
+    """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
+    parts = version.split('.')
+    if len(parts) >= 2:
+        major, minor = parts[0], parts[1]
+        patch = parts[2] if len(parts) > 2 else "0"
+        new_minor = str(int(minor) + 1)
+        return f"{major}.{new_minor}.{patch}"
+    return version
 
 # Streamlit import
 import streamlit as st
@@ -1380,7 +1393,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: #666; font-size: 0.8em; padding: 10px;'>
-        <strong>Financial Advisor v2.0.0</strong> | 
+        <strong>Financial Advisor v{VERSION}</strong> | 
         Advanced Retirement Planning with Asset Classification & Tax Optimization
     </div>
     """, 
