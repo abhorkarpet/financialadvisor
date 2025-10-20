@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 2.3.0
+Version: 2.4.0
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -664,8 +664,18 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
         recommendations.append("🎉 <b>Excellent tax efficiency!</b> Your portfolio is well-optimized.")
     elif tax_efficiency > 75:
         recommendations.append("⚠️ <b>Good tax efficiency</b>, but there may be room for improvement.")
+        recommendations.append("💡 <b>Tax Optimization Tips:</b>")
+        recommendations.append("• Optimize asset location (taxable vs tax-advantaged accounts)")
+        recommendations.append("• Consider Roth vs Traditional contributions based on tax rates")
+        recommendations.append("• Maximize employer 401(k) match and HSA contributions")
+        recommendations.append("• Use tax-loss harvesting and strategic withdrawal order")
     else:
         recommendations.append("🚨 <b>Consider tax optimization</b> strategies to improve efficiency.")
+        recommendations.append("⚠️ <b>Priority Actions:</b>")
+        recommendations.append("• Review asset allocation across account types")
+        recommendations.append("• Maximize tax-advantaged contributions (401k, IRA, HSA)")
+        recommendations.append("• Consider Roth conversions during low-income years")
+        recommendations.append("• Switch to tax-efficient index funds")
     
     if len(assets) < 3:
         recommendations.append("💡 Consider diversifying across more account types for better tax optimization.")
@@ -1314,8 +1324,52 @@ try:
                 st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized.")
             elif result["Tax Efficiency (%)"] > 75:
                 st.warning("⚠️ **Good tax efficiency**, but there may be room for improvement.")
+                with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
+                    st.markdown("""
+                    ### 🎯 **Tax Optimization Strategies**
+                    
+                    **1. Asset Location Optimization:**
+                    - **Taxable accounts**: Hold tax-efficient index funds, municipal bonds
+                    - **401(k)/IRA**: Hold high-dividend stocks, REITs, bonds
+                    - **Roth IRA**: Hold high-growth stocks, international funds
+                    
+                    **2. Contribution Strategy:**
+                    - **Maximize employer 401(k) match** (free money!)
+                    - **Consider Roth vs Traditional** based on current vs future tax rates
+                    - **Backdoor Roth IRA** if income exceeds limits
+                    
+                    **3. Withdrawal Strategy:**
+                    - **Tax-loss harvesting** in taxable accounts
+                    - **Roth conversion** during low-income years
+                    - **Strategic withdrawal order**: Taxable → Traditional → Roth
+                    
+                    **4. Advanced Strategies:**
+                    - **HSA triple tax advantage** for medical expenses
+                    - **Municipal bonds** for high tax brackets
+                    - **Tax-efficient fund selection** (low turnover, index funds)
+                    
+                    💡 **Next Steps**: Consider consulting a tax professional for personalized advice based on your specific situation.
+                    """)
             else:
                 st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
+                with st.expander("🚨 **Urgent Tax Optimization Needed**", expanded=True):
+                    st.markdown("""
+                    ### ⚠️ **Your Tax Efficiency Needs Immediate Attention**
+                    
+                    **Priority Actions:**
+                    1. **Review asset allocation** across account types
+                    2. **Maximize tax-advantaged contributions** (401k, IRA, HSA)
+                    3. **Consider Roth conversions** if in lower tax bracket
+                    4. **Optimize fund selection** for tax efficiency
+                    
+                    **Quick Wins:**
+                    - Switch to index funds (lower turnover = less taxes)
+                    - Use tax-loss harvesting strategies
+                    - Consider municipal bonds for taxable accounts
+                    - Maximize HSA contributions if eligible
+                    
+                    📞 **Recommendation**: Consult a financial advisor for comprehensive tax optimization strategy.
+                    """)
     
             with detail_tab3:
                 # Summary table
