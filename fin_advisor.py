@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 2.4.0
+Version: 2.5.0
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -103,6 +103,7 @@ class TaxBracket:
 class UserInputs:
     age: int
     retirement_age: int
+    life_expectancy: int  # Expected age at death
     annual_income: float
     contribution_rate_pct: float  # % of income contributed annually
     expected_growth_rate_pct: float  # nominal annual return %
@@ -608,7 +609,9 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story.append(Paragraph("Retirement Income Analysis", heading_style))
     
     total_after_tax = result.get("Total After-Tax Balance", 0)
-    years_in_retirement = 30
+    life_expectancy = user_inputs.get('life_expectancy', 85)
+    retirement_age = user_inputs.get('retirement_age', 65)
+    years_in_retirement = life_expectancy - retirement_age
     annual_retirement_income = total_after_tax / years_in_retirement
     retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
     income_shortfall = retirement_income_goal - annual_retirement_income
@@ -741,6 +744,37 @@ with tab1:
         
         retirement_age = st.number_input("Target Retirement Age", min_value=40, max_value=80, value=65, help="When you plan to retire")
         st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
+        
+        # Life expectancy input with guidance
+        with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
+            st.markdown("""
+            ### 🎯 **How to Estimate Your Life Expectancy**
+            
+            **Average Life Expectancy by Age:**
+            - **At birth**: ~79 years (US average)
+            - **At age 30**: ~80 years
+            - **At age 50**: ~82 years
+            - **At age 65**: ~85 years
+            
+            **Factors to Consider:**
+            - **Family history**: Long-lived parents/grandparents
+            - **Health status**: Current health conditions
+            - **Lifestyle**: Exercise, diet, smoking, stress
+            - **Gender**: Women typically live 3-5 years longer
+            - **Education/Income**: Higher education/income correlates with longer life
+            
+            **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
+            """)
+        
+        life_expectancy = st.number_input(
+            "Life Expectancy (Age)", 
+            min_value=retirement_age+1, 
+            max_value=120, 
+            value=85, 
+            help="Expected age at death - use guidance above to estimate"
+        )
+        years_in_retirement = life_expectancy - retirement_age
+        st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
     with col2:
         annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000, help="Your current annual income")
         
@@ -1187,6 +1221,7 @@ try:
     inputs = UserInputs(
         age=int(age),
         retirement_age=int(retirement_age),
+        life_expectancy=int(life_expectancy),
         annual_income=float(annual_income),
         contribution_rate_pct=15.0,  # Not used in new system
         expected_growth_rate_pct=7.0,  # Not used in new system
@@ -1217,7 +1252,7 @@ try:
     
     # Calculate retirement income from portfolio
     total_after_tax = result['Total After-Tax Balance']
-    years_in_retirement = 30  # Assume 30 years of retirement
+    years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
     annual_retirement_income = total_after_tax / years_in_retirement
     
     # Calculate shortfall or surplus
@@ -1229,7 +1264,7 @@ try:
         st.metric(
             "Projected Annual Income", 
             f"${annual_retirement_income:,.0f}",
-            help="Based on 30-year retirement period"
+            help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
         )
     with col2:
         st.metric(
@@ -1406,6 +1441,7 @@ try:
                             'inflation_rate_pct': inflation_rate,
                             'age': age,
                             'retirement_age': retirement_age,
+                            'life_expectancy': life_expectancy,
                             'annual_income': annual_income,
                             'birth_year': birth_year,
                             'retirement_income_goal': retirement_income_goal
@@ -1565,6 +1601,7 @@ class TestComputation(unittest.TestCase):
         inputs = UserInputs(
             age=30,
             retirement_age=31,
+            life_expectancy=85,
             annual_income=100000,
             contribution_rate_pct=10,
             expected_growth_rate_pct=10,
