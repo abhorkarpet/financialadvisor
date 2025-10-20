@@ -20,6 +20,9 @@ USAGE:
 
   # 3) Streamlit (if installed)
   streamlit run fin_advisor.py
+
+Author: AI Assistant
+Version: 2.0.0
 """
 
 from __future__ import annotations
@@ -1337,6 +1340,18 @@ except Exception as e:
     st.error(f"❌ **Error in calculation**: {e}")
     with st.expander("🔍 Error Details", expanded=False):
         st.exception(e)
+
+# Version footer
+st.markdown("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: #666; font-size: 0.8em; padding: 10px;'>
+        <strong>Financial Advisor v2.0.0</strong> | 
+        Advanced Retirement Planning with Asset Classification & Tax Optimization
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
 
 
 # ---------------------------
