@@ -1,0 +1,264 @@
+{
+  "name": "Financial Document JSON Extractor (Multi-PDF Upload)",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {
+          "joinPages": false
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1456,
+        136
+      ],
+      "id": "5b4ee679-6142-402b-96db-5684a388e980",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Extract structured CSV from the following OCR text: {{$json[\"text\"]}}",
+        "options": {
+          "systemMessage": "=EXTRACTION — FINANCIAL DATA TO CSV (STRICT RULES)\n\nYou will extract ONLY tax-category CURRENT BALANCES from the financial document.\n\n=========================================\nABSOLUTE RULES (READ CAREFULLY)\n=========================================\n\n1. YOU MAY EXTRACT ONLY CURRENT ACCOUNT BALANCES FOR TAX CATEGORIES.\n\nAllowed examples:\n- Employee deferral balance\n- Employer match balance\n- Rollover balance\n- After-tax contributions balance\n- Roth in-plan conversion balance\n- Roth contribution balance\n\n2. YOU MUST NOT extract:\n- beginning/ending balance\n- vested balance\n- total or net contributions\n- change in market value\n- period-to-date contributions\n- inception-to-date contributions\n- year-to-date contributions\n- any contribution numbers\n- fund names, holdings, share counts, NAV, prices\n- allocation percentages\n- performance metrics\n\nNo contribution value may EVER be used as a tax-category balance.\n\n3. ZERO-BALANCE RULE:\nYou MUST ONLY output a tax-category row if the CURRENT BALANCE is greater than zero.\n\nIf the shown balance is:\n- 0.00\n- empty\n- not provided\n- only contribution data\n\n→ DO NOT output a row for that category.\n\n\n=========================================\nREQUIRED CSV HEADER\n=========================================\n\ndocument_type,period_start,period_end,label,value,currency,account_type,asset_category,tax_treatment,instrument_type,confidence,notes\n\nRules:\n- RAW CSV ONLY\n- NO markdown\n- NO backticks\n- NO explanation outside CSV\n- If no qualifying categories exist, output ONLY the header row\n\n\n=========================================\nTAX-TREATMENT MAPPING (STRICT)\n=========================================\n\n401(k):\n- Employee deferral → pre_tax\n- Employer match → pre_tax\n- Rollover / Traditional → pre_tax\n- After-tax → post_tax\n- Roth in-plan conversion → post_tax\n- Roth contributions → post_tax\n\nOther accounts:\n- Traditional IRA / Rollover IRA / SEP → pre_tax\n- Roth IRA → post_tax\n- HSA → post_tax\n- Brokerage → post_tax\n- Checking/Savings → post_tax\n\nNEVER invent categories.\nNEVER output empty tax_treatment.\n\n\n=========================================\nACCOUNT CLASSIFICATION\n=========================================\n\naccount_type MUST be:\n401k, IRA, Roth IRA, Rollover IRA, Brokerage, HSA, Checking, Savings, Other\n\nasset_category:\n- retirement for 401k, IRA, Roth IRA, Rollover IRA, HSA\n- brokerage for Brokerage\n- cash for Checking/Savings\n- other for anything else\n\ninstrument_type:\n- \"mixed\" unless 100% cash\n\ncurrency:\n- Use currency shown; blank if none\n\n\n=========================================\nPII REMOVAL\n=========================================\n\nRemove ALL personal identifiers:\nnames, addresses, emails, phone numbers, SSNs, account numbers except last 4,\nemployer names, DOB, signatures.\n\nNever infer or reconstruct PII.\n\n\n=========================================\nCONFIDENCE & NOTES\n=========================================\n\nconfidence: 0.0–1.0\nnotes: short justification with NO PII\n\n\n=========================================\nOUTPUT REQUIREMENTS\n=========================================\n\n- CSV ONLY\n- No markdown\n- No code fences\n- No commentary\n- No explanations\n- No rows except valid tax-category balances > 0\n- Consolidate values across ALL pages\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2032,
+        136
+      ],
+      "id": "5902caaa-22bb-4627-8287-8c08e7a6c3ea",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2104,
+        360
+      ],
+      "id": "bb3c815e-2dc1-45b5-91c1-6c979895881c",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "9yayuJFn5VGqOEd3",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Upload files",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Financial files",
+              "fieldType": "file",
+              "multipleFiles": "={{ true }}",
+              "acceptFileTypes": "*.pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        1008,
+        136
+      ],
+      "id": "3fbf7dc8-a2d0-4e0e-a482-a1b63d79296d",
+      "name": "On form submission",
+      "webhookId": "a85c01fb-0871-4ec8-973e-ceb46d9595b4"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.last().json\nconst binaryData = $input.last().binary\n\nlet output = []\n\nObject.keys(binaryData).forEach(b => {\n  output.push({\n    json: data,\n    binary: { data: binaryData[b] }\n  })\n})\n\nreturn output"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        136
+      ],
+      "id": "3b83457f-40ee-4cdc-829b-d7f891c632fb",
+      "name": "Split the files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const csvOutputs = $input.all();\nconst headers = csvOutputs[0]?.json?.output.split(\"\\n\")[0]; // Get headers from the first CSV\nconst dataRows = csvOutputs.flatMap((csv) =>\n  csv?.json?.output.split(\"\\n\").slice(1),\n); // Get data rows from all CSVs\nconst combinedCsv = [headers, ...dataRows].join(\"\\n\"); // Combine headers and data rows\nreturn [\n  { json: { combinedCsv }, pairedItem: csvOutputs.map((_, index) => index) },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        136
+      ],
+      "id": "e5583102-0983-4400-84b1-979a4978025c",
+      "name": "Combine into one CSV"
+    },
+    {
+      "parameters": {
+        "inputText": "={{ $json.text.join('\\n') }}",
+        "categories": {
+          "categories": [
+            {
+              "category": "FINANCIAL",
+              "description": "Any document of financial nature including account statements "
+            },
+            {
+              "category": "NON-FINANCIAL",
+              "description": "Any document that doesn't seem to contain financial statements"
+            }
+          ]
+        },
+        "options": {
+          "systemPromptTemplate": "Please classify the text provided by the user into one of the following categories: {categories}, and use the provided formatting instructions below. Don't explain, and only output the json.\n",
+          "enableAutoFixing": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        32
+      ],
+      "id": "895645a7-ff71-469d-b47f-19f8e496bcbd",
+      "name": "Text Classifier"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {
+          "webSearch": {
+            "searchContextSize": "low"
+          }
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1752,
+        256
+      ],
+      "id": "27303780-368b-4e72-830e-48ce8dc488c5",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "9yayuJFn5VGqOEd3",
+          "name": "OpenAi account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Text Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Combine into one CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Split the files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split the files": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Text Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Classifier": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "59da6a3f-bd64-49b9-b306-48e435a7c8f6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7ad35e757e686a2244a1f2ce3b4b2bfbfdffba1c020c5dad090860b39b11afa8"
+  },
+  "id": "sSKWxeNwGI8LXLgd",
+  "tags": []
+}
