@@ -2,9 +2,29 @@
 
 This directory contains the n8n workflow for extracting and categorizing financial statements from PDF documents.
 
-## Workflow Overview
+## Available Workflows
 
+### 1. Webhook-Ready Version (Recommended) ⭐
+**File:** `n8n-statement-categorizer-webhook.json`
+
+**Status:** Ready to use immediately with Streamlit app
+
+This version has the webhook trigger pre-configured. Simply import, add your OpenAI credentials, activate, and copy the webhook URL.
+
+**Use this if:** You want to get started quickly with minimal configuration.
+
+### 2. Original Form Trigger Version
 **File:** `n8n-statement-categorizer.json`
+
+**Status:** Requires manual conversion to webhook
+
+This is the original workflow with a form trigger. You'll need to manually convert it to a webhook trigger (see instructions below).
+
+**Use this if:** You want to learn the conversion process or prefer the form interface.
+
+---
+
+## Workflow Overview (Both Versions)
 
 **What it does:**
 1. Accepts multi-PDF file uploads
@@ -26,10 +46,21 @@ document_type,period_start,period_end,label,value,currency,account_type,asset_ca
 
 ### Step 1: Import Workflow
 
+**Option A: Webhook-Ready Version (Recommended)**
+
+1. Log into your n8n instance
+2. Click **"Workflows"** → **"Add Workflow"** → **"Import from File"**
+3. Select `n8n-statement-categorizer-webhook.json`
+4. Click **"Import"**
+5. Skip to Step 2 (no conversion needed!)
+
+**Option B: Original Form Trigger Version**
+
 1. Log into your n8n instance
 2. Click **"Workflows"** → **"Add Workflow"** → **"Import from File"**
 3. Select `n8n-statement-categorizer.json`
 4. Click **"Import"**
+5. Continue to Step 3 to convert to webhook
 
 ### Step 2: Configure OpenAI Credentials
 
@@ -38,9 +69,15 @@ document_type,period_start,period_end,label,value,currency,account_type,asset_ca
 3. Enter your OpenAI API key
 4. Save and apply to both OpenAI nodes in the workflow
 
-### Step 3: Convert Form Trigger to Webhook (REQUIRED)
+### Step 3: Activate and Get Webhook URL
 
-**The current workflow uses a Form Trigger. You MUST convert it to a Webhook for Streamlit integration.**
+**If you imported the webhook-ready version, skip to substep 5 below.**
+
+**If you imported the original form trigger version, follow these steps to convert:**
+
+---
+
+#### Converting Form Trigger to Webhook (Original Version ONLY)
 
 #### Instructions:
 
@@ -96,14 +133,19 @@ document_type,period_start,period_end,label,value,currency,account_type,asset_ca
 5. **Save and Activate**
    - Click **"Save"** (top right)
    - Toggle **"Active"** to ON
-   - Click on the Webhook node to see your webhook URL
+
+---
+
+#### For Both Versions: Get Your Webhook URL
 
 6. **Copy Webhook URL**
+   - Click on the **"Webhook"** node in your workflow
+   - Copy the **Production URL** that appears
    - The webhook URL will look like:
      - **Cloud:** `https://your-instance.app.n8n.cloud/webhook/financial-statement-upload`
      - **Self-hosted:** `https://your-domain.com/webhook/financial-statement-upload`
 
-   - Copy this URL - you'll need it for the `.env` file
+   - Save this URL - you'll need it for the `.env` file
 
 ### Step 4: Test the Webhook
 

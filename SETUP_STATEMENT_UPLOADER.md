@@ -51,7 +51,8 @@ pip install -r requirements.txt
 
 2. **Import the workflow**
    - In n8n, click **Workflows** → **Add Workflow** → **Import from File**
-   - Select `workflows/n8n-statement-categorizer.json`
+   - **Recommended:** Select `workflows/n8n-statement-categorizer-webhook.json` (webhook-ready version)
+   - **Alternative:** Select `workflows/n8n-statement-categorizer.json` (requires manual webhook setup)
    - Click **Import**
 
 #### Option B: Self-Hosted n8n
@@ -84,9 +85,15 @@ Then import the workflow as described in Option A.
    - Click **Save**
    - Repeat for **"OpenAI Chat Model1"** node (or select the same credential)
 
-### Step 4: Convert Form Trigger to Webhook
+### Step 4: Activate Workflow and Get Webhook URL
 
-**IMPORTANT:** The workflow currently uses a Form Trigger. You must convert it to a Webhook for Streamlit integration.
+#### If you imported the webhook-ready version (`n8n-statement-categorizer-webhook.json`)
+
+**Great!** Your workflow already has a webhook configured. Skip to substep 7 below.
+
+#### If you imported the original version (`n8n-statement-categorizer.json`)
+
+You need to convert the Form Trigger to a Webhook:
 
 1. **Delete Form Trigger**
    - Click on the **"On form submission"** node
@@ -136,15 +143,20 @@ Then import the workflow as described in Option A.
    return output;
    ```
 
-6. **Save and Activate**
+6. **Save and Activate** (If you made changes)
    - Click **Save** (top right)
    - Toggle **Active** to ON
    - The workflow is now live!
 
+---
+
+#### For Both Versions:
+
 7. **Copy Webhook URL**
-   - Click on the **Webhook** node
-   - Copy the **Production URL**
+   - Click on the **Webhook** node in your workflow
+   - Copy the **Production URL** that appears
    - Example: `https://yourname.app.n8n.cloud/webhook/financial-statement-upload`
+   - **Save this URL** - you'll need it in the next step!
 
 ### Step 5: Configure Environment Variables
 
