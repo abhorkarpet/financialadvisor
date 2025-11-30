@@ -316,6 +316,12 @@ def display_csv_results(csv_content: str):
         # Parse CSV
         df = pd.read_csv(io.StringIO(csv_content))
 
+        # Convert numeric columns
+        if 'value' in df.columns:
+            df['value'] = pd.to_numeric(df['value'], errors='coerce')
+        if 'confidence' in df.columns:
+            df['confidence'] = pd.to_numeric(df['confidence'], errors='coerce')
+
         if df.empty or len(df) == 0:
             st.warning("No financial data was extracted from the uploaded statements.")
             st.info("""
