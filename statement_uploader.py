@@ -328,11 +328,37 @@ def humanize_value(value: str) -> str:
         'rollover_ira': 'Rollover IRA',
     }
 
+    # Asset category mappings
+    asset_category_mappings = {
+        'retirement': 'Retirement Accounts',
+        'cash': 'Cash & Savings',
+        'brokerage': 'Brokerage Accounts',
+        'real_estate': 'Real Estate',
+        'investment': 'Investments',
+        'equity': 'Equity',
+        'fixed_income': 'Fixed Income',
+    }
+
+    # Investment type mappings
+    investment_type_mappings = {
+        'mixed': 'Mixed Assets',
+        'stocks': 'Stocks',
+        'bonds': 'Bonds',
+        'mutual_funds': 'Mutual Funds',
+        'etf': 'ETFs',
+        'cash': 'Cash',
+        'money_market': 'Money Market',
+    }
+
     # Check mappings
     if value_str.lower() in tax_mappings:
         return tax_mappings[value_str.lower()]
     if value_str.lower() in account_mappings:
         return account_mappings[value_str.lower()]
+    if value_str.lower() in asset_category_mappings:
+        return asset_category_mappings[value_str.lower()]
+    if value_str.lower() in investment_type_mappings:
+        return investment_type_mappings[value_str.lower()]
 
     # Default: capitalize first letter of each word (replace _ with space)
     if '_' in value_str:
@@ -419,7 +445,7 @@ def display_csv_results(csv_content: str):
             'account_type': 'Account Type',
             'asset_category': 'Asset Category',
             'tax_treatment': 'Tax Treatment',
-            'instrument_type': 'Instrument Type',
+            'instrument_type': 'Investment Type',
             'confidence': 'Confidence',
             'notes': 'Notes'
         }
