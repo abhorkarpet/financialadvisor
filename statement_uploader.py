@@ -581,41 +581,41 @@ def main():
 
                     result = client.upload_statements(files_to_upload)
 
-                progress_bar.progress(90)
+                    progress_bar.progress(90)
 
-                # Handle result
-                if result['success']:
-                    progress_bar.progress(100)
-                    status_text.text("✓ Processing complete!")
+                    # Handle result
+                    if result['success']:
+                        progress_bar.progress(100)
+                        status_text.text("✓ Processing complete!")
 
-                    # Display results
-                    st.markdown("---")
-                    st.markdown("## Results")
+                        # Display results
+                        st.markdown("---")
+                        st.markdown("## Results")
 
-                    # Show execution time
-                    st.caption(f"Processed in {result['execution_time']:.2f} seconds")
+                        # Show execution time
+                        st.caption(f"Processed in {result['execution_time']:.2f} seconds")
 
-                    # Display CSV data
-                    display_csv_results(result['data'])
+                        # Display CSV data
+                        display_csv_results(result['data'])
 
-                else:
-                    progress_bar.progress(100)
-                    status_text.text("✗ Processing failed")
+                    else:
+                        progress_bar.progress(100)
+                        status_text.text("✗ Processing failed")
 
-                    st.markdown('<div class="error-box">', unsafe_allow_html=True)
-                    st.markdown("### ❌ Processing Error")
-                    st.error(result.get('error', 'Unknown error occurred'))
-                    st.markdown('</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="error-box">', unsafe_allow_html=True)
+                        st.markdown("### ❌ Processing Error")
+                        st.error(result.get('error', 'Unknown error occurred'))
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Troubleshooting tips
-                    st.markdown("### Troubleshooting")
-                    st.info("""
-                    **Common issues:**
-                    - Ensure your n8n workflow is active
-                    - Check OpenAI API credentials in n8n
-                    - Verify the PDFs contain actual financial statements
-                    - Check n8n execution logs for detailed errors
-                    """)
+                        # Troubleshooting tips
+                        st.markdown("### Troubleshooting")
+                        st.info("""
+                        **Common issues:**
+                        - Ensure your n8n workflow is active
+                        - Check OpenAI API credentials in n8n
+                        - Verify the PDFs contain actual financial statements
+                        - Check n8n execution logs for detailed errors
+                        """)
 
             except N8NError as e:
                 progress_bar.progress(100)
