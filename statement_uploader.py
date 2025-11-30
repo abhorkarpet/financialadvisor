@@ -617,16 +617,16 @@ def main():
                         - Check n8n execution logs for detailed errors
                         """)
 
-            except N8NError as e:
-                progress_bar.progress(100)
-                status_text.text("✗ Configuration error")
-                st.error(f"Configuration Error: {str(e)}")
+                except N8NError as e:
+                    progress_bar.progress(100)
+                    status_text.text("✗ Configuration error")
+                    st.error(f"Configuration Error: {str(e)}")
 
-            except Exception as e:
-                progress_bar.progress(100)
-                status_text.text("✗ Unexpected error")
-                st.error(f"Unexpected Error: {str(e)}")
-                st.exception(e)
+                except Exception as e:
+                    progress_bar.progress(100)
+                    status_text.text("✗ Unexpected error")
+                    st.error(f"Unexpected Error: {str(e)}")
+                    st.exception(e)
 
         else:
             # No valid financial documents
