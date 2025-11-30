@@ -9,9 +9,12 @@ Run with: streamlit run statement_uploader.py
 
 import os
 import io
+import re
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from typing import List, Dict, Tuple
+from pypdf import PdfReader
 from integrations.n8n_client import N8NClient, N8NError
 
 
@@ -22,6 +25,181 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+
+# Financial document keywords for pre-filtering
+FINANCIAL_KEYWORDS = {
+    'high_confidence': [
+        '401(k)', '401k', 'ira', 'roth', 'brokerage', 'investment',
+        'retirement', 'account balance', 'portfolio', 'vanguard',
+        'fidelity', 'schwab', 'statement period', 'account summary',
+        'total balance', 'contributions', 'employer match', 'hsa',
+        'health savings', 'annuity', 'dividend', 'capital gains',
+        'tax-deferred', 'tax-exempt', 'rollover', 'beneficiary'
+    ],
+    'medium_confidence': [
+        'account', 'balance', 'statement', 'quarterly', 'annual',
+        'assets', 'securities', 'market value', 'shares', 'units',
+        'funds', 'equity', 'bonds', 'stocks', 'mutual fund'
+    ],
+    'account_types': [
+        'checking', 'savings', 'money market', 'cd', 'certificate of deposit'
+    ]
+}
+
+NON_FINANCIAL_INDICATORS = [
+    'recipe', 'resume', 'cv', 'curriculum vitae', 'cover letter',
+    'invoice', 'receipt', 'menu', 'syllabus', 'lesson plan',
+    'medical record', 'prescription', 'diagnosis'
+]
+
+
+def extract_pdf_text(file_content: bytes, max_pages: int = 3) -> str:
+    """
+    Extract text from first few pages of PDF.
+
+    Args:
+        file_content: PDF file as bytes
+        max_pages: Maximum number of pages to extract (default: 3)
+
+    Returns:
+        Extracted text string
+    """
+    try:
+        pdf = PdfReader(io.BytesIO(file_content))
+        text_parts = []
+
+        # Extract text from first few pages
+        for i in range(min(max_pages, len(pdf.pages))):
+            page = pdf.pages[i]
+            text_parts.append(page.extract_text())
+
+        return ' '.join(text_parts).lower()
+
+    except Exception as e:
+        st.warning(f"Could not extract text from PDF: {str(e)}")
+        return ""
+
+
+def is_likely_financial_document(text: str, filename: str = "") -> Tuple[bool, float, List[str]]:
+    """
+    Determine if a document is likely a financial statement.
+
+    Args:
+        text: Extracted text from document
+        filename: Original filename (optional hint)
+
+    Returns:
+        Tuple of (is_financial, confidence_score, matched_keywords)
+    """
+    if not text:
+        return False, 0.0, []
+
+    text_lower = text.lower()
+    filename_lower = filename.lower()
+    matched_keywords = []
+    score = 0.0
+
+    # Check for non-financial indicators first
+    for indicator in NON_FINANCIAL_INDICATORS:
+        if indicator in text_lower or indicator in filename_lower:
+            return False, 0.0, [f"non-financial: {indicator}"]
+
+    # High confidence keywords (5 points each)
+    for keyword in FINANCIAL_KEYWORDS['high_confidence']:
+        if keyword.lower() in text_lower:
+            score += 5.0
+            matched_keywords.append(keyword)
+
+    # Medium confidence keywords (2 points each)
+    for keyword in FINANCIAL_KEYWORDS['medium_confidence']:
+        if keyword.lower() in text_lower:
+            score += 2.0
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
+
+    # Account types (3 points each)
+    for keyword in FINANCIAL_KEYWORDS['account_types']:
+        if keyword.lower() in text_lower:
+            score += 3.0
+            if keyword not in matched_keywords:
+                matched_keywords.append(keyword)
+
+    # Filename hints (bonus points)
+    filename_keywords = ['statement', '401k', 'ira', 'roth', 'brokerage', 'invest']
+    for keyword in filename_keywords:
+        if keyword in filename_lower:
+            score += 2.0
+
+    # Look for date patterns (common in statements)
+    date_patterns = [
+        r'\d{1,2}/\d{1,2}/\d{2,4}',  # 12/31/2024
+        r'\d{4}-\d{2}-\d{2}',         # 2024-12-31
+        r'(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}'
+    ]
+    for pattern in date_patterns:
+        if re.search(pattern, text_lower):
+            score += 1.0
+            break
+
+    # Look for dollar amounts (common in statements)
+    if re.search(r'\$[\d,]+\.\d{2}', text):
+        score += 2.0
+
+    # Normalize score to 0-1 range
+    confidence = min(score / 20.0, 1.0)  # 20 points = 100% confidence
+
+    # Threshold: 0.3 confidence or higher
+    is_financial = confidence >= 0.3
+
+    return is_financial, confidence, matched_keywords
+
+
+def validate_uploaded_files(uploaded_files) -> Dict:
+    """
+    Validate and categorize uploaded files.
+
+    Args:
+        uploaded_files: List of Streamlit UploadedFile objects
+
+    Returns:
+        Dict with 'valid', 'invalid', and 'stats' keys
+    """
+    valid_files = []
+    invalid_files = []
+
+    for file in uploaded_files:
+        # Reset file pointer
+        file.seek(0)
+        content = file.read()
+        file.seek(0)  # Reset again for later use
+
+        # Extract text and check
+        text = extract_pdf_text(content)
+        is_financial, confidence, keywords = is_likely_financial_document(text, file.name)
+
+        file_info = {
+            'file': file,
+            'name': file.name,
+            'size': len(content),
+            'confidence': confidence,
+            'keywords': keywords[:5]  # Top 5 keywords
+        }
+
+        if is_financial:
+            valid_files.append(file_info)
+        else:
+            invalid_files.append(file_info)
+
+    return {
+        'valid': valid_files,
+        'invalid': invalid_files,
+        'stats': {
+            'total': len(uploaded_files),
+            'valid_count': len(valid_files),
+            'invalid_count': len(invalid_files)
+        }
+    }
 
 
 def load_custom_css():
@@ -315,33 +493,93 @@ def main():
     if uploaded_files:
         st.info(f"📎 {len(uploaded_files)} file(s) selected")
 
-        # Display file details
-        with st.expander("View uploaded files"):
-            for idx, file in enumerate(uploaded_files, 1):
-                st.write(f"{idx}. {file.name} ({file.size / 1024:.1f} KB)")
+        # Validate files
+        with st.spinner("Analyzing documents..."):
+            validation = validate_uploaded_files(uploaded_files)
 
-        # Process button
-        if st.button("🚀 Extract & Categorize", type="primary", use_container_width=True):
+        valid_files = validation['valid']
+        invalid_files = validation['invalid']
+        stats = validation['stats']
 
-            # Progress tracking
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+        # Display validation results
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Files", stats['total'])
+        with col2:
+            st.metric("✅ Financial", stats['valid_count'], delta_color="normal")
+        with col3:
+            st.metric("⚠️ Non-Financial", stats['invalid_count'], delta_color="inverse")
 
-            try:
-                # Initialize client
-                status_text.text("Initializing connection to n8n workflow...")
-                progress_bar.progress(10)
+        # Show valid files
+        if valid_files:
+            st.success(f"✓ {len(valid_files)} file(s) ready to process")
 
-                client = N8NClient()
+            with st.expander("📄 Financial documents detected"):
+                for idx, file_info in enumerate(valid_files, 1):
+                    confidence_pct = file_info['confidence'] * 100
+                    keywords_str = ', '.join(file_info['keywords'][:3]) if file_info['keywords'] else 'N/A'
 
-                # Prepare files
-                status_text.text(f"Uploading {len(uploaded_files)} file(s)...")
-                progress_bar.progress(30)
+                    st.write(f"**{idx}. {file_info['name']}**")
+                    st.write(f"   - Size: {file_info['size'] / 1024:.1f} KB")
+                    st.write(f"   - Confidence: {confidence_pct:.0f}%")
+                    st.write(f"   - Keywords: {keywords_str}")
+                    st.write("")
 
-                # Upload to n8n
-                files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
+        # Show invalid files
+        if invalid_files:
+            st.warning(f"⚠️ {len(invalid_files)} file(s) filtered out (non-financial)")
 
-                result = client.upload_statements(files_to_upload)
+            with st.expander("🚫 Non-financial documents (will be skipped)"):
+                for idx, file_info in enumerate(invalid_files, 1):
+                    confidence_pct = file_info['confidence'] * 100
+                    reason = file_info['keywords'][0] if file_info['keywords'] else 'No financial keywords found'
+
+                    st.write(f"**{idx}. {file_info['name']}**")
+                    st.write(f"   - Size: {file_info['size'] / 1024:.1f} KB")
+                    st.write(f"   - Confidence: {confidence_pct:.0f}%")
+                    st.write(f"   - Reason: {reason}")
+                    st.write("")
+
+        # Only show process button if there are valid files
+        if valid_files:
+            # Option to override and include all files
+            include_all = st.checkbox(
+                f"Override: Include all {stats['total']} files (not recommended)",
+                value=False,
+                help="This will send all files to n8n, including non-financial documents, which may waste API credits."
+            )
+
+            # Process button
+            if st.button("🚀 Extract & Categorize", type="primary", use_container_width=True):
+
+                # Progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                try:
+                    # Determine which files to upload
+                    if include_all:
+                        files_to_process = uploaded_files
+                        st.info(f"Processing all {len(uploaded_files)} file(s) (override enabled)")
+                    else:
+                        files_to_process = [f['file'] for f in valid_files]
+                        if invalid_files:
+                            st.info(f"Skipping {len(invalid_files)} non-financial file(s)")
+
+                    # Initialize client
+                    status_text.text("Initializing connection to n8n workflow...")
+                    progress_bar.progress(10)
+
+                    client = N8NClient()
+
+                    # Prepare files
+                    status_text.text(f"Uploading {len(files_to_process)} file(s)...")
+                    progress_bar.progress(30)
+
+                    # Upload to n8n
+                    files_to_upload = [(f.name, f.getvalue()) for f in files_to_process]
+
+                    result = client.upload_statements(files_to_upload)
 
                 progress_bar.progress(90)
 
@@ -389,6 +627,22 @@ def main():
                 status_text.text("✗ Unexpected error")
                 st.error(f"Unexpected Error: {str(e)}")
                 st.exception(e)
+
+        else:
+            # No valid financial documents
+            st.error("❌ No financial documents detected")
+            st.info("""
+            **None of the uploaded files appear to be financial statements.**
+
+            Please ensure you're uploading:
+            - 401(k) or retirement account statements
+            - IRA or Roth IRA statements
+            - Brokerage account statements
+            - Bank account statements
+            - HSA (Health Savings Account) statements
+
+            If you believe this is an error, you can use the "Override" option above.
+            """)
 
     else:
         # Show upload prompt
