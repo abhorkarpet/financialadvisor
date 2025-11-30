@@ -305,6 +305,42 @@ def display_configuration_help():
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+def humanize_value(value: str) -> str:
+    """Convert coded values to human-readable format."""
+    if pd.isna(value):
+        return value
+
+    value_str = str(value).strip()
+
+    # Tax treatment mappings
+    tax_mappings = {
+        'pre_tax': 'Pre-Tax',
+        'post_tax': 'Post-Tax',
+        'tax_free': 'Tax-Free',
+    }
+
+    # Account type mappings
+    account_mappings = {
+        '401k': '401(k)',
+        'ira': 'IRA',
+        'roth_ira': 'Roth IRA',
+        'traditional_ira': 'Traditional IRA',
+        'rollover_ira': 'Rollover IRA',
+    }
+
+    # Check mappings
+    if value_str.lower() in tax_mappings:
+        return tax_mappings[value_str.lower()]
+    if value_str.lower() in account_mappings:
+        return account_mappings[value_str.lower()]
+
+    # Default: capitalize first letter of each word (replace _ with space)
+    if '_' in value_str:
+        return value_str.replace('_', ' ').title()
+
+    return value_str
+
+
 def display_csv_results(csv_content: str):
     """
     Display extracted CSV data in a formatted table.
@@ -358,6 +394,12 @@ def display_csv_results(csv_content: str):
         # Format display columns
         display_df = df.copy()
 
+        # Humanize coded values in text columns
+        text_columns = ['tax_treatment', 'account_type', 'asset_category', 'instrument_type']
+        for col in text_columns:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(humanize_value)
+
         # Format value column as currency
         if 'value' in display_df.columns:
             display_df['value'] = display_df['value'].apply(lambda x: f"${x:,.2f}")
@@ -365,6 +407,23 @@ def display_csv_results(csv_content: str):
         # Format confidence column as percentage
         if 'confidence' in display_df.columns:
             display_df['confidence'] = display_df['confidence'].apply(lambda x: f"{x*100:.0f}%")
+
+        # Rename columns to be more readable
+        column_renames = {
+            'document_type': 'Document Type',
+            'period_start': 'Period Start',
+            'period_end': 'Period End',
+            'label': 'Account Label',
+            'value': 'Balance',
+            'currency': 'Currency',
+            'account_type': 'Account Type',
+            'asset_category': 'Asset Category',
+            'tax_treatment': 'Tax Treatment',
+            'instrument_type': 'Instrument Type',
+            'confidence': 'Confidence',
+            'notes': 'Notes'
+        }
+        display_df = display_df.rename(columns=column_renames)
 
         st.dataframe(
             display_df,
@@ -378,6 +437,9 @@ def display_csv_results(csv_content: str):
 
             tax_summary = df.groupby('tax_treatment')['value'].sum().reset_index()
             tax_summary.columns = ['Tax Treatment', 'Total Value']
+
+            # Humanize tax treatment values
+            tax_summary['Tax Treatment'] = tax_summary['Tax Treatment'].apply(humanize_value)
             tax_summary['Total Value'] = tax_summary['Total Value'].apply(lambda x: f"${x:,.2f}")
 
             col1, col2 = st.columns(2)
@@ -386,8 +448,10 @@ def display_csv_results(csv_content: str):
                 st.dataframe(tax_summary, use_container_width=True, hide_index=True)
 
             with col2:
-                # Pie chart
+                # Bar chart with humanized labels
                 chart_data = df.groupby('tax_treatment')['value'].sum()
+                # Rename index to humanized values
+                chart_data.index = chart_data.index.map(humanize_value)
                 st.bar_chart(chart_data)
 
         # Download options
