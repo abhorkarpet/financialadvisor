@@ -58,6 +58,8 @@ import pandas as pd
 try:
     from integrations.n8n_client import N8NClient, N8NError
     from pypdf import PdfReader
+    from dotenv import load_dotenv
+    load_dotenv()  # Load environment variables from .env file
     _N8N_AVAILABLE = True
 except ImportError:
     _N8N_AVAILABLE = False
