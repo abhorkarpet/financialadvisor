@@ -1148,14 +1148,14 @@ with tab3:
                                 # Create editable table
                                 table_data = []
                                 for idx, row in df_extracted.iterrows():
-                                    # Map tax_treatment to AssetType
+                                    # Map tax_treatment to AssetType (human-readable)
                                     tax_treatment = str(row.get('tax_treatment', 'post_tax')).lower()
                                     if tax_treatment == 'pre_tax':
-                                        asset_type = 'pre_tax'
+                                        asset_type_display = 'Pre-Tax'
                                     elif tax_treatment == 'post_tax':
-                                        asset_type = 'post_tax'
+                                        asset_type_display = 'Post-Tax'
                                     else:
-                                        asset_type = 'post_tax'  # default
+                                        asset_type_display = 'Post-Tax'  # default
 
                                     # Get account name
                                     account_name = str(row.get('label', f"Account {idx+1}"))
@@ -1164,13 +1164,13 @@ with tab3:
                                     current_balance = float(row.get('value', 0))
 
                                     table_row = {
-                                        "Index": idx,
+                                        "#": f"#{idx+1}",
                                         "Account": account_name,
-                                        "Asset Type": asset_type,
+                                        "Asset Type": asset_type_display,
                                         "Current Balance": current_balance,
                                         "Annual Contribution": 0.0,  # User needs to fill
                                         "Growth Rate (%)": 7.0,  # Default assumption
-                                        "Tax Rate (%)": 15.0 if asset_type == 'post_tax' else 0.0
+                                        "Tax Rate (%)": 15.0 if asset_type_display == 'Post-Tax' else 0.0
                                     }
                                     table_data.append(table_row)
 
@@ -1179,12 +1179,12 @@ with tab3:
 
                                 # Define column configuration
                                 column_config = {
-                                    "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
+                                    "#": st.column_config.TextColumn("#", disabled=True, help="Account number", width="small"),
                                     "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
                                     "Asset Type": st.column_config.SelectboxColumn(
                                         "Asset Type",
-                                        options=["pre_tax", "post_tax", "tax_deferred"],
-                                        help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA)"
+                                        options=["Pre-Tax", "Post-Tax", "Tax-Deferred"],
+                                        help="Tax treatment: Pre-Tax (401k/IRA), Post-Tax (Roth/Brokerage), Tax-Deferred (HSA)"
                                     ),
                                     "Current Balance": st.column_config.NumberColumn(
                                         "Current Balance ($)",
@@ -1228,13 +1228,13 @@ with tab3:
                                     try:
                                         assets = []
                                         for _, row in edited_df.iterrows():
-                                            # Parse asset type
+                                            # Parse asset type (from human-readable to enum)
                                             asset_type_str = row["Asset Type"]
-                                            if asset_type_str == "pre_tax":
+                                            if asset_type_str == "Pre-Tax":
                                                 asset_type = AssetType.PRE_TAX
-                                            elif asset_type_str == "post_tax":
+                                            elif asset_type_str == "Post-Tax":
                                                 asset_type = AssetType.POST_TAX
-                                            elif asset_type_str == "tax_deferred":
+                                            elif asset_type_str == "Tax-Deferred":
                                                 asset_type = AssetType.TAX_DEFERRED
                                             else:
                                                 raise ValueError(f"Invalid asset type: {asset_type_str}")
