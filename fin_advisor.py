@@ -54,6 +54,14 @@ from datetime import datetime
 
 import pandas as pd
 
+# n8n integration for financial statement upload
+try:
+    from integrations.n8n_client import N8NClient, N8NError
+    from pypdf import PdfReader
+    _N8N_AVAILABLE = True
+except ImportError:
+    _N8N_AVAILABLE = False
+
 # PDF generation
 try:
     from reportlab.lib.pagesizes import letter, A4
@@ -969,7 +977,7 @@ with tab3:
     # Quick setup options
     setup_option = st.radio(
         "Choose setup method:",
-        ["Use Default Portfolio", "Upload CSV File", "Configure Individual Assets", "Legacy Mode (Simple)"],
+        ["Use Default Portfolio", "Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets", "Legacy Mode (Simple)"],
         help="Select how you want to configure your retirement accounts"
     )
 
@@ -1079,7 +1087,189 @@ with tab3:
                 except Exception as e:
                     st.error(f"❌ Error updating default portfolio: {str(e)}")
                     st.info("💡 Please check your input values and try again.")
-    
+
+    elif setup_option == "Upload Financial Statements (AI)":
+        if not _N8N_AVAILABLE:
+            st.error("❌ **n8n integration not available**")
+            st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
+        else:
+            st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
+
+            # Upload financial statement PDFs
+            uploaded_files = st.file_uploader(
+                "📤 Upload Financial Statement PDFs",
+                type=['pdf'],
+                accept_multiple_files=True,
+                help="Upload 401(k), IRA, brokerage, or bank statements"
+            )
+
+            if uploaded_files:
+                if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    try:
+                        # Initialize n8n client
+                        status_text.text("Initializing AI extraction...")
+                        progress_bar.progress(10)
+
+                        client = N8NClient()
+
+                        # Prepare files for upload
+                        status_text.text(f"Uploading {len(uploaded_files)} file(s)...")
+                        progress_bar.progress(30)
+
+                        files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
+
+                        # Upload to n8n
+                        result = client.upload_statements(files_to_upload)
+                        progress_bar.progress(90)
+
+                        if result['success']:
+                            progress_bar.progress(100)
+                            status_text.text("✓ Extraction complete!")
+
+                            # Parse CSV response
+                            csv_content = result['data']
+                            df_extracted = pd.read_csv(io.StringIO(csv_content))
+
+                            # Convert to numeric
+                            if 'value' in df_extracted.columns:
+                                df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
+
+                            st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
+
+                            # Map extracted data to Asset objects
+                            with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
+                                st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
+
+                                # Create editable table
+                                table_data = []
+                                for idx, row in df_extracted.iterrows():
+                                    # Map tax_treatment to AssetType
+                                    tax_treatment = str(row.get('tax_treatment', 'post_tax')).lower()
+                                    if tax_treatment == 'pre_tax':
+                                        asset_type = 'pre_tax'
+                                    elif tax_treatment == 'post_tax':
+                                        asset_type = 'post_tax'
+                                    else:
+                                        asset_type = 'post_tax'  # default
+
+                                    # Get account name
+                                    account_name = str(row.get('label', f"Account {idx+1}"))
+
+                                    # Get current balance
+                                    current_balance = float(row.get('value', 0))
+
+                                    table_row = {
+                                        "Index": idx,
+                                        "Account": account_name,
+                                        "Asset Type": asset_type,
+                                        "Current Balance": current_balance,
+                                        "Annual Contribution": 0.0,  # User needs to fill
+                                        "Growth Rate (%)": 7.0,  # Default assumption
+                                        "Tax Rate (%)": 15.0 if asset_type == 'post_tax' else 0.0
+                                    }
+                                    table_data.append(table_row)
+
+                                # Create DataFrame
+                                df_table = pd.DataFrame(table_data)
+
+                                # Define column configuration
+                                column_config = {
+                                    "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
+                                    "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                                    "Asset Type": st.column_config.SelectboxColumn(
+                                        "Asset Type",
+                                        options=["pre_tax", "post_tax", "tax_deferred"],
+                                        help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA)"
+                                    ),
+                                    "Current Balance": st.column_config.NumberColumn(
+                                        "Current Balance ($)",
+                                        min_value=0,
+                                        format="$%d",
+                                        help="Current account balance (extracted from statements)"
+                                    ),
+                                    "Annual Contribution": st.column_config.NumberColumn(
+                                        "Annual Contribution ($)",
+                                        min_value=0,
+                                        format="$%d",
+                                        help="How much you contribute annually to this account"
+                                    ),
+                                    "Growth Rate (%)": st.column_config.NumberColumn(
+                                        "Growth Rate (%)",
+                                        min_value=0,
+                                        max_value=50,
+                                        format="%.1f%%",
+                                        help="Expected annual growth rate (default: 7%)"
+                                    ),
+                                    "Tax Rate (%)": st.column_config.NumberColumn(
+                                        "Tax Rate (%)",
+                                        min_value=0,
+                                        max_value=50,
+                                        format="%.1f%%",
+                                        help="Tax rate on GAINS: 0% for Roth/pre-tax, 15% for brokerage capital gains"
+                                    )
+                                }
+
+                                # Display editable table
+                                edited_df = st.data_editor(
+                                    df_table,
+                                    column_config=column_config,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    num_rows="dynamic"
+                                )
+
+                                # Convert edited dataframe to Asset objects
+                                if not edited_df.empty:
+                                    try:
+                                        assets = []
+                                        for _, row in edited_df.iterrows():
+                                            # Parse asset type
+                                            asset_type_str = row["Asset Type"]
+                                            if asset_type_str == "pre_tax":
+                                                asset_type = AssetType.PRE_TAX
+                                            elif asset_type_str == "post_tax":
+                                                asset_type = AssetType.POST_TAX
+                                            elif asset_type_str == "tax_deferred":
+                                                asset_type = AssetType.TAX_DEFERRED
+                                            else:
+                                                raise ValueError(f"Invalid asset type: {asset_type_str}")
+
+                                            # Create asset
+                                            asset = Asset(
+                                                name=row["Account"],
+                                                asset_type=asset_type,
+                                                current_balance=float(row["Current Balance"]),
+                                                annual_contribution=float(row["Annual Contribution"]),
+                                                growth_rate_pct=float(row["Growth Rate (%)"]),
+                                                tax_rate_pct=float(row["Tax Rate (%)"])
+                                            )
+                                            assets.append(asset)
+
+                                        st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
+
+                                    except Exception as e:
+                                        st.error(f"❌ Error processing extracted data: {str(e)}")
+                                        st.info("💡 Please check the values in the table.")
+
+                        else:
+                            progress_bar.progress(100)
+                            status_text.text("✗ Extraction failed")
+                            st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
+
+                    except N8NError as e:
+                        progress_bar.progress(100)
+                        status_text.text("✗ Configuration error")
+                        st.error(f"Configuration Error: {str(e)}")
+                        st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
+
+                    except Exception as e:
+                        progress_bar.progress(100)
+                        status_text.text("✗ Unexpected error")
+                        st.error(f"Error: {str(e)}")
+
     elif setup_option == "Upload CSV File":
         st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
         
