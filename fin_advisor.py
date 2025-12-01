@@ -1145,6 +1145,23 @@ with tab3:
                             with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
                                 st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
 
+                                # Helper function to humanize account type
+                                def humanize_account_type(account_type: str) -> str:
+                                    """Convert account_type codes to human-readable format."""
+                                    mappings = {
+                                        '401k': '401(k)',
+                                        'ira': 'IRA',
+                                        'roth_ira': 'Roth IRA',
+                                        'traditional_ira': 'Traditional IRA',
+                                        'rollover_ira': 'Rollover IRA',
+                                        'savings': 'Savings',
+                                        'checking': 'Checking',
+                                        'brokerage': 'Brokerage',
+                                        'hsa': 'HSA'
+                                    }
+                                    account_type_lower = str(account_type).lower().strip()
+                                    return mappings.get(account_type_lower, account_type.title() if account_type else 'Unknown')
+
                                 # Create editable table
                                 table_data = []
                                 for idx, row in df_extracted.iterrows():
@@ -1160,13 +1177,17 @@ with tab3:
                                     # Get account name
                                     account_name = str(row.get('label', f"Account {idx+1}"))
 
+                                    # Get account type (401k, IRA, etc.)
+                                    account_type = humanize_account_type(row.get('account_type', ''))
+
                                     # Get current balance
                                     current_balance = float(row.get('value', 0))
 
                                     table_row = {
                                         "#": f"#{idx+1}",
                                         "Account": account_name,
-                                        "Asset Type": asset_type_display,
+                                        "Account Type": account_type,
+                                        "Tax Treatment": asset_type_display,
                                         "Current Balance": current_balance,
                                         "Annual Contribution": 0.0,  # User needs to fill
                                         "Growth Rate (%)": 7.0,  # Default assumption
@@ -1181,8 +1202,13 @@ with tab3:
                                 column_config = {
                                     "#": st.column_config.TextColumn("#", disabled=True, help="Account number", width="small"),
                                     "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                                    "Asset Type": st.column_config.SelectboxColumn(
-                                        "Asset Type",
+                                    "Account Type": st.column_config.TextColumn(
+                                        "Account Type",
+                                        disabled=True,
+                                        help="Type of account (401k, IRA, Savings, etc.) - extracted from statement"
+                                    ),
+                                    "Tax Treatment": st.column_config.SelectboxColumn(
+                                        "Tax Treatment",
                                         options=["Pre-Tax", "Post-Tax", "Tax-Deferred"],
                                         help="Tax treatment: Pre-Tax (401k/IRA), Post-Tax (Roth/Brokerage), Tax-Deferred (HSA)"
                                     ),
@@ -1228,16 +1254,16 @@ with tab3:
                                     try:
                                         assets = []
                                         for _, row in edited_df.iterrows():
-                                            # Parse asset type (from human-readable to enum)
-                                            asset_type_str = row["Asset Type"]
-                                            if asset_type_str == "Pre-Tax":
+                                            # Parse tax treatment (from human-readable to enum)
+                                            tax_treatment_str = row["Tax Treatment"]
+                                            if tax_treatment_str == "Pre-Tax":
                                                 asset_type = AssetType.PRE_TAX
-                                            elif asset_type_str == "Post-Tax":
+                                            elif tax_treatment_str == "Post-Tax":
                                                 asset_type = AssetType.POST_TAX
-                                            elif asset_type_str == "Tax-Deferred":
+                                            elif tax_treatment_str == "Tax-Deferred":
                                                 asset_type = AssetType.TAX_DEFERRED
                                             else:
-                                                raise ValueError(f"Invalid asset type: {asset_type_str}")
+                                                raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
 
                                             # Create asset
                                             asset = Asset(
