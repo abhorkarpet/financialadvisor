@@ -676,34 +676,31 @@ def main():
                     # Show debug information if enabled
                     if debug_mode and file_info.get('debug_info'):
                         debug_info = file_info['debug_info']
-                        with st.expander(f"🔍 Debug Info: {file_info['name']}", expanded=False):
-                            st.markdown("**Scoring Breakdown:**")
+                        st.markdown("   - **🔍 Debug Scoring:**")
 
-                            # Display scores
-                            scores = debug_info['scores']
-                            st.write(f"- High Confidence Keywords: **{scores.get('high_confidence', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('high_confidence'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
+                        # Display scores
+                        scores = debug_info['scores']
+                        st.write(f"     - High Confidence: **{scores.get('high_confidence', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('high_confidence'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
 
-                            st.write(f"- Medium Confidence Keywords: **{scores.get('medium_confidence', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('medium_confidence'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
+                        st.write(f"     - Medium Confidence: **{scores.get('medium_confidence', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('medium_confidence'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
 
-                            st.write(f"- Account Types: **{scores.get('account_types', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('account_types'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['account_types'])}")
+                        st.write(f"     - Account Types: **{scores.get('account_types', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('account_types'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['account_types'])}")
 
-                            st.write(f"- Filename Keywords: **{scores.get('filename', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('filename'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['filename'])}")
+                        st.write(f"     - Filename: **{scores.get('filename', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('filename'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['filename'])}")
 
-                            st.write(f"- Date Pattern Found: **{scores.get('date_pattern', 0):.1f}** points")
-                            st.write(f"- Dollar Amounts Found: **{scores.get('dollar_amounts', 0):.1f}** points")
+                        st.write(f"     - Date Pattern: **{scores.get('date_pattern', 0):.1f}** pts")
+                        st.write(f"     - Dollar Amounts: **{scores.get('dollar_amounts', 0):.1f}** pts")
 
-                            st.markdown("---")
-                            st.write(f"**Total Score:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f}")
-                            st.write(f"**Threshold:** {debug_info['threshold']:.1f} (30% confidence)")
-                            st.write(f"**Result:** {'✅ PASS' if file_info['confidence'] >= 0.3 else '❌ FAIL'}")
+                        st.write(f"     - **Total:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f} (threshold: {debug_info['threshold']:.1f})")
+                        st.write(f"     - **Result:** {'✅ PASS' if file_info['confidence'] >= 0.3 else '❌ FAIL'}")
 
                     st.write("")
 
@@ -724,39 +721,35 @@ def main():
                     # Show debug information if enabled
                     if debug_mode and file_info.get('debug_info'):
                         debug_info = file_info['debug_info']
-                        with st.expander(f"🔍 Debug Info: {file_info['name']}", expanded=False):
-                            # Check for non-financial indicator
-                            if debug_info.get('non_financial_indicator'):
-                                st.error(f"**Rejected:** Found non-financial indicator: '{debug_info['non_financial_indicator']}'")
-                                st.write("")
+                        # Check for non-financial indicator
+                        if debug_info.get('non_financial_indicator'):
+                            st.write(f"   - ❌ **Rejected:** Found '{debug_info['non_financial_indicator']}'")
 
-                            st.markdown("**Scoring Breakdown:**")
+                        st.markdown("   - **🔍 Debug Scoring:**")
 
-                            # Display scores
-                            scores = debug_info['scores']
-                            st.write(f"- High Confidence Keywords: **{scores.get('high_confidence', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('high_confidence'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
+                        # Display scores
+                        scores = debug_info['scores']
+                        st.write(f"     - High Confidence: **{scores.get('high_confidence', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('high_confidence'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
 
-                            st.write(f"- Medium Confidence Keywords: **{scores.get('medium_confidence', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('medium_confidence'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
+                        st.write(f"     - Medium Confidence: **{scores.get('medium_confidence', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('medium_confidence'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
 
-                            st.write(f"- Account Types: **{scores.get('account_types', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('account_types'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['account_types'])}")
+                        st.write(f"     - Account Types: **{scores.get('account_types', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('account_types'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['account_types'])}")
 
-                            st.write(f"- Filename Keywords: **{scores.get('filename', 0):.1f}** points")
-                            if debug_info['matched_by_category'].get('filename'):
-                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['filename'])}")
+                        st.write(f"     - Filename: **{scores.get('filename', 0):.1f}** pts")
+                        if debug_info['matched_by_category'].get('filename'):
+                            st.write(f"       - {', '.join(debug_info['matched_by_category']['filename'])}")
 
-                            st.write(f"- Date Pattern Found: **{scores.get('date_pattern', 0):.1f}** points")
-                            st.write(f"- Dollar Amounts Found: **{scores.get('dollar_amounts', 0):.1f}** points")
+                        st.write(f"     - Date Pattern: **{scores.get('date_pattern', 0):.1f}** pts")
+                        st.write(f"     - Dollar Amounts: **{scores.get('dollar_amounts', 0):.1f}** pts")
 
-                            st.markdown("---")
-                            st.write(f"**Total Score:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f}")
-                            st.write(f"**Threshold:** {debug_info['threshold']:.1f} (30% confidence)")
-                            st.write(f"**Result:** {'❌ FAIL - Score too low' if file_info['confidence'] < 0.3 else '✅ PASS'}")
+                        st.write(f"     - **Total:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f} (threshold: {debug_info['threshold']:.1f})")
+                        st.write(f"     - **Result:** {'❌ FAIL - Score too low' if file_info['confidence'] < 0.3 else '✅ PASS'}")
 
                     st.write("")
 
