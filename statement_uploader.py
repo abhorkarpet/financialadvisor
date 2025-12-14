@@ -49,9 +49,11 @@ FINANCIAL_KEYWORDS = {
 
 NON_FINANCIAL_INDICATORS = [
     'recipe', 'resume', 'cv', 'curriculum vitae', 'cover letter',
-    'invoice', 'receipt', 'menu', 'syllabus', 'lesson plan',
+    'menu', 'syllabus', 'lesson plan',
     'medical record', 'prescription', 'diagnosis'
 ]
+# Note: Removed 'receipt' and 'invoice' as they appear in legitimate financial documents
+# (e.g., "upon receipt of this statement", "invoice for services")
 
 
 def extract_pdf_text(file_content: bytes, max_pages: int = 3) -> str:
