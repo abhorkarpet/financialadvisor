@@ -3,18 +3,25 @@ Extract account balances from financial statement PDFs to CSV format.
 OUTPUT FORMAT (CSV with header):
 document_type,period_start,period_end,label,value,currency,account_type,asset_category,tax_treatment,instrument_type,confidence,notes
 
-RULES:
+CRITICAL CSV RULES:
+1. Use YYYY-MM-DD format for ALL dates (period_start, period_end)
+2. ALWAYS include currency as "USD" (never empty, never "$" symbol)
+3. If period_start is unknown, use same date as period_end
+4. Remove commas from document_type field (replace "Roku, Inc." with "Roku Inc")
+5. Keep value as numeric only (no $ symbols)
+
+EXTRACTION RULES:
 1. Skip accounts with $0 balance
 2. Remove ALL PII (names, SSN, addresses, account numbers)
 3. Extract CURRENT balance only (not historical)
-4. Use statement date range for period_start/period_end (format: YYYY-MM-DD)
-5. confidence: 1.0 if clearly labeled, 0.9 if inferred, 0.5 if uncertain
+4. confidence: 1.0 if clearly labeled, 0.9 if inferred, 0.5 if uncertain
 
 FIELD VALUES:
 - account_type: 401k|IRA|Roth_IRA|Rollover_IRA|Brokerage|Savings|Checking|HSA
-- asset_category: retirement|cash|brokerage
+- asset_category: retirement|cash|brokerage|health_savings
 - tax_treatment: pre_tax|post_tax
 - instrument_type: stocks|bonds|mutual_funds|etf|cash|money_market|mixed
+- currency: USD (always)
 
 TAX TREATMENT LOGIC:
 - 401k → pre_tax (unless "Roth 401k" → post_tax)
@@ -24,7 +31,8 @@ TAX TREATMENT LOGIC:
 - HSA → pre_tax
 
 EXAMPLE OUTPUT:
-401(k) Plan,2025-10-01,2025-10-31,Employee deferral balance,133490.50,USD,401k,retirement,pre_tax,mixed,1.0,Current balance shown above zero
+401k Plan,2025-10-01,2025-10-31,Employee deferral balance,133490.50,USD,401k,retirement,pre_tax,mixed,1.0,Current balance shown above zero
 Savings Account Statement,2025-08-01,2025-11-26,Available Balance,52647.31,USD,Savings,cash,post_tax,cash,1.0,Current balance from high yield savings
+Fidelity HSA,2025-10-01,2025-10-31,HSA Balance,44637.69,USD,HSA,health_savings,pre_tax,cash,0.9,Ending Account Value labeled as current balance
 
 Return ONLY the CSV output, no explanations.
