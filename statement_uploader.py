@@ -81,57 +81,94 @@ def extract_pdf_text(file_content: bytes, max_pages: int = 3) -> str:
         return ""
 
 
-def is_likely_financial_document(text: str, filename: str = "") -> Tuple[bool, float, List[str]]:
+def is_likely_financial_document(text: str, filename: str = "", debug: bool = False) -> Tuple[bool, float, List[str], Dict]:
     """
     Determine if a document is likely a financial statement.
 
     Args:
         text: Extracted text from document
         filename: Original filename (optional hint)
+        debug: If True, return detailed scoring breakdown
 
     Returns:
-        Tuple of (is_financial, confidence_score, matched_keywords)
+        Tuple of (is_financial, confidence_score, matched_keywords, debug_info)
     """
     if not text:
-        return False, 0.0, []
+        return False, 0.0, [], {}
 
     text_lower = text.lower()
     filename_lower = filename.lower()
     matched_keywords = []
     score = 0.0
 
+    # Debug information
+    debug_info = {
+        'scores': {},
+        'matched_by_category': {},
+        'non_financial_indicator': None,
+        'total_score': 0.0,
+        'threshold': 6.0,
+        'max_possible': 20.0
+    }
+
     # Check for non-financial indicators first
     for indicator in NON_FINANCIAL_INDICATORS:
         if indicator in text_lower or indicator in filename_lower:
-            return False, 0.0, [f"non-financial: {indicator}"]
+            debug_info['non_financial_indicator'] = indicator
+            return False, 0.0, [f"non-financial: {indicator}"], debug_info
 
     # High confidence keywords (5 points each)
+    high_conf_matches = []
+    high_conf_score = 0.0
     for keyword in FINANCIAL_KEYWORDS['high_confidence']:
         if keyword.lower() in text_lower:
-            score += 5.0
+            high_conf_score += 5.0
             matched_keywords.append(keyword)
+            high_conf_matches.append(keyword)
+    score += high_conf_score
+    debug_info['scores']['high_confidence'] = high_conf_score
+    debug_info['matched_by_category']['high_confidence'] = high_conf_matches
 
     # Medium confidence keywords (2 points each)
+    med_conf_matches = []
+    med_conf_score = 0.0
     for keyword in FINANCIAL_KEYWORDS['medium_confidence']:
         if keyword.lower() in text_lower:
-            score += 2.0
+            med_conf_score += 2.0
             if keyword not in matched_keywords:
                 matched_keywords.append(keyword)
+                med_conf_matches.append(keyword)
+    score += med_conf_score
+    debug_info['scores']['medium_confidence'] = med_conf_score
+    debug_info['matched_by_category']['medium_confidence'] = med_conf_matches
 
     # Account types (3 points each)
+    account_matches = []
+    account_score = 0.0
     for keyword in FINANCIAL_KEYWORDS['account_types']:
         if keyword.lower() in text_lower:
-            score += 3.0
+            account_score += 3.0
             if keyword not in matched_keywords:
                 matched_keywords.append(keyword)
+                account_matches.append(keyword)
+    score += account_score
+    debug_info['scores']['account_types'] = account_score
+    debug_info['matched_by_category']['account_types'] = account_matches
 
     # Filename hints (bonus points)
+    filename_matches = []
+    filename_score = 0.0
     filename_keywords = ['statement', '401k', 'ira', 'roth', 'brokerage', 'invest']
     for keyword in filename_keywords:
         if keyword in filename_lower:
-            score += 2.0
+            filename_score += 2.0
+            filename_matches.append(keyword)
+    score += filename_score
+    debug_info['scores']['filename'] = filename_score
+    debug_info['matched_by_category']['filename'] = filename_matches
 
     # Look for date patterns (common in statements)
+    date_score = 0.0
     date_patterns = [
         r'\d{1,2}/\d{1,2}/\d{2,4}',  # 12/31/2024
         r'\d{4}-\d{2}-\d{2}',         # 2024-12-31
@@ -139,28 +176,35 @@ def is_likely_financial_document(text: str, filename: str = "") -> Tuple[bool, f
     ]
     for pattern in date_patterns:
         if re.search(pattern, text_lower):
-            score += 1.0
+            date_score = 1.0
             break
+    score += date_score
+    debug_info['scores']['date_pattern'] = date_score
 
     # Look for dollar amounts (common in statements)
+    dollar_score = 0.0
     if re.search(r'\$[\d,]+\.\d{2}', text):
-        score += 2.0
+        dollar_score = 2.0
+    score += dollar_score
+    debug_info['scores']['dollar_amounts'] = dollar_score
 
     # Normalize score to 0-1 range
     confidence = min(score / 20.0, 1.0)  # 20 points = 100% confidence
+    debug_info['total_score'] = score
 
     # Threshold: 0.3 confidence or higher
     is_financial = confidence >= 0.3
 
-    return is_financial, confidence, matched_keywords
+    return is_financial, confidence, matched_keywords, debug_info
 
 
-def validate_uploaded_files(uploaded_files) -> Dict:
+def validate_uploaded_files(uploaded_files, debug: bool = False) -> Dict:
     """
     Validate and categorize uploaded files.
 
     Args:
         uploaded_files: List of Streamlit UploadedFile objects
+        debug: If True, include detailed debug information
 
     Returns:
         Dict with 'valid', 'invalid', and 'stats' keys
@@ -176,14 +220,15 @@ def validate_uploaded_files(uploaded_files) -> Dict:
 
         # Extract text and check
         text = extract_pdf_text(content)
-        is_financial, confidence, keywords = is_likely_financial_document(text, file.name)
+        is_financial, confidence, keywords, debug_info = is_likely_financial_document(text, file.name, debug=debug)
 
         file_info = {
             'file': file,
             'name': file.name,
             'size': len(content),
             'confidence': confidence,
-            'keywords': keywords[:5]  # Top 5 keywords
+            'keywords': keywords[:5],  # Top 5 keywords
+            'debug_info': debug_info if debug else None
         }
 
         if is_financial:
@@ -551,6 +596,14 @@ def main():
         All personal information (names, addresses, SSN, etc.) is automatically removed from the extracted data.
         """)
 
+        st.markdown("---")
+        st.markdown("## Debug Mode")
+        debug_mode = st.checkbox(
+            "Enable verbose detection logging",
+            value=False,
+            help="Show detailed scoring breakdown for document detection"
+        )
+
     # Check configuration
     is_configured, webhook_url, error_msg = check_configuration()
 
@@ -591,7 +644,7 @@ def main():
 
         # Validate files
         with st.spinner("Analyzing documents..."):
-            validation = validate_uploaded_files(uploaded_files)
+            validation = validate_uploaded_files(uploaded_files, debug=debug_mode)
 
         valid_files = validation['valid']
         invalid_files = validation['invalid']
@@ -619,6 +672,39 @@ def main():
                     st.write(f"   - Size: {file_info['size'] / 1024:.1f} KB")
                     st.write(f"   - Confidence: {confidence_pct:.0f}%")
                     st.write(f"   - Keywords: {keywords_str}")
+
+                    # Show debug information if enabled
+                    if debug_mode and file_info.get('debug_info'):
+                        debug_info = file_info['debug_info']
+                        with st.expander(f"🔍 Debug Info: {file_info['name']}", expanded=False):
+                            st.markdown("**Scoring Breakdown:**")
+
+                            # Display scores
+                            scores = debug_info['scores']
+                            st.write(f"- High Confidence Keywords: **{scores.get('high_confidence', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('high_confidence'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
+
+                            st.write(f"- Medium Confidence Keywords: **{scores.get('medium_confidence', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('medium_confidence'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
+
+                            st.write(f"- Account Types: **{scores.get('account_types', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('account_types'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['account_types'])}")
+
+                            st.write(f"- Filename Keywords: **{scores.get('filename', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('filename'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['filename'])}")
+
+                            st.write(f"- Date Pattern Found: **{scores.get('date_pattern', 0):.1f}** points")
+                            st.write(f"- Dollar Amounts Found: **{scores.get('dollar_amounts', 0):.1f}** points")
+
+                            st.markdown("---")
+                            st.write(f"**Total Score:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f}")
+                            st.write(f"**Threshold:** {debug_info['threshold']:.1f} (30% confidence)")
+                            st.write(f"**Result:** {'✅ PASS' if file_info['confidence'] >= 0.3 else '❌ FAIL'}")
+
                     st.write("")
 
         # Show invalid files
@@ -634,6 +720,44 @@ def main():
                     st.write(f"   - Size: {file_info['size'] / 1024:.1f} KB")
                     st.write(f"   - Confidence: {confidence_pct:.0f}%")
                     st.write(f"   - Reason: {reason}")
+
+                    # Show debug information if enabled
+                    if debug_mode and file_info.get('debug_info'):
+                        debug_info = file_info['debug_info']
+                        with st.expander(f"🔍 Debug Info: {file_info['name']}", expanded=False):
+                            # Check for non-financial indicator
+                            if debug_info.get('non_financial_indicator'):
+                                st.error(f"**Rejected:** Found non-financial indicator: '{debug_info['non_financial_indicator']}'")
+                                st.write("")
+
+                            st.markdown("**Scoring Breakdown:**")
+
+                            # Display scores
+                            scores = debug_info['scores']
+                            st.write(f"- High Confidence Keywords: **{scores.get('high_confidence', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('high_confidence'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['high_confidence'][:5])}")
+
+                            st.write(f"- Medium Confidence Keywords: **{scores.get('medium_confidence', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('medium_confidence'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['medium_confidence'][:5])}")
+
+                            st.write(f"- Account Types: **{scores.get('account_types', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('account_types'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['account_types'])}")
+
+                            st.write(f"- Filename Keywords: **{scores.get('filename', 0):.1f}** points")
+                            if debug_info['matched_by_category'].get('filename'):
+                                st.write(f"  - Matched: {', '.join(debug_info['matched_by_category']['filename'])}")
+
+                            st.write(f"- Date Pattern Found: **{scores.get('date_pattern', 0):.1f}** points")
+                            st.write(f"- Dollar Amounts Found: **{scores.get('dollar_amounts', 0):.1f}** points")
+
+                            st.markdown("---")
+                            st.write(f"**Total Score:** {debug_info['total_score']:.1f} / {debug_info['max_possible']:.1f}")
+                            st.write(f"**Threshold:** {debug_info['threshold']:.1f} (30% confidence)")
+                            st.write(f"**Result:** {'❌ FAIL - Score too low' if file_info['confidence'] < 0.3 else '✅ PASS'}")
+
                     st.write("")
 
         # Only show process button if there are valid files
