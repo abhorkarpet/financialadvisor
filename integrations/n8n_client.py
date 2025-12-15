@@ -254,6 +254,16 @@ class N8NClient:
         Parse n8n webhook response.
 
         Expected response format (new JSON format):
+        {
+            "data": [
+                {
+                    "output": "{\"document_metadata\": {...}, \"accounts\": [...], \"warnings\": [...]}"
+                },
+                ...
+            ]
+        }
+
+        Or direct array format:
         [
             {
                 "output": "{\"document_metadata\": {...}, \"accounts\": [...], \"warnings\": [...]}"
@@ -281,7 +291,11 @@ class N8NClient:
                     'error': data['error']
                 }
 
-            # Check for new JSON array format
+            # Check for wrapped JSON array format (new n8n response)
+            if isinstance(data, dict) and 'data' in data:
+                return self._parse_json_array_response(data['data'])
+
+            # Check for direct JSON array format
             if isinstance(data, list):
                 return self._parse_json_array_response(data)
 
