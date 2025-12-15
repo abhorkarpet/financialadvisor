@@ -419,6 +419,15 @@ def humanize_value(value: str) -> str:
         'not_eligible': '❌ Not Eligible',
     }
 
+    # Tax bucket type mappings
+    bucket_mappings = {
+        'traditional_401k': 'Traditional 401(k)',
+        'roth_in_plan_conversion': 'Roth In-Plan Conversion',
+        'after_tax_401k': 'After-Tax 401(k)',
+        'employee_deferral': 'Employee Deferral',
+        'employer_match': 'Employer Match',
+    }
+
     # Check mappings
     if value_str.lower() in tax_mappings:
         return tax_mappings[value_str.lower()]
@@ -432,6 +441,8 @@ def humanize_value(value: str) -> str:
         return purpose_mappings[value_str.lower()]
     if value_str.lower() in eligibility_mappings:
         return eligibility_mappings[value_str.lower()]
+    if value_str.lower() in bucket_mappings:
+        return bucket_mappings[value_str.lower()]
 
     # Default: capitalize first letter of each word (replace _ with space)
     if '_' in value_str:
@@ -440,17 +451,27 @@ def humanize_value(value: str) -> str:
     return value_str
 
 
-def display_results(data, format_type='csv'):
+def display_results(data, format_type='csv', warnings=None):
     """
     Display extracted financial data in a formatted table.
 
     Args:
         data: Either CSV string or list of account dictionaries
         format_type: 'csv' or 'json'
+        warnings: Optional list of warning messages from processing
     """
     try:
+        # Store tax_buckets data before flattening to DataFrame
+        tax_buckets_by_account = {}
+
         # Convert data to DataFrame
         if format_type == 'json':
+            # Save tax_buckets before converting to DataFrame
+            for idx, account in enumerate(data):
+                if 'tax_buckets' in account and account['tax_buckets']:
+                    account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
+                    tax_buckets_by_account[account_id] = account['tax_buckets']
+
             # Convert JSON array to DataFrame
             df = pd.DataFrame(data)
             # Rename JSON fields to match CSV column names
@@ -464,7 +485,8 @@ def display_results(data, format_type='csv'):
                 'institution': 'document_type',
                 'purpose': 'purpose',
                 'income_eligibility': 'income_eligibility',
-                'classification_confidence': 'classification_confidence'
+                'classification_confidence': 'classification_confidence',
+                'account_id': 'account_id'
             }
             df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
         else:
@@ -558,6 +580,53 @@ def display_results(data, format_type='csv'):
             use_container_width=True,
             hide_index=True
         )
+
+        # Display warnings if any
+        if warnings and len(warnings) > 0:
+            st.markdown("### ⚠️ Processing Warnings")
+            for warning in warnings:
+                st.warning(warning)
+
+        # Display tax bucket breakdowns
+        if tax_buckets_by_account:
+            st.markdown("### 🔍 Tax Bucket Breakdown")
+            st.info("**Detailed tax source breakdown for retirement accounts**")
+
+            for account_id, buckets in tax_buckets_by_account.items():
+                # Find account name in DataFrame
+                account_row = df[df.get('account_id') == account_id] if 'account_id' in df.columns else None
+                if account_row is not None and not account_row.empty:
+                    account_name = account_row.iloc[0].get('label', account_id)
+                else:
+                    account_name = account_id
+
+                with st.expander(f"📊 {account_name}"):
+                    # Create DataFrame for buckets
+                    bucket_df = pd.DataFrame(buckets)
+
+                    # Humanize bucket_type and tax_treatment
+                    if 'bucket_type' in bucket_df.columns:
+                        bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_value)
+                    if 'tax_treatment' in bucket_df.columns:
+                        bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_value)
+
+                    # Format balance as currency
+                    if 'balance' in bucket_df.columns:
+                        total_bucket_balance = bucket_df['balance'].sum()
+                        bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
+
+                    # Rename columns
+                    bucket_df = bucket_df.rename(columns={
+                        'bucket_type': 'Tax Bucket',
+                        'tax_treatment': 'Tax Treatment',
+                        'balance': 'Balance'
+                    })
+
+                    st.dataframe(bucket_df, use_container_width=True, hide_index=True)
+
+                    # Show total
+                    if 'balance' in locals():
+                        st.metric("Total", f"${total_bucket_balance:,.2f}")
 
         # Breakdown by tax treatment
         if 'tax_treatment' in df.columns and 'value' in df.columns:
@@ -892,15 +961,10 @@ def main():
                         # Show execution time
                         st.caption(f"Processed in {result['execution_time']:.2f} seconds")
 
-                        # Display warnings if any
-                        if result.get('warnings'):
-                            st.warning(f"⚠️ {len(result['warnings'])} warning(s) from processing")
-                            for warning in result['warnings']:
-                                st.write(f"- {warning}")
-
-                        # Display extracted data
+                        # Display extracted data (warnings will be shown within display_results)
                         format_type = result.get('format', 'csv')
-                        display_results(result['data'], format_type=format_type)
+                        warnings = result.get('warnings', [])
+                        display_results(result['data'], format_type=format_type, warnings=warnings)
 
                     else:
                         progress_bar.progress(100)

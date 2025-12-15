@@ -1133,7 +1133,15 @@ with tab3:
 
                             # Parse response (handle both JSON and CSV formats)
                             response_format = result.get('format', 'csv')
+                            tax_buckets_by_account = {}
+
                             if response_format == 'json':
+                                # Save tax_buckets before converting to DataFrame
+                                for idx, account in enumerate(result['data']):
+                                    if 'tax_buckets' in account and account['tax_buckets']:
+                                        account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
+                                        tax_buckets_by_account[account_id] = account['tax_buckets']
+
                                 # JSON format - already a list of dicts
                                 df_extracted = pd.DataFrame(result['data'])
                                 # Rename JSON fields if needed
@@ -1141,7 +1149,8 @@ with tab3:
                                     'account_name': 'label',
                                     'ending_balance': 'value',
                                     'balance_as_of_date': 'period_end',
-                                    'institution': 'document_type'
+                                    'institution': 'document_type',
+                                    'account_id': 'account_id'
                                 }
                                 df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
                             else:
@@ -1156,6 +1165,13 @@ with tab3:
                                 df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
 
                             st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
+
+                            # Display warnings if any
+                            warnings = result.get('warnings', [])
+                            if warnings and len(warnings) > 0:
+                                with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
+                                    for warning in warnings:
+                                        st.warning(warning)
 
                             # Map extracted data to Asset objects
                             with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
@@ -1312,6 +1328,59 @@ with tab3:
                                     hide_index=True,
                                     num_rows="dynamic"
                                 )
+
+                                # Display tax bucket breakdowns if available
+                                if tax_buckets_by_account:
+                                    st.markdown("---")
+                                    st.markdown("#### 🔍 Tax Bucket Breakdown")
+                                    st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
+
+                                    for account_id, buckets in tax_buckets_by_account.items():
+                                        # Find account name in DataFrame
+                                        account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
+                                        if account_row is not None and not account_row.empty:
+                                            account_name = account_row.iloc[0].get('label', account_id)
+                                        else:
+                                            account_name = account_id
+
+                                        with st.expander(f"📊 {account_name}"):
+                                            # Create DataFrame for buckets
+                                            bucket_df = pd.DataFrame(buckets)
+
+                                            # Humanize bucket_type and tax_treatment
+                                            def humanize_bucket(value: str) -> str:
+                                                mappings = {
+                                                    'traditional_401k': 'Traditional 401(k)',
+                                                    'roth_in_plan_conversion': 'Roth In-Plan Conversion',
+                                                    'after_tax_401k': 'After-Tax 401(k)',
+                                                    'tax_deferred': 'Tax-Deferred',
+                                                    'tax_free': 'Tax-Free',
+                                                    'post_tax': 'Post-Tax',
+                                                    'pre_tax': 'Pre-Tax'
+                                                }
+                                                return mappings.get(str(value).lower(), value)
+
+                                            if 'bucket_type' in bucket_df.columns:
+                                                bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
+                                            if 'tax_treatment' in bucket_df.columns:
+                                                bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
+
+                                            # Format balance as currency
+                                            if 'balance' in bucket_df.columns:
+                                                total_bucket_balance = bucket_df['balance'].sum()
+                                                bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
+
+                                            # Rename columns
+                                            bucket_df = bucket_df.rename(columns={
+                                                'bucket_type': 'Tax Bucket',
+                                                'tax_treatment': 'Tax Treatment',
+                                                'balance': 'Balance'
+                                            })
+
+                                            st.dataframe(bucket_df, use_container_width=True, hide_index=True)
+
+                                            # Show total
+                                            st.metric("Total", f"${total_bucket_balance:,.2f}")
 
                                 # Convert edited dataframe to Asset objects
                                 if not edited_df.empty:
