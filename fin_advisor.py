@@ -1131,13 +1131,29 @@ with tab3:
                             progress_bar.progress(100)
                             status_text.text("✓ Extraction complete!")
 
-                            # Parse CSV response
-                            csv_content = result['data']
-                            df_extracted = pd.read_csv(io.StringIO(csv_content))
+                            # Parse response (handle both JSON and CSV formats)
+                            response_format = result.get('format', 'csv')
+                            if response_format == 'json':
+                                # JSON format - already a list of dicts
+                                df_extracted = pd.DataFrame(result['data'])
+                                # Rename JSON fields if needed
+                                column_mapping = {
+                                    'account_name': 'label',
+                                    'ending_balance': 'value',
+                                    'balance_as_of_date': 'period_end',
+                                    'institution': 'document_type'
+                                }
+                                df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
+                            else:
+                                # CSV format
+                                csv_content = result['data']
+                                df_extracted = pd.read_csv(io.StringIO(csv_content))
 
                             # Convert to numeric
                             if 'value' in df_extracted.columns:
                                 df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
+                            elif 'ending_balance' in df_extracted.columns:
+                                df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
 
                             st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
 
@@ -1171,6 +1187,10 @@ with tab3:
                                         asset_type_display = 'Pre-Tax'
                                     elif tax_treatment == 'post_tax':
                                         asset_type_display = 'Post-Tax'
+                                    elif tax_treatment == 'tax_deferred':
+                                        asset_type_display = 'Tax-Deferred'
+                                    elif tax_treatment == 'tax_free':
+                                        asset_type_display = 'Post-Tax'  # Roth accounts map to POST_TAX
                                     else:
                                         asset_type_display = 'Post-Tax'  # default
 
@@ -1183,6 +1203,31 @@ with tab3:
                                     # Get current balance
                                     current_balance = float(row.get('value', 0))
 
+                                    # Helper function to humanize income eligibility
+                                    def humanize_eligibility(value: str) -> str:
+                                        mappings = {
+                                            'eligible': '✅ Eligible',
+                                            'conditionally_eligible': '⚠️ Conditionally Eligible',
+                                            'not_eligible': '❌ Not Eligible'
+                                        }
+                                        return mappings.get(str(value).lower(), value)
+
+                                    # Helper function to humanize purpose
+                                    def humanize_purpose(value: str) -> str:
+                                        mappings = {
+                                            'income': 'Retirement Income',
+                                            'general_income': 'General Income',
+                                            'healthcare_only': 'Healthcare Only (HSA)',
+                                            'education_only': 'Education Only (529)',
+                                            'employment_compensation': 'Employment Compensation',
+                                            'restricted_other': 'Restricted/Other'
+                                        }
+                                        return mappings.get(str(value).lower(), value)
+
+                                    # Get income eligibility and purpose if available
+                                    income_eligibility = row.get('income_eligibility', '')
+                                    purpose = row.get('purpose', '')
+
                                     table_row = {
                                         "#": f"#{idx+1}",
                                         "Account": account_name,
@@ -1193,6 +1238,15 @@ with tab3:
                                         "Growth Rate (%)": 7.0,  # Default assumption
                                         "Tax Rate (%)": 15.0 if asset_type_display == 'Post-Tax' else 0.0
                                     }
+
+                                    # Add income eligibility if available
+                                    if income_eligibility:
+                                        table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
+
+                                    # Add purpose if available
+                                    if purpose:
+                                        table_row["Purpose"] = humanize_purpose(purpose)
+
                                     table_data.append(table_row)
 
                                 # Create DataFrame
@@ -1237,6 +1291,16 @@ with tab3:
                                         max_value=50,
                                         format="%.1f%%",
                                         help="Tax rate on GAINS: 0% for Roth/pre-tax, 15% for brokerage capital gains"
+                                    ),
+                                    "Income Eligibility": st.column_config.TextColumn(
+                                        "Income Eligibility",
+                                        disabled=True,
+                                        help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
+                                    ),
+                                    "Purpose": st.column_config.TextColumn(
+                                        "Purpose",
+                                        disabled=True,
+                                        help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
                                     )
                                 }
 

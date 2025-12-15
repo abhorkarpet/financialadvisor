@@ -402,6 +402,23 @@ def humanize_value(value: str) -> str:
         'money_market': 'Money Market',
     }
 
+    # Purpose mappings
+    purpose_mappings = {
+        'income': 'Retirement Income',
+        'general_income': 'General Income',
+        'healthcare_only': 'Healthcare Only (HSA)',
+        'education_only': 'Education Only (529)',
+        'employment_compensation': 'Employment Compensation',
+        'restricted_other': 'Restricted/Other',
+    }
+
+    # Income eligibility mappings
+    eligibility_mappings = {
+        'eligible': '✅ Eligible',
+        'conditionally_eligible': '⚠️ Conditionally Eligible',
+        'not_eligible': '❌ Not Eligible',
+    }
+
     # Check mappings
     if value_str.lower() in tax_mappings:
         return tax_mappings[value_str.lower()]
@@ -411,6 +428,10 @@ def humanize_value(value: str) -> str:
         return asset_category_mappings[value_str.lower()]
     if value_str.lower() in investment_type_mappings:
         return investment_type_mappings[value_str.lower()]
+    if value_str.lower() in purpose_mappings:
+        return purpose_mappings[value_str.lower()]
+    if value_str.lower() in eligibility_mappings:
+        return eligibility_mappings[value_str.lower()]
 
     # Default: capitalize first letter of each word (replace _ with space)
     if '_' in value_str:
@@ -440,7 +461,10 @@ def display_results(data, format_type='csv'):
                 'tax_treatment': 'tax_treatment',
                 'currency': 'currency',
                 'balance_as_of_date': 'period_end',
-                'institution': 'document_type'
+                'institution': 'document_type',
+                'purpose': 'purpose',
+                'income_eligibility': 'income_eligibility',
+                'classification_confidence': 'classification_confidence'
             }
             df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
         else:
@@ -490,7 +514,7 @@ def display_results(data, format_type='csv'):
         display_df = df.copy()
 
         # Humanize coded values in text columns
-        text_columns = ['tax_treatment', 'account_type', 'asset_category', 'instrument_type']
+        text_columns = ['tax_treatment', 'account_type', 'asset_category', 'instrument_type', 'purpose', 'income_eligibility']
         for col in text_columns:
             if col in display_df.columns:
                 display_df[col] = display_df[col].apply(humanize_value)
@@ -502,6 +526,12 @@ def display_results(data, format_type='csv'):
         # Format confidence column as percentage
         if 'confidence' in display_df.columns:
             display_df['confidence'] = display_df['confidence'].apply(lambda x: f"{x*100:.0f}%")
+
+        # Format classification_confidence column as percentage
+        if 'classification_confidence' in display_df.columns:
+            display_df['classification_confidence'] = display_df['classification_confidence'].apply(
+                lambda x: f"{x*100:.0f}%" if pd.notna(x) else ""
+            )
 
         # Rename columns to be more readable
         column_renames = {
@@ -515,6 +545,9 @@ def display_results(data, format_type='csv'):
             'asset_category': 'Asset Category',
             'tax_treatment': 'Tax Treatment',
             'instrument_type': 'Investment Type',
+            'purpose': 'Account Purpose',
+            'income_eligibility': 'Income Eligibility',
+            'classification_confidence': 'Classification Confidence',
             'confidence': 'Confidence',
             'notes': 'Notes'
         }
@@ -545,6 +578,29 @@ def display_results(data, format_type='csv'):
             with col2:
                 # Bar chart with humanized labels
                 chart_data = df.groupby('tax_treatment')['value'].sum()
+                # Rename index to humanized values
+                chart_data.index = chart_data.index.map(humanize_value)
+                st.bar_chart(chart_data)
+
+        # Breakdown by income eligibility
+        if 'income_eligibility' in df.columns and 'value' in df.columns:
+            st.markdown("### Income Eligibility Breakdown")
+
+            eligibility_summary = df.groupby('income_eligibility')['value'].sum().reset_index()
+            eligibility_summary.columns = ['Income Eligibility', 'Total Value']
+
+            # Humanize income eligibility values
+            eligibility_summary['Income Eligibility'] = eligibility_summary['Income Eligibility'].apply(humanize_value)
+            eligibility_summary['Total Value'] = eligibility_summary['Total Value'].apply(lambda x: f"${x:,.2f}")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.dataframe(eligibility_summary, use_container_width=True, hide_index=True)
+
+            with col2:
+                # Bar chart with humanized labels
+                chart_data = df.groupby('income_eligibility')['value'].sum()
                 # Rename index to humanized values
                 chart_data.index = chart_data.index.map(humanize_value)
                 st.bar_chart(chart_data)
