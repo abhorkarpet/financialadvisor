@@ -1136,11 +1136,36 @@ with tab3:
                             tax_buckets_by_account = {}
 
                             if response_format == 'json':
-                                # Save tax_buckets before converting to DataFrame
+                                # Save tax_buckets or raw_tax_sources before converting to DataFrame
                                 for idx, account in enumerate(result['data']):
+                                    account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
+
+                                    # Check for processed tax_buckets first
                                     if 'tax_buckets' in account and account['tax_buckets']:
-                                        account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
                                         tax_buckets_by_account[account_id] = account['tax_buckets']
+                                    # Fall back to raw_tax_sources if available
+                                    elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
+                                        # Convert raw_tax_sources to bucket format for display
+                                        raw_sources = account['_raw_tax_sources']
+                                        buckets = []
+                                        for source in raw_sources:
+                                            if source.get('balance', 0) > 0:  # Only show non-zero balances
+                                                # Map label to tax treatment
+                                                label = source['label'].lower()
+                                                if 'roth' in label:
+                                                    tax_treatment = 'tax_free'
+                                                elif 'after tax' in label or 'after-tax' in label:
+                                                    tax_treatment = 'post_tax'
+                                                else:  # Employee deferral, traditional, etc.
+                                                    tax_treatment = 'tax_deferred'
+
+                                                buckets.append({
+                                                    'bucket_type': source['label'],
+                                                    'tax_treatment': tax_treatment,
+                                                    'balance': source['balance']
+                                                })
+                                        if buckets:
+                                            tax_buckets_by_account[account_id] = buckets
 
                                 # JSON format - already a list of dicts
                                 df_extracted = pd.DataFrame(result['data'])

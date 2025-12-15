@@ -323,6 +323,7 @@ class N8NClient:
         Each item has an 'output' field containing a JSON string with:
         - document_metadata
         - accounts (array)
+        - raw_tax_sources (array, optional)
         - warnings (array)
         """
         try:
@@ -342,6 +343,14 @@ class N8NClient:
                         # Add document metadata to account
                         if 'document_metadata' in output:
                             account['_document_metadata'] = output['document_metadata']
+
+                        # If account doesn't have tax_buckets but document has raw_tax_sources,
+                        # associate the raw sources with this account for display
+                        if 'raw_tax_sources' in output and output['raw_tax_sources']:
+                            if 'tax_buckets' not in account or not account['tax_buckets']:
+                                # Store raw_tax_sources for potential client-side processing
+                                account['_raw_tax_sources'] = output['raw_tax_sources']
+
                         all_accounts.append(account)
 
                 # Collect warnings
