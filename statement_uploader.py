@@ -364,6 +364,7 @@ def humanize_value(value: str) -> str:
         'pre_tax': 'Pre-Tax',
         'post_tax': 'Post-Tax',
         'tax_free': 'Tax-Free',
+        'tax_deferred': 'Tax-Deferred',
     }
 
     # Account type mappings
@@ -373,6 +374,10 @@ def humanize_value(value: str) -> str:
         'roth_ira': 'Roth IRA',
         'traditional_ira': 'Traditional IRA',
         'rollover_ira': 'Rollover IRA',
+        'savings': 'Savings',
+        'checking': 'Checking',
+        'brokerage': 'Brokerage',
+        'hsa': 'HSA',
     }
 
     # Asset category mappings
@@ -414,22 +419,39 @@ def humanize_value(value: str) -> str:
     return value_str
 
 
-def display_csv_results(csv_content: str):
+def display_results(data, format_type='csv'):
     """
-    Display extracted CSV data in a formatted table.
+    Display extracted financial data in a formatted table.
 
     Args:
-        csv_content: CSV string with extracted financial data
+        data: Either CSV string or list of account dictionaries
+        format_type: 'csv' or 'json'
     """
     try:
-        # Parse CSV
-        df = pd.read_csv(io.StringIO(csv_content))
+        # Convert data to DataFrame
+        if format_type == 'json':
+            # Convert JSON array to DataFrame
+            df = pd.DataFrame(data)
+            # Rename JSON fields to match CSV column names
+            column_mapping = {
+                'account_name': 'label',
+                'ending_balance': 'value',
+                'account_type': 'account_type',
+                'tax_treatment': 'tax_treatment',
+                'currency': 'currency',
+                'balance_as_of_date': 'period_end',
+                'institution': 'document_type'
+            }
+            df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+        else:
+            # Parse CSV
+            df = pd.read_csv(io.StringIO(data))
 
         # Convert numeric columns
         if 'value' in df.columns:
             df['value'] = pd.to_numeric(df['value'], errors='coerce')
-        if 'confidence' in df.columns:
-            df['confidence'] = pd.to_numeric(df['confidence'], errors='coerce')
+        elif 'ending_balance' in df.columns:
+            df['value'] = pd.to_numeric(df['ending_balance'], errors='coerce')
 
         if df.empty or len(df) == 0:
             st.warning("No financial data was extracted from the uploaded statements.")
@@ -534,9 +556,10 @@ def display_csv_results(csv_content: str):
 
         with col1:
             # Download CSV
+            csv_download = df.to_csv(index=False)
             st.download_button(
                 label="📥 Download CSV",
-                data=csv_content,
+                data=csv_download,
                 file_name=f"financial_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
@@ -552,8 +575,11 @@ def display_csv_results(csv_content: str):
             )
 
     except Exception as e:
-        st.error(f"Error parsing CSV data: {str(e)}")
-        st.code(csv_content)
+        st.error(f"Error parsing data: {str(e)}")
+        if format_type == 'csv':
+            st.code(data)
+        else:
+            st.json(data)
 
 
 def main():
@@ -810,8 +836,15 @@ def main():
                         # Show execution time
                         st.caption(f"Processed in {result['execution_time']:.2f} seconds")
 
-                        # Display CSV data
-                        display_csv_results(result['data'])
+                        # Display warnings if any
+                        if result.get('warnings'):
+                            st.warning(f"⚠️ {len(result['warnings'])} warning(s) from processing")
+                            for warning in result['warnings']:
+                                st.write(f"- {warning}")
+
+                        # Display extracted data
+                        format_type = result.get('format', 'csv')
+                        display_results(result['data'], format_type=format_type)
 
                     else:
                         progress_bar.progress(100)

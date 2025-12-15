@@ -7,6 +7,7 @@ that extracts and categorizes financial statements from PDF files.
 
 import os
 import time
+import json
 import logging
 from typing import List, Dict, Optional, BinaryIO, Union
 from io import BytesIO
@@ -252,7 +253,15 @@ class N8NClient:
         """
         Parse n8n webhook response.
 
-        Expected response format:
+        Expected response format (new JSON format):
+        [
+            {
+                "output": "{\"document_metadata\": {...}, \"accounts\": [...], \"warnings\": [...]}"
+            },
+            ...
+        ]
+
+        Or legacy CSV format:
         {
             "combinedCsv": "document_type,period_start,...\\n..."
         }
@@ -266,26 +275,19 @@ class N8NClient:
             data = response.json()
 
             # Check for error in response
-            if 'error' in data:
+            if isinstance(data, dict) and 'error' in data:
                 return {
                     'success': False,
                     'error': data['error']
                 }
 
-            # Check for CSV data
-            if 'combinedCsv' in data:
-                csv_content = data['combinedCsv']
+            # Check for new JSON array format
+            if isinstance(data, list):
+                return self._parse_json_array_response(data)
 
-                # Validate CSV has content beyond header
-                lines = csv_content.strip().split('\n')
-                has_data = len(lines) > 1
-
-                return {
-                    'success': True,
-                    'data': csv_content,
-                    'rows_extracted': len(lines) - 1,  # Subtract header
-                    'has_data': has_data
-                }
+            # Check for legacy CSV format
+            if isinstance(data, dict) and 'combinedCsv' in data:
+                return self._parse_csv_response(data)
 
             # Unexpected response format
             return {
@@ -299,6 +301,75 @@ class N8NClient:
                 'success': False,
                 'error': f'Invalid JSON response: {str(e)}'
             }
+
+    def _parse_json_array_response(self, data: List[Dict]) -> Dict:
+        """
+        Parse new JSON array response format.
+
+        Each item has an 'output' field containing a JSON string with:
+        - document_metadata
+        - accounts (array)
+        - warnings (array)
+        """
+        try:
+            all_accounts = []
+            all_warnings = []
+
+            for item in data:
+                if 'output' not in item:
+                    continue
+
+                # Parse the output JSON string
+                output = json.loads(item['output'])
+
+                # Extract accounts
+                if 'accounts' in output:
+                    for account in output['accounts']:
+                        # Add document metadata to account
+                        if 'document_metadata' in output:
+                            account['_document_metadata'] = output['document_metadata']
+                        all_accounts.append(account)
+
+                # Collect warnings
+                if 'warnings' in output:
+                    all_warnings.extend(output['warnings'])
+
+            if not all_accounts:
+                return {
+                    'success': False,
+                    'error': 'No accounts found in response'
+                }
+
+            return {
+                'success': True,
+                'data': all_accounts,  # List of account dictionaries
+                'warnings': all_warnings,
+                'rows_extracted': len(all_accounts),
+                'has_data': len(all_accounts) > 0,
+                'format': 'json'
+            }
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return {
+                'success': False,
+                'error': f'Error parsing JSON response: {str(e)}'
+            }
+
+    def _parse_csv_response(self, data: Dict) -> Dict:
+        """Parse legacy CSV response format."""
+        csv_content = data['combinedCsv']
+
+        # Validate CSV has content beyond header
+        lines = csv_content.strip().split('\n')
+        has_data = len(lines) > 1
+
+        return {
+            'success': True,
+            'data': csv_content,  # CSV string
+            'rows_extracted': len(lines) - 1,  # Subtract header
+            'has_data': has_data,
+            'format': 'csv'
+        }
 
     def test_connection(self) -> bool:
         """
