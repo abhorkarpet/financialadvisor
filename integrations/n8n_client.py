@@ -291,11 +291,15 @@ class N8NClient:
                     'error': data['error']
                 }
 
-            # Check for wrapped JSON array format (new n8n response)
+            # Check for wrapped JSON array format (new n8n response): { "data": [...] }
             if isinstance(data, dict) and 'data' in data:
                 return self._parse_json_array_response(data['data'])
 
-            # Check for direct JSON array format
+            # Check for wrapped list format: [{ "data": [...] }]
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict) and 'data' in data[0]:
+                return self._parse_json_array_response(data[0]['data'])
+
+            # Check for direct JSON array format: [{ "output": "..." }, ...]
             if isinstance(data, list):
                 return self._parse_json_array_response(data)
 
@@ -344,12 +348,22 @@ class N8NClient:
                         if 'document_metadata' in output:
                             account['_document_metadata'] = output['document_metadata']
 
-                        # If account doesn't have tax_buckets but document has raw_tax_sources,
-                        # associate the raw sources with this account for display
-                        if 'raw_tax_sources' in output and output['raw_tax_sources']:
-                            if 'tax_buckets' not in account or not account['tax_buckets']:
-                                # Store raw_tax_sources for potential client-side processing
+                        # Handle raw_tax_sources (can be at account level OR document level)
+                        if 'tax_buckets' not in account or not account['tax_buckets']:
+                            # Check account-level raw_tax_sources first
+                            if 'raw_tax_sources' in account and account['raw_tax_sources']:
+                                # Already at account level, just rename to _raw_tax_sources for consistency
+                                account['_raw_tax_sources'] = account['raw_tax_sources']
+                                # Remove the original field to avoid confusion
+                                del account['raw_tax_sources']
+                            # Fall back to document-level raw_tax_sources
+                            elif 'raw_tax_sources' in output and output['raw_tax_sources']:
                                 account['_raw_tax_sources'] = output['raw_tax_sources']
+
+                        # Preserve raw_contributions if present (for potential future use)
+                        if 'raw_contributions' in account and account['raw_contributions']:
+                            account['_raw_contributions'] = account['raw_contributions']
+                            del account['raw_contributions']
 
                         all_accounts.append(account)
 
