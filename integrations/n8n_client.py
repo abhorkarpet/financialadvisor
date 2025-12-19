@@ -365,7 +365,17 @@ class N8NClient:
                             account['_raw_contributions'] = account['raw_contributions']
                             del account['raw_contributions']
 
-                        all_accounts.append(account)
+                        # Filter out accounts without balances (unvested stocks, etc.)
+                        # Only include accounts with a valid ending_balance
+                        ending_balance = account.get('ending_balance')
+                        if ending_balance is not None and ending_balance != '':
+                            all_accounts.append(account)
+                        else:
+                            # Add warning for filtered account
+                            account_name = account.get('account_name', 'Unknown account')
+                            all_warnings.append(
+                                f"Excluded {account_name}: no vested balance available (typically unvested stocks)"
+                            )
 
                 # Collect warnings
                 if 'warnings' in output:
