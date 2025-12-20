@@ -1080,7 +1080,7 @@ with tab3:
                             current_balance=float(row["Current Balance"]),
                             annual_contribution=float(row["Annual Contribution"]),
                             growth_rate_pct=float(row["Growth Rate (%)"]),
-                            tax_rate_pct=float(row["Tax Rate (%)"])
+                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                         )
                         updated_assets.append(updated_asset)
                     
@@ -1350,6 +1350,17 @@ with tab3:
                                     else:
                                         default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
 
+                                    # Set default growth rate based on account type
+                                    account_type_lower = str(account_type_raw).lower()
+                                    if account_type_lower in ['savings', 'checking']:
+                                        default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
+                                    elif account_type_lower == 'hsa':
+                                        default_growth_rate = 7.0  # HSA invested in market
+                                    elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
+                                        default_growth_rate = 7.0  # Stock market average
+                                    else:
+                                        default_growth_rate = 7.0  # Default to market return
+
                                     table_row = {
                                         "#": f"#{idx+1}",
                                         "Account": account_name,
@@ -1357,8 +1368,8 @@ with tab3:
                                         "Tax Treatment": asset_type_display,
                                         "Current Balance": current_balance,
                                         "Annual Contribution": 0.0,  # User needs to fill
-                                        "Growth Rate (%)": 7.0,  # Default assumption
-                                        "Tax Rate (%)": default_tax_rate
+                                        "Growth Rate (%)": default_growth_rate,
+                                        "Tax Rate on Gains (%)": default_tax_rate
                                     }
 
                                     # Add income eligibility if available
@@ -1405,14 +1416,14 @@ with tab3:
                                         min_value=0,
                                         max_value=50,
                                         format="%.1f%%",
-                                        help="Expected annual growth rate (default: 7%)"
+                                        help="Expected annual growth rate (default: 7% stocks, 4% savings)"
                                     ),
-                                    "Tax Rate (%)": st.column_config.NumberColumn(
-                                        "Tax Rate (%)",
+                                    "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                        "Tax Rate on Gains (%)",
                                         min_value=0,
                                         max_value=50,
                                         format="%.1f%%",
-                                        help="Tax rate on GAINS: 0% for Roth/pre-tax, 15% for brokerage capital gains"
+                                        help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
                                     ),
                                     "Income Eligibility": st.column_config.TextColumn(
                                         "Income Eligibility",
@@ -1512,7 +1523,7 @@ with tab3:
                                                 current_balance=float(row["Current Balance"]),
                                                 annual_contribution=float(row["Annual Contribution"]),
                                                 growth_rate_pct=float(row["Growth Rate (%)"]),
-                                                tax_rate_pct=float(row["Tax Rate (%)"])
+                                                tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                                             )
                                             assets.append(asset)
 
@@ -1655,7 +1666,7 @@ with tab3:
                                     current_balance=float(row["Current Balance"]),
                                     annual_contribution=float(row["Annual Contribution"]),
                                     growth_rate_pct=float(row["Growth Rate (%)"]),
-                                    tax_rate_pct=float(row["Tax Rate (%)"])
+                                    tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                                 )
                                 updated_assets.append(updated_asset)
                             
