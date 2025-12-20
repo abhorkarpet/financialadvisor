@@ -466,8 +466,46 @@ def display_results(data, format_type='csv', warnings=None):
 
         # Convert data to DataFrame
         if format_type == 'json':
+            # Split accounts with multiple tax sources BEFORE creating DataFrame
+            split_accounts = []
+            for account in data:
+                # Check if account has multiple non-zero tax sources
+                raw_tax_sources = account.get('_raw_tax_sources', [])
+                non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
+
+                if len(non_zero_sources) > 1:
+                    # Split into separate accounts
+                    for source in non_zero_sources:
+                        split_account = account.copy()
+                        source_label = source['label']
+                        source_balance = source['balance']
+
+                        # Determine tax treatment from source label
+                        if 'roth' in source_label.lower():
+                            tax_treatment = 'tax_free'
+                            suffix = '- Roth'
+                        elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
+                            tax_treatment = 'post_tax'
+                            suffix = '- After-Tax'
+                        else:  # Employee Deferral, Traditional, etc.
+                            tax_treatment = 'tax_deferred'
+                            suffix = '- Traditional'
+
+                        # Update split account
+                        split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
+                        split_account['ending_balance'] = source_balance
+                        split_account['tax_treatment'] = tax_treatment
+                        split_account['_tax_source_label'] = source_label
+                        # Remove _raw_tax_sources to avoid confusion
+                        split_account.pop('_raw_tax_sources', None)
+
+                        split_accounts.append(split_account)
+                else:
+                    # Keep account as-is
+                    split_accounts.append(account)
+
             # Save tax_buckets or raw_tax_sources before converting to DataFrame
-            for idx, account in enumerate(data):
+            for idx, account in enumerate(split_accounts):
                 account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
 
                 # Check for processed tax_buckets first
@@ -483,22 +521,22 @@ def display_results(data, format_type='csv', warnings=None):
                             # Map label to tax treatment
                             label = source['label'].lower()
                             if 'roth' in label:
-                                tax_treatment = 'tax_free'
+                                tax_treatment_bucket = 'tax_free'
                             elif 'after tax' in label or 'after-tax' in label:
-                                tax_treatment = 'post_tax'
+                                tax_treatment_bucket = 'post_tax'
                             else:  # Employee deferral, traditional, etc.
-                                tax_treatment = 'tax_deferred'
+                                tax_treatment_bucket = 'tax_deferred'
 
                             buckets.append({
                                 'bucket_type': source['label'],
-                                'tax_treatment': tax_treatment,
+                                'tax_treatment': tax_treatment_bucket,
                                 'balance': source['balance']
                             })
                     if buckets:
                         tax_buckets_by_account[account_id] = buckets
 
             # Convert JSON array to DataFrame
-            df = pd.DataFrame(data)
+            df = pd.DataFrame(split_accounts)
             # Rename JSON fields to match CSV column names
             column_mapping = {
                 'account_name': 'label',
