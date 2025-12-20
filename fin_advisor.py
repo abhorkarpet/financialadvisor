@@ -1207,41 +1207,76 @@ with tab3:
                                 # Helper function to humanize account type
                                 def humanize_account_type(account_type: str) -> str:
                                     """Convert account_type codes to human-readable format."""
+                                    if not account_type:
+                                        return 'Unknown'
+
                                     mappings = {
                                         '401k': '401(k)',
                                         'ira': 'IRA',
                                         'roth_ira': 'Roth IRA',
                                         'traditional_ira': 'Traditional IRA',
                                         'rollover_ira': 'Rollover IRA',
-                                        'savings': 'Savings',
-                                        'checking': 'Checking',
-                                        'brokerage': 'Brokerage',
-                                        'hsa': 'HSA'
+                                        'savings': 'Savings Account',
+                                        'checking': 'Checking Account',
+                                        'brokerage': 'Brokerage Account',
+                                        'hsa': 'HSA (Health Savings Account)',
+                                        'high yield savings': 'High Yield Savings',
+                                        'stock_plan': 'Stock Plan',
+                                        'roth': 'Roth IRA',
+                                        '403b': '403(b)',
+                                        '457': '457 Plan'
                                     }
                                     account_type_lower = str(account_type).lower().strip()
-                                    return mappings.get(account_type_lower, account_type.title() if account_type else 'Unknown')
+
+                                    # Check exact match first
+                                    if account_type_lower in mappings:
+                                        return mappings[account_type_lower]
+
+                                    # Check if it contains key patterns
+                                    for key, value in mappings.items():
+                                        if key in account_type_lower:
+                                            return value
+
+                                    # Default: title case with underscores removed
+                                    return account_type.replace('_', ' ').title()
 
                                 # Create editable table
                                 table_data = []
                                 for idx, row in df_extracted.iterrows():
+                                    # Get account type first (we'll need it for inference)
+                                    account_type_raw = row.get('account_type', '')
+                                    account_type = humanize_account_type(account_type_raw)
+
                                     # Map tax_treatment to AssetType (human-readable)
-                                    tax_treatment = str(row.get('tax_treatment', 'post_tax')).lower()
-                                    if tax_treatment == 'pre_tax':
-                                        asset_type_display = 'Pre-Tax'
+                                    # If tax_treatment is missing, infer from account_type
+                                    tax_treatment = str(row.get('tax_treatment', '')).lower()
+
+                                    if not tax_treatment or tax_treatment == 'nan':
+                                        # Infer from account_type
+                                        account_type_lower = str(account_type_raw).lower()
+                                        if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
+                                            tax_treatment = 'tax_deferred'
+                                        elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
+                                            tax_treatment = 'tax_free'
+                                        elif account_type_lower == 'hsa':
+                                            tax_treatment = 'tax_deferred'  # HSA is tax-deferred
+                                        else:
+                                            tax_treatment = 'post_tax'  # brokerage, savings, checking
+
+                                    # Map to display value
+                                    if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
+                                        asset_type_display = 'Tax-Deferred'
                                     elif tax_treatment == 'post_tax':
                                         asset_type_display = 'Post-Tax'
-                                    elif tax_treatment == 'tax_deferred':
-                                        asset_type_display = 'Tax-Deferred'
                                     elif tax_treatment == 'tax_free':
-                                        asset_type_display = 'Post-Tax'  # Roth accounts map to POST_TAX
+                                        asset_type_display = 'Tax-Free'
                                     else:
                                         asset_type_display = 'Post-Tax'  # default
 
-                                    # Get account name
-                                    account_name = str(row.get('label', f"Account {idx+1}"))
-
-                                    # Get account type (401k, IRA, etc.)
-                                    account_type = humanize_account_type(row.get('account_type', ''))
+                                    # Get account name and humanize it
+                                    account_name_raw = str(row.get('label', f"Account {idx+1}"))
+                                    # Humanize common account name patterns
+                                    account_name = humanize_account_type(account_name_raw)
 
                                     # Get current balance
                                     current_balance = float(row.get('value', 0))
@@ -1271,6 +1306,12 @@ with tab3:
                                     income_eligibility = row.get('income_eligibility', '')
                                     purpose = row.get('purpose', '')
 
+                                    # Set default tax rate based on tax treatment
+                                    if asset_type_display == 'Post-Tax':
+                                        default_tax_rate = 15.0  # Capital gains tax
+                                    else:
+                                        default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
+
                                     table_row = {
                                         "#": f"#{idx+1}",
                                         "Account": account_name,
@@ -1279,7 +1320,7 @@ with tab3:
                                         "Current Balance": current_balance,
                                         "Annual Contribution": 0.0,  # User needs to fill
                                         "Growth Rate (%)": 7.0,  # Default assumption
-                                        "Tax Rate (%)": 15.0 if asset_type_display == 'Post-Tax' else 0.0
+                                        "Tax Rate (%)": default_tax_rate
                                     }
 
                                     # Add income eligibility if available
@@ -1306,8 +1347,8 @@ with tab3:
                                     ),
                                     "Tax Treatment": st.column_config.SelectboxColumn(
                                         "Tax Treatment",
-                                        options=["Pre-Tax", "Post-Tax", "Tax-Deferred"],
-                                        help="Tax treatment: Pre-Tax (401k/IRA), Post-Tax (Roth/Brokerage), Tax-Deferred (HSA)"
+                                        options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                        help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
                                     ),
                                     "Current Balance": st.column_config.NumberColumn(
                                         "Current Balance ($)",
@@ -1416,12 +1457,13 @@ with tab3:
                                         for _, row in edited_df.iterrows():
                                             # Parse tax treatment (from human-readable to enum)
                                             tax_treatment_str = row["Tax Treatment"]
-                                            if tax_treatment_str == "Pre-Tax":
-                                                asset_type = AssetType.PRE_TAX
+                                            if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
+                                                asset_type = AssetType.TAX_DEFERRED
                                             elif tax_treatment_str == "Post-Tax":
                                                 asset_type = AssetType.POST_TAX
-                                            elif tax_treatment_str == "Tax-Deferred":
-                                                asset_type = AssetType.TAX_DEFERRED
+                                            elif tax_treatment_str == "Tax-Free":
+                                                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                                asset_type = AssetType.POST_TAX
                                             else:
                                                 raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
 
