@@ -291,7 +291,7 @@ def project(inputs: UserInputs) -> Dict[str, float]:
     
     # Calculate tax efficiency
     tax_efficiency = (total_after_tax_value / total_pre_tax_value * 100) if total_pre_tax_value > 0 else 0
-    
+
     result = {
         "Years Until Retirement": float(yrs),
         "Total Future Value (Pre-Tax)": float(round(total_pre_tax_value, 2)),
@@ -299,13 +299,15 @@ def project(inputs: UserInputs) -> Dict[str, float]:
         "Total Tax Liability": float(round(total_tax_liability, 2)),
         "Tax Efficiency (%)": float(round(tax_efficiency, 2)),
         "Number of Assets": len(inputs.assets),
+        "asset_results": asset_results,  # Store detailed breakdown for display
+        "assets_input": inputs.assets  # Store input assets for current balance
     }
-    
+
     # Add per-asset breakdown
     for i, asset_result in enumerate(asset_results):
         result[f"Asset {i+1} - {asset_result['name']} (Pre-Tax)"] = round(asset_result['pre_tax_value'], 2)
         result[f"Asset {i+1} - {asset_result['name']} (After-Tax)"] = round(asset_result['after_tax_value'], 2)
-    
+
     return result
 
 
@@ -1754,22 +1756,66 @@ try:
     detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Portfolio Breakdown", "📊 Tax Analysis", "📋 Summary"])
     
     with detail_tab1:
-        st.write("**Individual Asset Values (After-Tax)**")
-        
-        # Create asset breakdown
-        asset_data = []
-        for key, value in result.items():
-            if "Asset" in key and "After-Tax" in key:
-                asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+        st.write("**Individual Asset Values at Retirement**")
+
+        # Helper function to humanize account names
+        def humanize_account_name(name: str) -> str:
+            """Convert account names to human-readable format."""
+            replacements = {
+                'roth_ira': 'Roth IRA',
+                'ira': 'IRA',
+                '401k': '401(k)',
+                'hsa': 'HSA (Health Savings Account)'
+            }
+            name_lower = name.lower()
+            for key, value in replacements.items():
+                if name_lower == key:
+                    return value
+            return name  # Return original if no match
+
+        # Create detailed asset breakdown with calculation explainability
+        if 'asset_results' in result and 'assets_input' in result:
+            asset_data = []
+            for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
+                current_balance = asset_input.current_balance
+                total_contributions = asset_result['total_contributions']
+                pre_tax_value = asset_result['pre_tax_value']
+                tax_liability = asset_result['tax_liability']
+                after_tax_value = asset_result['after_tax_value']
+
+                # Calculate investment growth
+                growth = pre_tax_value - current_balance - total_contributions
+
                 asset_data.append({
-                    "Account": asset_name,
-                    "After-Tax Value": f"${value:,.0f}"
+                    "Account": humanize_account_name(asset_result['name']),
+                    "Current Balance": f"${current_balance:,.0f}",
+                    "Your Contributions": f"${total_contributions:,.0f}",
+                    "Investment Growth": f"${growth:,.0f}",
+                    "Pre-Tax Value": f"${pre_tax_value:,.0f}",
+                    "Est. Taxes": f"${tax_liability:,.0f}",
+                    "After-Tax Value": f"${after_tax_value:,.0f}"
                 })
-        
-        if asset_data:
-            st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+
+            if asset_data:
+                st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
+                st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+            else:
+                st.info("No individual asset breakdown available")
         else:
-            st.info("No individual asset breakdown available")
+            # Fallback to old format if detailed data not available
+            asset_data = []
+            for key, value in result.items():
+                if "Asset" in key and "After-Tax" in key:
+                    asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+                    asset_data.append({
+                        "Account": humanize_account_name(asset_name),
+                        "After-Tax Value": f"${value:,.0f}"
+                    })
+
+            if asset_data:
+                st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+            else:
+                st.info("No individual asset breakdown available")
     
     with detail_tab2:
         tax_liability = result.get("Total Tax Liability", 0)
