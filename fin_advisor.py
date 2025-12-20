@@ -1099,15 +1099,46 @@ with tab3:
         else:
             st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
 
-            # Upload financial statement PDFs
-            uploaded_files = st.file_uploader(
-                "📤 Upload Financial Statement PDFs",
-                type=['pdf'],
-                accept_multiple_files=True,
-                help="Upload 401(k), IRA, brokerage, or bank statements"
-            )
+            # Initialize session state for extracted data
+            if 'ai_extracted_accounts' not in st.session_state:
+                st.session_state.ai_extracted_accounts = None
+            if 'ai_tax_buckets' not in st.session_state:
+                st.session_state.ai_tax_buckets = {}
+            if 'ai_warnings' not in st.session_state:
+                st.session_state.ai_warnings = []
 
-            if uploaded_files:
+            # Check if we already have extracted data
+            if st.session_state.ai_extracted_accounts is not None:
+                st.success(f"✅ Using previously extracted {len(st.session_state.ai_extracted_accounts)} accounts")
+
+                # Add button to clear and re-upload
+                if st.button("🔄 Clear and Upload New Statements", type="secondary"):
+                    st.session_state.ai_extracted_accounts = None
+                    st.session_state.ai_tax_buckets = {}
+                    st.session_state.ai_warnings = []
+                    st.rerun()
+
+                # Use existing data
+                df_extracted = st.session_state.ai_extracted_accounts
+                tax_buckets_by_account = st.session_state.ai_tax_buckets
+                warnings = st.session_state.ai_warnings
+
+                # Display warnings if any
+                if warnings and len(warnings) > 0:
+                    with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
+                        for warning in warnings:
+                            st.warning(warning)
+
+            else:
+                # Upload financial statement PDFs
+                uploaded_files = st.file_uploader(
+                    "📤 Upload Financial Statement PDFs",
+                    type=['pdf'],
+                    accept_multiple_files=True,
+                    help="Upload 401(k), IRA, brokerage, or bank statements"
+                )
+
+                if uploaded_files:
                 if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
                     progress_bar = st.progress(0)
                     status_text = st.empty()
@@ -1229,10 +1260,16 @@ with tab3:
                             elif 'ending_balance' in df_extracted.columns:
                                 df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
 
+                            # Store in session state for persistence across reruns
+                            st.session_state.ai_extracted_accounts = df_extracted
+                            st.session_state.ai_tax_buckets = tax_buckets_by_account
+                            st.session_state.ai_warnings = result.get('warnings', [])
+
                             st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
+                            st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
 
                             # Display warnings if any
-                            warnings = result.get('warnings', [])
+                            warnings = st.session_state.ai_warnings
                             if warnings and len(warnings) > 0:
                                 with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
                                     for warning in warnings:
