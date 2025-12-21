@@ -1151,6 +1151,42 @@ with tab3:
                         for warning in warnings:
                             st.warning(warning)
 
+                # CRITICAL: Convert edited table to assets on every rerun
+                # This ensures assets persist even when user changes personal info
+                if st.session_state.ai_edited_table is not None:
+                    edited_df = st.session_state.ai_edited_table
+                    try:
+                        assets = []
+                        for _, row in edited_df.iterrows():
+                            # Parse tax treatment (from human-readable to enum)
+                            tax_treatment_str = row["Tax Treatment"]
+                            if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
+                                asset_type = AssetType.TAX_DEFERRED
+                            elif tax_treatment_str == "Post-Tax":
+                                asset_type = AssetType.POST_TAX
+                            elif tax_treatment_str == "Tax-Free":
+                                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                asset_type = AssetType.POST_TAX
+                            else:
+                                raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+
+                            # Create asset
+                            asset = Asset(
+                                name=row["Account Name"],
+                                asset_type=asset_type,
+                                current_balance=float(row["Current Balance"]),
+                                annual_contribution=float(row["Annual Contribution"]),
+                                growth_rate_pct=float(row["Growth Rate (%)"]),
+                                tax_rate_pct=float(row["Tax Rate on Gains (%)"])
+                            )
+                            assets.append(asset)
+
+                        st.info(f"📊 Using {len(assets)} AI-extracted accounts for retirement analysis")
+
+                    except Exception as e:
+                        st.error(f"❌ Error loading AI-extracted accounts: {str(e)}")
+                        st.info("💡 Try clicking '🔄 Clear and Upload New Statements' and re-uploading.")
+
             else:
                 # Upload financial statement PDFs
                 uploaded_files = st.file_uploader(
