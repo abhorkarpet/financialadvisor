@@ -1107,6 +1107,8 @@ with tab3:
                 st.session_state.ai_tax_buckets = {}
             if 'ai_warnings' not in st.session_state:
                 st.session_state.ai_warnings = []
+            if 'ai_edited_table' not in st.session_state:
+                st.session_state.ai_edited_table = None
 
             # Initialize variables for this run
             df_extracted = None
@@ -1121,6 +1123,7 @@ with tab3:
                     st.session_state.ai_extracted_accounts = None
                     st.session_state.ai_tax_buckets = {}
                     st.session_state.ai_warnings = []
+                    st.session_state.ai_edited_table = None
                     st.rerun()
 
                 # Use existing data
@@ -1320,182 +1323,187 @@ with tab3:
                                         # Default: title case with underscores removed
                                         return account_type.replace('_', ' ').title()
 
-                                    # Create editable table
-                                    table_data = []
-                                    for idx, row in df_extracted.iterrows():
-                                        # Get account type first (we'll need it for inference)
-                                        account_type_raw = row.get('account_type', '')
-                                        account_type = humanize_account_type(account_type_raw)
+                                    # Check if we already have edited table data in session state
+                                    if st.session_state.ai_edited_table is not None:
+                                        # Use previously edited table
+                                        df_table = st.session_state.ai_edited_table
+                                    else:
+                                        # Create editable table from extracted data (first time)
+                                        table_data = []
+                                        for idx, row in df_extracted.iterrows():
+                                            # Get account type first (we'll need it for inference)
+                                            account_type_raw = row.get('account_type', '')
+                                            account_type = humanize_account_type(account_type_raw)
 
-                                        # Map tax_treatment to AssetType (human-readable)
-                                        # If tax_treatment is missing, infer from account_type
-                                        tax_treatment = str(row.get('tax_treatment', '')).lower()
-
-                                        if not tax_treatment or tax_treatment == 'nan':
-                                            # Infer from account_type
-                                            account_type_lower = str(account_type_raw).lower()
-                                            if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
-                                                tax_treatment = 'tax_deferred'
-                                            elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
-                                                tax_treatment = 'tax_free'
-                                            elif account_type_lower == 'hsa':
-                                                tax_treatment = 'tax_deferred'  # HSA is tax-deferred
+                                            # Map tax_treatment to AssetType (human-readable)
+                                            # If tax_treatment is missing, infer from account_type
+                                            tax_treatment = str(row.get('tax_treatment', '')).lower()
+    
+                                            if not tax_treatment or tax_treatment == 'nan':
+                                                # Infer from account_type
+                                                account_type_lower = str(account_type_raw).lower()
+                                                if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
+                                                    tax_treatment = 'tax_deferred'
+                                                elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
+                                                    tax_treatment = 'tax_free'
+                                                elif account_type_lower == 'hsa':
+                                                    tax_treatment = 'tax_deferred'  # HSA is tax-deferred
+                                                else:
+                                                    tax_treatment = 'post_tax'  # brokerage, savings, checking
+    
+                                            # Map to display value
+                                            if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
+                                                asset_type_display = 'Tax-Deferred'
+                                            elif tax_treatment == 'post_tax':
+                                                asset_type_display = 'Post-Tax'
+                                            elif tax_treatment == 'tax_free':
+                                                asset_type_display = 'Tax-Free'
                                             else:
-                                                tax_treatment = 'post_tax'  # brokerage, savings, checking
-
-                                        # Map to display value
-                                        if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
-                                            asset_type_display = 'Tax-Deferred'
-                                        elif tax_treatment == 'post_tax':
-                                            asset_type_display = 'Post-Tax'
-                                        elif tax_treatment == 'tax_free':
-                                            asset_type_display = 'Tax-Free'
-                                        else:
-                                            asset_type_display = 'Post-Tax'  # default
-
-                                        # Get account name and humanize it
-                                        account_name_raw = str(row.get('label', f"Account {idx+1}"))
-
-                                        # Helper function to humanize account names
-                                        def humanize_account_name(name: str) -> str:
-                                            """Convert raw account names to human-readable format."""
-                                            # Handle common patterns
-                                            name_clean = name.strip()
-
-                                            # Stock plans - extract company and plan type
-                                            if 'STOCK PLAN' in name_clean.upper():
-                                                # "STOCK PLAN - MICROSOFT ESPP PLAN" → "Microsoft ESPP"
-                                                # "STOCK PLAN - ORACLE STOCK OPTIONS" → "Oracle Stock Options"
-                                                parts = name_clean.split('-')
-                                                if len(parts) >= 2:
-                                                    plan_details = parts[1].strip()
-                                                    # Extract company name (first word) and plan type
-                                                    words = plan_details.split()
-                                                    if len(words) >= 2:
-                                                        company = words[0].title()
-                                                        if 'ESPP' in plan_details.upper():
-                                                            return f"{company} ESPP"
-                                                        elif 'STOCK OPTION' in plan_details.upper():
-                                                            return f"{company} Stock Options"
-                                                        elif 'RSU' in plan_details.upper():
-                                                            return f"{company} RSUs"
-                                                        else:
-                                                            plan_type = ' '.join(words[1:]).title()
-                                                            return f"{company} {plan_type}"
-
-                                            # Brokerage accounts
-                                            if 'at Work Self-Directed' in name_clean:
-                                                # "Morgan Stanley at Work Self-Directed Account" → "Morgan Stanley Brokerage"
-                                                institution = name_clean.split(' at Work')[0]
-                                                return f"{institution} Brokerage"
-
-                                            # Generic brokerage account shortening
-                                            if name_clean.lower() == 'brokerage account':
-                                                return 'Brokerage'
-
-                                            # Fix common formatting issues
-                                            replacements = {
-                                                'rollover_ira': 'Rollover IRA',
-                                                'roth_ira': 'Roth IRA',
-                                                'traditional_ira': 'Traditional IRA',
-                                                'health_savings_account': 'HSA',
-                                                '401k': '401(k)',
-                                                '403b': '403(b)',
-                                                '457': '457(b)',
+                                                asset_type_display = 'Post-Tax'  # default
+    
+                                            # Get account name and humanize it
+                                            account_name_raw = str(row.get('label', f"Account {idx+1}"))
+    
+                                            # Helper function to humanize account names
+                                            def humanize_account_name(name: str) -> str:
+                                                """Convert raw account names to human-readable format."""
+                                                # Handle common patterns
+                                                name_clean = name.strip()
+    
+                                                # Stock plans - extract company and plan type
+                                                if 'STOCK PLAN' in name_clean.upper():
+                                                    # "STOCK PLAN - MICROSOFT ESPP PLAN" → "Microsoft ESPP"
+                                                    # "STOCK PLAN - ORACLE STOCK OPTIONS" → "Oracle Stock Options"
+                                                    parts = name_clean.split('-')
+                                                    if len(parts) >= 2:
+                                                        plan_details = parts[1].strip()
+                                                        # Extract company name (first word) and plan type
+                                                        words = plan_details.split()
+                                                        if len(words) >= 2:
+                                                            company = words[0].title()
+                                                            if 'ESPP' in plan_details.upper():
+                                                                return f"{company} ESPP"
+                                                            elif 'STOCK OPTION' in plan_details.upper():
+                                                                return f"{company} Stock Options"
+                                                            elif 'RSU' in plan_details.upper():
+                                                                return f"{company} RSUs"
+                                                            else:
+                                                                plan_type = ' '.join(words[1:]).title()
+                                                                return f"{company} {plan_type}"
+    
+                                                # Brokerage accounts
+                                                if 'at Work Self-Directed' in name_clean:
+                                                    # "Morgan Stanley at Work Self-Directed Account" → "Morgan Stanley Brokerage"
+                                                    institution = name_clean.split(' at Work')[0]
+                                                    return f"{institution} Brokerage"
+    
+                                                # Generic brokerage account shortening
+                                                if name_clean.lower() == 'brokerage account':
+                                                    return 'Brokerage'
+    
+                                                # Fix common formatting issues
+                                                replacements = {
+                                                    'rollover_ira': 'Rollover IRA',
+                                                    'roth_ira': 'Roth IRA',
+                                                    'traditional_ira': 'Traditional IRA',
+                                                    'health_savings_account': 'HSA',
+                                                    '401k': '401(k)',
+                                                    '403b': '403(b)',
+                                                    '457': '457(b)',
+                                                }
+    
+                                                name_lower = name_clean.lower()
+                                                for key, value in replacements.items():
+                                                    if key == name_lower:
+                                                        return value
+                                                    # Also handle patterns like "401k - Traditional"
+                                                    if name_lower.startswith(key):
+                                                        suffix = name_clean[len(key):].strip()
+                                                        return f"{value}{suffix}"
+    
+                                                # Title case for all-caps names
+                                                if name_clean.isupper():
+                                                    return name_clean.title()
+    
+                                                # Return as-is if no pattern matches
+                                                return name_clean
+    
+                                            account_name = humanize_account_name(account_name_raw)
+    
+                                            # Get institution and account number for display
+                                            institution = str(row.get('document_type', ''))  # Institution is stored in document_type
+                                            account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
+    
+                                            # Get current balance
+                                            current_balance = float(row.get('value', 0))
+    
+                                            # Helper function to humanize income eligibility
+                                            def humanize_eligibility(value: str) -> str:
+                                                mappings = {
+                                                    'eligible': '✅ Eligible',
+                                                    'conditionally_eligible': '⚠️ Conditionally Eligible',
+                                                    'not_eligible': '❌ Not Eligible'
+                                                }
+                                                return mappings.get(str(value).lower(), value)
+    
+                                            # Helper function to humanize purpose
+                                            def humanize_purpose(value: str) -> str:
+                                                mappings = {
+                                                    'income': 'Retirement Income',
+                                                    'general_income': 'General Income',
+                                                    'healthcare_only': 'Healthcare Only (HSA)',
+                                                    'education_only': 'Education Only (529)',
+                                                    'employment_compensation': 'Employment Compensation',
+                                                    'restricted_other': 'Restricted/Other'
+                                                }
+                                                return mappings.get(str(value).lower(), value)
+    
+                                            # Get income eligibility and purpose if available
+                                            income_eligibility = row.get('income_eligibility', '')
+                                            purpose = row.get('purpose', '')
+    
+                                            # Set default tax rate based on tax treatment
+                                            if asset_type_display == 'Post-Tax':
+                                                default_tax_rate = 15.0  # Capital gains tax
+                                            else:
+                                                default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
+    
+                                            # Set default growth rate based on account type
+                                            account_type_lower = str(account_type_raw).lower()
+                                            if account_type_lower in ['savings', 'checking']:
+                                                default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
+                                            elif account_type_lower == 'hsa':
+                                                default_growth_rate = 7.0  # HSA invested in market
+                                            elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
+                                                default_growth_rate = 7.0  # Stock market average
+                                            else:
+                                                default_growth_rate = 7.0  # Default to market return
+    
+                                            table_row = {
+                                                "#": f"#{idx+1}",
+                                                "Institution": institution,
+                                                "Account Name": account_name,
+                                                "Last 4": account_number_last4,
+                                                "Account Type": account_type,
+                                                "Tax Treatment": asset_type_display,
+                                                "Current Balance": current_balance,
+                                                "Annual Contribution": 0.0,  # User needs to fill
+                                                "Growth Rate (%)": default_growth_rate,
+                                                "Tax Rate on Gains (%)": default_tax_rate
                                             }
+    
+                                            # Add income eligibility if available
+                                            if income_eligibility:
+                                                table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
+    
+                                            # Add purpose if available
+                                            if purpose:
+                                                table_row["Purpose"] = humanize_purpose(purpose)
+    
+                                            table_data.append(table_row)
 
-                                            name_lower = name_clean.lower()
-                                            for key, value in replacements.items():
-                                                if key == name_lower:
-                                                    return value
-                                                # Also handle patterns like "401k - Traditional"
-                                                if name_lower.startswith(key):
-                                                    suffix = name_clean[len(key):].strip()
-                                                    return f"{value}{suffix}"
-
-                                            # Title case for all-caps names
-                                            if name_clean.isupper():
-                                                return name_clean.title()
-
-                                            # Return as-is if no pattern matches
-                                            return name_clean
-
-                                        account_name = humanize_account_name(account_name_raw)
-
-                                        # Get institution and account number for display
-                                        institution = str(row.get('document_type', ''))  # Institution is stored in document_type
-                                        account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
-
-                                        # Get current balance
-                                        current_balance = float(row.get('value', 0))
-
-                                        # Helper function to humanize income eligibility
-                                        def humanize_eligibility(value: str) -> str:
-                                            mappings = {
-                                                'eligible': '✅ Eligible',
-                                                'conditionally_eligible': '⚠️ Conditionally Eligible',
-                                                'not_eligible': '❌ Not Eligible'
-                                            }
-                                            return mappings.get(str(value).lower(), value)
-
-                                        # Helper function to humanize purpose
-                                        def humanize_purpose(value: str) -> str:
-                                            mappings = {
-                                                'income': 'Retirement Income',
-                                                'general_income': 'General Income',
-                                                'healthcare_only': 'Healthcare Only (HSA)',
-                                                'education_only': 'Education Only (529)',
-                                                'employment_compensation': 'Employment Compensation',
-                                                'restricted_other': 'Restricted/Other'
-                                            }
-                                            return mappings.get(str(value).lower(), value)
-
-                                        # Get income eligibility and purpose if available
-                                        income_eligibility = row.get('income_eligibility', '')
-                                        purpose = row.get('purpose', '')
-
-                                        # Set default tax rate based on tax treatment
-                                        if asset_type_display == 'Post-Tax':
-                                            default_tax_rate = 15.0  # Capital gains tax
-                                        else:
-                                            default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
-
-                                        # Set default growth rate based on account type
-                                        account_type_lower = str(account_type_raw).lower()
-                                        if account_type_lower in ['savings', 'checking']:
-                                            default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
-                                        elif account_type_lower == 'hsa':
-                                            default_growth_rate = 7.0  # HSA invested in market
-                                        elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
-                                            default_growth_rate = 7.0  # Stock market average
-                                        else:
-                                            default_growth_rate = 7.0  # Default to market return
-
-                                        table_row = {
-                                            "#": f"#{idx+1}",
-                                            "Institution": institution,
-                                            "Account Name": account_name,
-                                            "Last 4": account_number_last4,
-                                            "Account Type": account_type,
-                                            "Tax Treatment": asset_type_display,
-                                            "Current Balance": current_balance,
-                                            "Annual Contribution": 0.0,  # User needs to fill
-                                            "Growth Rate (%)": default_growth_rate,
-                                            "Tax Rate on Gains (%)": default_tax_rate
-                                        }
-
-                                        # Add income eligibility if available
-                                        if income_eligibility:
-                                            table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
-
-                                        # Add purpose if available
-                                        if purpose:
-                                            table_row["Purpose"] = humanize_purpose(purpose)
-
-                                        table_data.append(table_row)
-
-                                    # Create DataFrame
-                                    df_table = pd.DataFrame(table_data)
+                                        # Create DataFrame from table_data
+                                        df_table = pd.DataFrame(table_data)
 
                                     # Define column configuration
                                     column_config = {
@@ -1574,6 +1582,9 @@ with tab3:
                                         hide_index=True,
                                         num_rows="dynamic"
                                     )
+
+                                    # Save edited table to session state for persistence across reruns
+                                    st.session_state.ai_edited_table = edited_df
 
                                     # Display tax bucket breakdowns if available
                                     if tax_buckets_by_account:
