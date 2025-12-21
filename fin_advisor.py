@@ -994,17 +994,30 @@ with tab3:
         
         # Show default portfolio details in editable table format
         with st.expander("📋 Default Portfolio Details (Editable)", expanded=True):
+            # Helper function to convert asset type to human-readable format
+            def asset_type_to_display(asset: Asset) -> str:
+                """Convert AssetType enum to human-readable display value."""
+                if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
+                    return "Tax-Deferred"
+                elif asset.asset_type == AssetType.POST_TAX:
+                    # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
+                    if asset.tax_rate_pct == 0:
+                        return "Tax-Free"
+                    else:
+                        return "Post-Tax"
+                return "Post-Tax"  # default
+
             # Create editable table data
             table_data = []
             for i, asset in enumerate(assets):
                 row = {
                     "Index": i,
-                    "Account": asset.name,
-                    "Asset Type": asset.asset_type.value,
+                    "Account Name": asset.name,
+                    "Tax Treatment": asset_type_to_display(asset),
                     "Current Balance": asset.current_balance,
                     "Annual Contribution": asset.annual_contribution,
                     "Growth Rate (%)": asset.growth_rate_pct,
-                    "Tax Rate (%)": asset.tax_rate_pct
+                    "Tax Rate on Gains (%)": asset.tax_rate_pct
                 }
                 table_data.append(row)
             
@@ -1014,37 +1027,37 @@ with tab3:
             # Define column configuration for editing
             column_config = {
                 "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
-                "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                "Asset Type": st.column_config.SelectboxColumn(
-                    "Asset Type", 
-                    options=["pre_tax", "post_tax", "tax_deferred"],
-                    help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA/Annuities)"
+                "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                "Tax Treatment": st.column_config.SelectboxColumn(
+                    "Tax Treatment",
+                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                    help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
                 ),
                 "Current Balance": st.column_config.NumberColumn(
-                    "Current Balance ($)", 
-                    min_value=0, 
+                    "Current Balance ($)",
+                    min_value=0,
                     format="$%d",
                     help="Current account balance"
                 ),
                 "Annual Contribution": st.column_config.NumberColumn(
-                    "Annual Contribution ($)", 
-                    min_value=0, 
+                    "Annual Contribution ($)",
+                    min_value=0,
                     format="$%d",
                     help="Annual contribution amount"
                 ),
                 "Growth Rate (%)": st.column_config.NumberColumn(
-                    "Growth Rate (%)", 
-                    min_value=0, 
-                    max_value=50, 
+                    "Growth Rate (%)",
+                    min_value=0,
+                    max_value=50,
                     format="%.1f%%",
                     help="Expected annual growth rate"
                 ),
-                "Tax Rate (%)": st.column_config.NumberColumn(
-                    "Tax Rate (%)", 
-                    min_value=0, 
-                    max_value=50, 
+                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                    "Tax Rate on Gains (%)",
+                    min_value=0,
+                    max_value=50,
                     format="%.1f%%",
-                    help="Tax rate on GAINS only: 0% for Roth IRA, 15% for brokerage capital gains, 0% for pre-tax (taxed at withdrawal)"
+                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
                 )
             }
             
@@ -1063,17 +1076,18 @@ with tab3:
                 try:
                     updated_assets = []
                     for _, row in edited_df.iterrows():
-                        # Parse asset type
-                        asset_type_str = row["Asset Type"]
-                        if asset_type_str == "pre_tax":
-                            asset_type = AssetType.PRE_TAX
-                        elif asset_type_str == "post_tax":
-                            asset_type = AssetType.POST_TAX
-                        elif asset_type_str == "tax_deferred":
+                        # Parse tax treatment (from human-readable to enum)
+                        tax_treatment_str = row["Tax Treatment"]
+                        if tax_treatment_str == "Tax-Deferred":
                             asset_type = AssetType.TAX_DEFERRED
+                        elif tax_treatment_str == "Post-Tax":
+                            asset_type = AssetType.POST_TAX
+                        elif tax_treatment_str == "Tax-Free":
+                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                            asset_type = AssetType.POST_TAX
                         else:
-                            raise ValueError(f"Invalid asset type: {asset_type_str}")
-                        
+                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+
                         # Create updated asset
                         updated_asset = Asset(
                             name=row["Account Name"],
@@ -1719,17 +1733,30 @@ with tab3:
                 
                 # Show uploaded assets in editable table format
                 with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
+                    # Helper function to convert asset type to human-readable format
+                    def asset_type_to_display(asset: Asset) -> str:
+                        """Convert AssetType enum to human-readable display value."""
+                        if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
+                            return "Tax-Deferred"
+                        elif asset.asset_type == AssetType.POST_TAX:
+                            # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
+                            if asset.tax_rate_pct == 0:
+                                return "Tax-Free"
+                            else:
+                                return "Post-Tax"
+                        return "Post-Tax"  # default
+
                     # Create editable table data
                     table_data = []
                     for i, asset in enumerate(assets):
                         row = {
                             "Index": i,
-                            "Account": asset.name,
-                            "Asset Type": asset.asset_type.value,
+                            "Account Name": asset.name,
+                            "Tax Treatment": asset_type_to_display(asset),
                             "Current Balance": asset.current_balance,
                             "Annual Contribution": asset.annual_contribution,
                             "Growth Rate (%)": asset.growth_rate_pct,
-                            "Tax Rate (%)": asset.tax_rate_pct
+                            "Tax Rate on Gains (%)": asset.tax_rate_pct
                         }
                         table_data.append(row)
                     
@@ -1739,37 +1766,37 @@ with tab3:
                     # Define column configuration for editing
                     column_config = {
                         "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
-                        "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                        "Asset Type": st.column_config.SelectboxColumn(
-                            "Asset Type", 
-                            options=["pre_tax", "post_tax", "tax_deferred"],
-                            help="Tax treatment: pre_tax (401k/IRA), post_tax (Roth/Brokerage), tax_deferred (HSA/Annuities)"
+                        "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                        "Tax Treatment": st.column_config.SelectboxColumn(
+                            "Tax Treatment",
+                            options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                            help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
                         ),
                         "Current Balance": st.column_config.NumberColumn(
-                            "Current Balance ($)", 
-                            min_value=0, 
+                            "Current Balance ($)",
+                            min_value=0,
                             format="$%d",
                             help="Current account balance"
                         ),
                         "Annual Contribution": st.column_config.NumberColumn(
-                            "Annual Contribution ($)", 
-                            min_value=0, 
+                            "Annual Contribution ($)",
+                            min_value=0,
                             format="$%d",
                             help="Annual contribution amount"
                         ),
                         "Growth Rate (%)": st.column_config.NumberColumn(
-                            "Growth Rate (%)", 
-                            min_value=0, 
-                            max_value=50, 
+                            "Growth Rate (%)",
+                            min_value=0,
+                            max_value=50,
                             format="%.1f%%",
                             help="Expected annual growth rate"
                         ),
-                        "Tax Rate (%)": st.column_config.NumberColumn(
-                            "Tax Rate (%)", 
-                            min_value=0, 
-                            max_value=50, 
+                        "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                            "Tax Rate on Gains (%)",
+                            min_value=0,
+                            max_value=50,
                             format="%.1f%%",
-                            help="Tax rate on GAINS only: 0% for Roth IRA, 15% for brokerage capital gains, 0% for pre-tax (taxed at withdrawal)"
+                            help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
                         )
                     }
                     
@@ -1788,17 +1815,18 @@ with tab3:
                         try:
                             updated_assets = []
                             for _, row in edited_df.iterrows():
-                                # Parse asset type
-                                asset_type_str = row["Asset Type"]
-                                if asset_type_str == "pre_tax":
-                                    asset_type = AssetType.PRE_TAX
-                                elif asset_type_str == "post_tax":
-                                    asset_type = AssetType.POST_TAX
-                                elif asset_type_str == "tax_deferred":
+                                # Parse tax treatment (from human-readable to enum)
+                                tax_treatment_str = row["Tax Treatment"]
+                                if tax_treatment_str == "Tax-Deferred":
                                     asset_type = AssetType.TAX_DEFERRED
+                                elif tax_treatment_str == "Post-Tax":
+                                    asset_type = AssetType.POST_TAX
+                                elif tax_treatment_str == "Tax-Free":
+                                    # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                    asset_type = AssetType.POST_TAX
                                 else:
-                                    raise ValueError(f"Invalid asset type: {asset_type_str}")
-                                
+                                    raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+
                                 # Create updated asset
                                 updated_asset = Asset(
                                     name=row["Account Name"],
