@@ -1107,6 +1107,10 @@ with tab3:
             if 'ai_warnings' not in st.session_state:
                 st.session_state.ai_warnings = []
 
+            # Initialize variables for this run
+            df_extracted = None
+            tax_buckets_by_account = {}
+
             # Check if we already have extracted data
             if st.session_state.ai_extracted_accounts is not None:
                 st.success(f"✅ Using previously extracted {len(st.session_state.ai_extracted_accounts)} accounts")
@@ -1139,452 +1143,452 @@ with tab3:
                 )
 
                 if uploaded_files:
-                if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                    if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
 
-                    try:
-                        # Initialize n8n client
-                        status_text.text("Initializing AI extraction...")
-                        progress_bar.progress(10)
+                        try:
+                            # Initialize n8n client
+                            status_text.text("Initializing AI extraction...")
+                            progress_bar.progress(10)
 
-                        client = N8NClient()
+                            client = N8NClient()
 
-                        # Prepare files for upload
-                        status_text.text(f"Uploading {len(uploaded_files)} file(s)...")
-                        progress_bar.progress(30)
+                            # Prepare files for upload
+                            status_text.text(f"Uploading {len(uploaded_files)} file(s)...")
+                            progress_bar.progress(30)
 
-                        files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
+                            files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
 
-                        # Upload to n8n
-                        result = client.upload_statements(files_to_upload)
-                        progress_bar.progress(90)
+                            # Upload to n8n
+                            result = client.upload_statements(files_to_upload)
+                            progress_bar.progress(90)
 
-                        if result['success']:
-                            progress_bar.progress(100)
-                            status_text.text("✓ Extraction complete!")
+                            if result['success']:
+                                progress_bar.progress(100)
+                                status_text.text("✓ Extraction complete!")
 
-                            # Parse response (handle both JSON and CSV formats)
-                            response_format = result.get('format', 'csv')
-                            tax_buckets_by_account = {}
+                                # Parse response (handle both JSON and CSV formats)
+                                response_format = result.get('format', 'csv')
+                                tax_buckets_by_account = {}
 
-                            if response_format == 'json':
-                                # Split accounts with multiple tax sources BEFORE creating DataFrame
-                                split_accounts = []
-                                for account in result['data']:
-                                    # Check if account has multiple non-zero tax sources
-                                    raw_tax_sources = account.get('_raw_tax_sources', [])
-                                    non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
+                                if response_format == 'json':
+                                    # Split accounts with multiple tax sources BEFORE creating DataFrame
+                                    split_accounts = []
+                                    for account in result['data']:
+                                        # Check if account has multiple non-zero tax sources
+                                        raw_tax_sources = account.get('_raw_tax_sources', [])
+                                        non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
 
-                                    if len(non_zero_sources) > 1:
-                                        # Split into separate accounts
-                                        for source in non_zero_sources:
-                                            split_account = account.copy()
-                                            source_label = source['label']
-                                            source_balance = source['balance']
+                                        if len(non_zero_sources) > 1:
+                                            # Split into separate accounts
+                                            for source in non_zero_sources:
+                                                split_account = account.copy()
+                                                source_label = source['label']
+                                                source_balance = source['balance']
 
-                                            # Determine tax treatment from source label
-                                            if 'roth' in source_label.lower():
-                                                tax_treatment = 'tax_free'
-                                                suffix = '- Roth'
-                                            elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
-                                                tax_treatment = 'post_tax'
-                                                suffix = '- After-Tax'
-                                            else:  # Employee Deferral, Traditional, etc.
+                                                # Determine tax treatment from source label
+                                                if 'roth' in source_label.lower():
+                                                    tax_treatment = 'tax_free'
+                                                    suffix = '- Roth'
+                                                elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
+                                                    tax_treatment = 'post_tax'
+                                                    suffix = '- After-Tax'
+                                                else:  # Employee Deferral, Traditional, etc.
+                                                    tax_treatment = 'tax_deferred'
+                                                    suffix = '- Traditional'
+
+                                                # Update split account
+                                                split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
+                                                split_account['ending_balance'] = source_balance
+                                                split_account['tax_treatment'] = tax_treatment
+                                                split_account['_tax_source_label'] = source_label
+                                                # Remove _raw_tax_sources to avoid confusion
+                                                split_account.pop('_raw_tax_sources', None)
+
+                                                split_accounts.append(split_account)
+                                        else:
+                                            # Keep account as-is
+                                            split_accounts.append(account)
+
+                                    # Save tax_buckets or raw_tax_sources before converting to DataFrame
+                                    for idx, account in enumerate(split_accounts):
+                                        account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
+
+                                        # Check for processed tax_buckets first
+                                        if 'tax_buckets' in account and account['tax_buckets']:
+                                            tax_buckets_by_account[account_id] = account['tax_buckets']
+                                        # Fall back to raw_tax_sources if available
+                                        elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
+                                            # Convert raw_tax_sources to bucket format for display
+                                            raw_sources = account['_raw_tax_sources']
+                                            buckets = []
+                                            for source in raw_sources:
+                                                if source.get('balance', 0) > 0:  # Only show non-zero balances
+                                                    # Map label to tax treatment
+                                                    label = source['label'].lower()
+                                                    if 'roth' in label:
+                                                        tax_treatment_bucket = 'tax_free'
+                                                    elif 'after tax' in label or 'after-tax' in label:
+                                                        tax_treatment_bucket = 'post_tax'
+                                                    else:  # Employee deferral, traditional, etc.
+                                                        tax_treatment_bucket = 'tax_deferred'
+
+                                                    buckets.append({
+                                                        'bucket_type': source['label'],
+                                                        'tax_treatment': tax_treatment_bucket,
+                                                        'balance': source['balance']
+                                                    })
+                                            if buckets:
+                                                tax_buckets_by_account[account_id] = buckets
+
+                                    # JSON format - already a list of dicts
+                                    df_extracted = pd.DataFrame(split_accounts)
+                                    # Rename JSON fields if needed
+                                    column_mapping = {
+                                        'account_name': 'label',
+                                        'ending_balance': 'value',
+                                        'balance_as_of_date': 'period_end',
+                                        'institution': 'document_type',
+                                        'account_id': 'account_id'
+                                    }
+                                    df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
+                                else:
+                                    # CSV format
+                                    csv_content = result['data']
+                                    df_extracted = pd.read_csv(io.StringIO(csv_content))
+
+                                # Convert to numeric
+                                if 'value' in df_extracted.columns:
+                                    df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
+                                elif 'ending_balance' in df_extracted.columns:
+                                    df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
+
+                                # Store in session state for persistence across reruns
+                                st.session_state.ai_extracted_accounts = df_extracted
+                                st.session_state.ai_tax_buckets = tax_buckets_by_account
+                                st.session_state.ai_warnings = result.get('warnings', [])
+
+                                st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
+                                st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
+
+                                # Display warnings if any
+                                warnings = st.session_state.ai_warnings
+                                if warnings and len(warnings) > 0:
+                                    with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
+                                        for warning in warnings:
+                                            st.warning(warning)
+
+                                # Map extracted data to Asset objects
+                                with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
+                                    st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
+
+                                    # Helper function to humanize account type
+                                    def humanize_account_type(account_type: str) -> str:
+                                        """Convert account_type codes to human-readable format."""
+                                        if not account_type:
+                                            return 'Unknown'
+
+                                        mappings = {
+                                            '401k': '401(k)',
+                                            'ira': 'IRA',
+                                            'roth_ira': 'Roth IRA',
+                                            'traditional_ira': 'Traditional IRA',
+                                            'rollover_ira': 'Rollover IRA',
+                                            'savings': 'Savings Account',
+                                            'checking': 'Checking Account',
+                                            'brokerage': 'Brokerage Account',
+                                            'hsa': 'HSA (Health Savings Account)',
+                                            'high yield savings': 'High Yield Savings',
+                                            'stock_plan': 'Stock Plan',
+                                            'roth': 'Roth IRA',
+                                            '403b': '403(b)',
+                                            '457': '457 Plan'
+                                        }
+                                        account_type_lower = str(account_type).lower().strip()
+
+                                        # Check exact match first
+                                        if account_type_lower in mappings:
+                                            return mappings[account_type_lower]
+
+                                        # Check if it contains key patterns
+                                        for key, value in mappings.items():
+                                            if key in account_type_lower:
+                                                return value
+
+                                        # Default: title case with underscores removed
+                                        return account_type.replace('_', ' ').title()
+
+                                    # Create editable table
+                                    table_data = []
+                                    for idx, row in df_extracted.iterrows():
+                                        # Get account type first (we'll need it for inference)
+                                        account_type_raw = row.get('account_type', '')
+                                        account_type = humanize_account_type(account_type_raw)
+
+                                        # Map tax_treatment to AssetType (human-readable)
+                                        # If tax_treatment is missing, infer from account_type
+                                        tax_treatment = str(row.get('tax_treatment', '')).lower()
+
+                                        if not tax_treatment or tax_treatment == 'nan':
+                                            # Infer from account_type
+                                            account_type_lower = str(account_type_raw).lower()
+                                            if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
                                                 tax_treatment = 'tax_deferred'
-                                                suffix = '- Traditional'
-
-                                            # Update split account
-                                            split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
-                                            split_account['ending_balance'] = source_balance
-                                            split_account['tax_treatment'] = tax_treatment
-                                            split_account['_tax_source_label'] = source_label
-                                            # Remove _raw_tax_sources to avoid confusion
-                                            split_account.pop('_raw_tax_sources', None)
-
-                                            split_accounts.append(split_account)
-                                    else:
-                                        # Keep account as-is
-                                        split_accounts.append(account)
-
-                                # Save tax_buckets or raw_tax_sources before converting to DataFrame
-                                for idx, account in enumerate(split_accounts):
-                                    account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
-
-                                    # Check for processed tax_buckets first
-                                    if 'tax_buckets' in account and account['tax_buckets']:
-                                        tax_buckets_by_account[account_id] = account['tax_buckets']
-                                    # Fall back to raw_tax_sources if available
-                                    elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
-                                        # Convert raw_tax_sources to bucket format for display
-                                        raw_sources = account['_raw_tax_sources']
-                                        buckets = []
-                                        for source in raw_sources:
-                                            if source.get('balance', 0) > 0:  # Only show non-zero balances
-                                                # Map label to tax treatment
-                                                label = source['label'].lower()
-                                                if 'roth' in label:
-                                                    tax_treatment_bucket = 'tax_free'
-                                                elif 'after tax' in label or 'after-tax' in label:
-                                                    tax_treatment_bucket = 'post_tax'
-                                                else:  # Employee deferral, traditional, etc.
-                                                    tax_treatment_bucket = 'tax_deferred'
-
-                                                buckets.append({
-                                                    'bucket_type': source['label'],
-                                                    'tax_treatment': tax_treatment_bucket,
-                                                    'balance': source['balance']
-                                                })
-                                        if buckets:
-                                            tax_buckets_by_account[account_id] = buckets
-
-                                # JSON format - already a list of dicts
-                                df_extracted = pd.DataFrame(split_accounts)
-                                # Rename JSON fields if needed
-                                column_mapping = {
-                                    'account_name': 'label',
-                                    'ending_balance': 'value',
-                                    'balance_as_of_date': 'period_end',
-                                    'institution': 'document_type',
-                                    'account_id': 'account_id'
-                                }
-                                df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
-                            else:
-                                # CSV format
-                                csv_content = result['data']
-                                df_extracted = pd.read_csv(io.StringIO(csv_content))
-
-                            # Convert to numeric
-                            if 'value' in df_extracted.columns:
-                                df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
-                            elif 'ending_balance' in df_extracted.columns:
-                                df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
-
-                            # Store in session state for persistence across reruns
-                            st.session_state.ai_extracted_accounts = df_extracted
-                            st.session_state.ai_tax_buckets = tax_buckets_by_account
-                            st.session_state.ai_warnings = result.get('warnings', [])
-
-                            st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
-                            st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
-
-                            # Display warnings if any
-                            warnings = st.session_state.ai_warnings
-                            if warnings and len(warnings) > 0:
-                                with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
-                                    for warning in warnings:
-                                        st.warning(warning)
-
-                            # Map extracted data to Asset objects
-                            with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
-                                st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
-
-                                # Helper function to humanize account type
-                                def humanize_account_type(account_type: str) -> str:
-                                    """Convert account_type codes to human-readable format."""
-                                    if not account_type:
-                                        return 'Unknown'
-
-                                    mappings = {
-                                        '401k': '401(k)',
-                                        'ira': 'IRA',
-                                        'roth_ira': 'Roth IRA',
-                                        'traditional_ira': 'Traditional IRA',
-                                        'rollover_ira': 'Rollover IRA',
-                                        'savings': 'Savings Account',
-                                        'checking': 'Checking Account',
-                                        'brokerage': 'Brokerage Account',
-                                        'hsa': 'HSA (Health Savings Account)',
-                                        'high yield savings': 'High Yield Savings',
-                                        'stock_plan': 'Stock Plan',
-                                        'roth': 'Roth IRA',
-                                        '403b': '403(b)',
-                                        '457': '457 Plan'
-                                    }
-                                    account_type_lower = str(account_type).lower().strip()
-
-                                    # Check exact match first
-                                    if account_type_lower in mappings:
-                                        return mappings[account_type_lower]
-
-                                    # Check if it contains key patterns
-                                    for key, value in mappings.items():
-                                        if key in account_type_lower:
-                                            return value
-
-                                    # Default: title case with underscores removed
-                                    return account_type.replace('_', ' ').title()
-
-                                # Create editable table
-                                table_data = []
-                                for idx, row in df_extracted.iterrows():
-                                    # Get account type first (we'll need it for inference)
-                                    account_type_raw = row.get('account_type', '')
-                                    account_type = humanize_account_type(account_type_raw)
-
-                                    # Map tax_treatment to AssetType (human-readable)
-                                    # If tax_treatment is missing, infer from account_type
-                                    tax_treatment = str(row.get('tax_treatment', '')).lower()
-
-                                    if not tax_treatment or tax_treatment == 'nan':
-                                        # Infer from account_type
-                                        account_type_lower = str(account_type_raw).lower()
-                                        if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
-                                            tax_treatment = 'tax_deferred'
-                                        elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
-                                            tax_treatment = 'tax_free'
-                                        elif account_type_lower == 'hsa':
-                                            tax_treatment = 'tax_deferred'  # HSA is tax-deferred
-                                        else:
-                                            tax_treatment = 'post_tax'  # brokerage, savings, checking
-
-                                    # Map to display value
-                                    if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
-                                        asset_type_display = 'Tax-Deferred'
-                                    elif tax_treatment == 'post_tax':
-                                        asset_type_display = 'Post-Tax'
-                                    elif tax_treatment == 'tax_free':
-                                        asset_type_display = 'Tax-Free'
-                                    else:
-                                        asset_type_display = 'Post-Tax'  # default
-
-                                    # Get account name and humanize it
-                                    account_name_raw = str(row.get('label', f"Account {idx+1}"))
-                                    # Humanize common account name patterns
-                                    account_name = humanize_account_type(account_name_raw)
-
-                                    # Get current balance
-                                    current_balance = float(row.get('value', 0))
-
-                                    # Helper function to humanize income eligibility
-                                    def humanize_eligibility(value: str) -> str:
-                                        mappings = {
-                                            'eligible': '✅ Eligible',
-                                            'conditionally_eligible': '⚠️ Conditionally Eligible',
-                                            'not_eligible': '❌ Not Eligible'
-                                        }
-                                        return mappings.get(str(value).lower(), value)
-
-                                    # Helper function to humanize purpose
-                                    def humanize_purpose(value: str) -> str:
-                                        mappings = {
-                                            'income': 'Retirement Income',
-                                            'general_income': 'General Income',
-                                            'healthcare_only': 'Healthcare Only (HSA)',
-                                            'education_only': 'Education Only (529)',
-                                            'employment_compensation': 'Employment Compensation',
-                                            'restricted_other': 'Restricted/Other'
-                                        }
-                                        return mappings.get(str(value).lower(), value)
-
-                                    # Get income eligibility and purpose if available
-                                    income_eligibility = row.get('income_eligibility', '')
-                                    purpose = row.get('purpose', '')
-
-                                    # Set default tax rate based on tax treatment
-                                    if asset_type_display == 'Post-Tax':
-                                        default_tax_rate = 15.0  # Capital gains tax
-                                    else:
-                                        default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
-
-                                    # Set default growth rate based on account type
-                                    account_type_lower = str(account_type_raw).lower()
-                                    if account_type_lower in ['savings', 'checking']:
-                                        default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
-                                    elif account_type_lower == 'hsa':
-                                        default_growth_rate = 7.0  # HSA invested in market
-                                    elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
-                                        default_growth_rate = 7.0  # Stock market average
-                                    else:
-                                        default_growth_rate = 7.0  # Default to market return
-
-                                    table_row = {
-                                        "#": f"#{idx+1}",
-                                        "Account": account_name,
-                                        "Account Type": account_type,
-                                        "Tax Treatment": asset_type_display,
-                                        "Current Balance": current_balance,
-                                        "Annual Contribution": 0.0,  # User needs to fill
-                                        "Growth Rate (%)": default_growth_rate,
-                                        "Tax Rate on Gains (%)": default_tax_rate
-                                    }
-
-                                    # Add income eligibility if available
-                                    if income_eligibility:
-                                        table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
-
-                                    # Add purpose if available
-                                    if purpose:
-                                        table_row["Purpose"] = humanize_purpose(purpose)
-
-                                    table_data.append(table_row)
-
-                                # Create DataFrame
-                                df_table = pd.DataFrame(table_data)
-
-                                # Define column configuration
-                                column_config = {
-                                    "#": st.column_config.TextColumn("#", disabled=True, help="Account number", width="small"),
-                                    "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                                    "Account Type": st.column_config.TextColumn(
-                                        "Account Type",
-                                        disabled=True,
-                                        help="Type of account (401k, IRA, Savings, etc.) - extracted from statement"
-                                    ),
-                                    "Tax Treatment": st.column_config.SelectboxColumn(
-                                        "Tax Treatment",
-                                        options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                                        help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                                    ),
-                                    "Current Balance": st.column_config.NumberColumn(
-                                        "Current Balance ($)",
-                                        min_value=0,
-                                        format="$%d",
-                                        help="Current account balance (extracted from statements)"
-                                    ),
-                                    "Annual Contribution": st.column_config.NumberColumn(
-                                        "Annual Contribution ($)",
-                                        min_value=0,
-                                        format="$%d",
-                                        help="How much you contribute annually to this account"
-                                    ),
-                                    "Growth Rate (%)": st.column_config.NumberColumn(
-                                        "Growth Rate (%)",
-                                        min_value=0,
-                                        max_value=50,
-                                        format="%.1f%%",
-                                        help="Expected annual growth rate (default: 7% stocks, 4% savings)"
-                                    ),
-                                    "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                        "Tax Rate on Gains (%)",
-                                        min_value=0,
-                                        max_value=50,
-                                        format="%.1f%%",
-                                        help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                                    ),
-                                    "Income Eligibility": st.column_config.TextColumn(
-                                        "Income Eligibility",
-                                        disabled=True,
-                                        help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
-                                    ),
-                                    "Purpose": st.column_config.TextColumn(
-                                        "Purpose",
-                                        disabled=True,
-                                        help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
-                                    )
-                                }
-
-                                # Display editable table
-                                edited_df = st.data_editor(
-                                    df_table,
-                                    column_config=column_config,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    num_rows="dynamic"
-                                )
-
-                                # Display tax bucket breakdowns if available
-                                if tax_buckets_by_account:
-                                    st.markdown("---")
-                                    st.markdown("#### 🔍 Tax Bucket Breakdown")
-                                    st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
-
-                                    for account_id, buckets in tax_buckets_by_account.items():
-                                        # Find account name in DataFrame
-                                        account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
-                                        if account_row is not None and not account_row.empty:
-                                            account_name = account_row.iloc[0].get('label', account_id)
-                                        else:
-                                            account_name = account_id
-
-                                        with st.expander(f"📊 {account_name}"):
-                                            # Create DataFrame for buckets
-                                            bucket_df = pd.DataFrame(buckets)
-
-                                            # Humanize bucket_type and tax_treatment
-                                            def humanize_bucket(value: str) -> str:
-                                                mappings = {
-                                                    'traditional_401k': 'Traditional 401(k)',
-                                                    'roth_in_plan_conversion': 'Roth In-Plan Conversion',
-                                                    'after_tax_401k': 'After-Tax 401(k)',
-                                                    'tax_deferred': 'Tax-Deferred',
-                                                    'tax_free': 'Tax-Free',
-                                                    'post_tax': 'Post-Tax',
-                                                    'pre_tax': 'Pre-Tax'
-                                                }
-                                                return mappings.get(str(value).lower(), value)
-
-                                            if 'bucket_type' in bucket_df.columns:
-                                                bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
-                                            if 'tax_treatment' in bucket_df.columns:
-                                                bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
-
-                                            # Format balance as currency
-                                            if 'balance' in bucket_df.columns:
-                                                total_bucket_balance = bucket_df['balance'].sum()
-                                                bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
-
-                                            # Rename columns
-                                            bucket_df = bucket_df.rename(columns={
-                                                'bucket_type': 'Tax Bucket',
-                                                'tax_treatment': 'Tax Treatment',
-                                                'balance': 'Balance'
-                                            })
-
-                                            st.dataframe(bucket_df, use_container_width=True, hide_index=True)
-
-                                            # Show total
-                                            st.metric("Total", f"${total_bucket_balance:,.2f}")
-
-                                # Convert edited dataframe to Asset objects
-                                if not edited_df.empty:
-                                    try:
-                                        assets = []
-                                        for _, row in edited_df.iterrows():
-                                            # Parse tax treatment (from human-readable to enum)
-                                            tax_treatment_str = row["Tax Treatment"]
-                                            if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
-                                                asset_type = AssetType.TAX_DEFERRED
-                                            elif tax_treatment_str == "Post-Tax":
-                                                asset_type = AssetType.POST_TAX
-                                            elif tax_treatment_str == "Tax-Free":
-                                                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                                asset_type = AssetType.POST_TAX
+                                            elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
+                                                tax_treatment = 'tax_free'
+                                            elif account_type_lower == 'hsa':
+                                                tax_treatment = 'tax_deferred'  # HSA is tax-deferred
                                             else:
-                                                raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+                                                tax_treatment = 'post_tax'  # brokerage, savings, checking
 
-                                            # Create asset
-                                            asset = Asset(
-                                                name=row["Account"],
-                                                asset_type=asset_type,
-                                                current_balance=float(row["Current Balance"]),
-                                                annual_contribution=float(row["Annual Contribution"]),
-                                                growth_rate_pct=float(row["Growth Rate (%)"]),
-                                                tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                            )
-                                            assets.append(asset)
+                                        # Map to display value
+                                        if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
+                                            asset_type_display = 'Tax-Deferred'
+                                        elif tax_treatment == 'post_tax':
+                                            asset_type_display = 'Post-Tax'
+                                        elif tax_treatment == 'tax_free':
+                                            asset_type_display = 'Tax-Free'
+                                        else:
+                                            asset_type_display = 'Post-Tax'  # default
 
-                                        st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
+                                        # Get account name and humanize it
+                                        account_name_raw = str(row.get('label', f"Account {idx+1}"))
+                                        # Humanize common account name patterns
+                                        account_name = humanize_account_type(account_name_raw)
 
-                                    except Exception as e:
-                                        st.error(f"❌ Error processing extracted data: {str(e)}")
-                                        st.info("💡 Please check the values in the table.")
+                                        # Get current balance
+                                        current_balance = float(row.get('value', 0))
 
-                        else:
+                                        # Helper function to humanize income eligibility
+                                        def humanize_eligibility(value: str) -> str:
+                                            mappings = {
+                                                'eligible': '✅ Eligible',
+                                                'conditionally_eligible': '⚠️ Conditionally Eligible',
+                                                'not_eligible': '❌ Not Eligible'
+                                            }
+                                            return mappings.get(str(value).lower(), value)
+
+                                        # Helper function to humanize purpose
+                                        def humanize_purpose(value: str) -> str:
+                                            mappings = {
+                                                'income': 'Retirement Income',
+                                                'general_income': 'General Income',
+                                                'healthcare_only': 'Healthcare Only (HSA)',
+                                                'education_only': 'Education Only (529)',
+                                                'employment_compensation': 'Employment Compensation',
+                                                'restricted_other': 'Restricted/Other'
+                                            }
+                                            return mappings.get(str(value).lower(), value)
+
+                                        # Get income eligibility and purpose if available
+                                        income_eligibility = row.get('income_eligibility', '')
+                                        purpose = row.get('purpose', '')
+
+                                        # Set default tax rate based on tax treatment
+                                        if asset_type_display == 'Post-Tax':
+                                            default_tax_rate = 15.0  # Capital gains tax
+                                        else:
+                                            default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
+
+                                        # Set default growth rate based on account type
+                                        account_type_lower = str(account_type_raw).lower()
+                                        if account_type_lower in ['savings', 'checking']:
+                                            default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
+                                        elif account_type_lower == 'hsa':
+                                            default_growth_rate = 7.0  # HSA invested in market
+                                        elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
+                                            default_growth_rate = 7.0  # Stock market average
+                                        else:
+                                            default_growth_rate = 7.0  # Default to market return
+
+                                        table_row = {
+                                            "#": f"#{idx+1}",
+                                            "Account": account_name,
+                                            "Account Type": account_type,
+                                            "Tax Treatment": asset_type_display,
+                                            "Current Balance": current_balance,
+                                            "Annual Contribution": 0.0,  # User needs to fill
+                                            "Growth Rate (%)": default_growth_rate,
+                                            "Tax Rate on Gains (%)": default_tax_rate
+                                        }
+
+                                        # Add income eligibility if available
+                                        if income_eligibility:
+                                            table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
+
+                                        # Add purpose if available
+                                        if purpose:
+                                            table_row["Purpose"] = humanize_purpose(purpose)
+
+                                        table_data.append(table_row)
+
+                                    # Create DataFrame
+                                    df_table = pd.DataFrame(table_data)
+
+                                    # Define column configuration
+                                    column_config = {
+                                        "#": st.column_config.TextColumn("#", disabled=True, help="Account number", width="small"),
+                                        "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                                        "Account Type": st.column_config.TextColumn(
+                                            "Account Type",
+                                            disabled=True,
+                                            help="Type of account (401k, IRA, Savings, etc.) - extracted from statement"
+                                        ),
+                                        "Tax Treatment": st.column_config.SelectboxColumn(
+                                            "Tax Treatment",
+                                            options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                            help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
+                                        ),
+                                        "Current Balance": st.column_config.NumberColumn(
+                                            "Current Balance ($)",
+                                            min_value=0,
+                                            format="$%d",
+                                            help="Current account balance (extracted from statements)"
+                                        ),
+                                        "Annual Contribution": st.column_config.NumberColumn(
+                                            "Annual Contribution ($)",
+                                            min_value=0,
+                                            format="$%d",
+                                            help="How much you contribute annually to this account"
+                                        ),
+                                        "Growth Rate (%)": st.column_config.NumberColumn(
+                                            "Growth Rate (%)",
+                                            min_value=0,
+                                            max_value=50,
+                                            format="%.1f%%",
+                                            help="Expected annual growth rate (default: 7% stocks, 4% savings)"
+                                        ),
+                                        "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                            "Tax Rate on Gains (%)",
+                                            min_value=0,
+                                            max_value=50,
+                                            format="%.1f%%",
+                                            help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
+                                        ),
+                                        "Income Eligibility": st.column_config.TextColumn(
+                                            "Income Eligibility",
+                                            disabled=True,
+                                            help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
+                                        ),
+                                        "Purpose": st.column_config.TextColumn(
+                                            "Purpose",
+                                            disabled=True,
+                                            help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
+                                        )
+                                    }
+
+                                    # Display editable table
+                                    edited_df = st.data_editor(
+                                        df_table,
+                                        column_config=column_config,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                        num_rows="dynamic"
+                                    )
+
+                                    # Display tax bucket breakdowns if available
+                                    if tax_buckets_by_account:
+                                        st.markdown("---")
+                                        st.markdown("#### 🔍 Tax Bucket Breakdown")
+                                        st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
+
+                                        for account_id, buckets in tax_buckets_by_account.items():
+                                            # Find account name in DataFrame
+                                            account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
+                                            if account_row is not None and not account_row.empty:
+                                                account_name = account_row.iloc[0].get('label', account_id)
+                                            else:
+                                                account_name = account_id
+
+                                            with st.expander(f"📊 {account_name}"):
+                                                # Create DataFrame for buckets
+                                                bucket_df = pd.DataFrame(buckets)
+
+                                                # Humanize bucket_type and tax_treatment
+                                                def humanize_bucket(value: str) -> str:
+                                                    mappings = {
+                                                        'traditional_401k': 'Traditional 401(k)',
+                                                        'roth_in_plan_conversion': 'Roth In-Plan Conversion',
+                                                        'after_tax_401k': 'After-Tax 401(k)',
+                                                        'tax_deferred': 'Tax-Deferred',
+                                                        'tax_free': 'Tax-Free',
+                                                        'post_tax': 'Post-Tax',
+                                                        'pre_tax': 'Pre-Tax'
+                                                    }
+                                                    return mappings.get(str(value).lower(), value)
+
+                                                if 'bucket_type' in bucket_df.columns:
+                                                    bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
+                                                if 'tax_treatment' in bucket_df.columns:
+                                                    bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
+
+                                                # Format balance as currency
+                                                if 'balance' in bucket_df.columns:
+                                                    total_bucket_balance = bucket_df['balance'].sum()
+                                                    bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
+
+                                                # Rename columns
+                                                bucket_df = bucket_df.rename(columns={
+                                                    'bucket_type': 'Tax Bucket',
+                                                    'tax_treatment': 'Tax Treatment',
+                                                    'balance': 'Balance'
+                                                })
+
+                                                st.dataframe(bucket_df, use_container_width=True, hide_index=True)
+
+                                                # Show total
+                                                st.metric("Total", f"${total_bucket_balance:,.2f}")
+
+                                    # Convert edited dataframe to Asset objects
+                                    if not edited_df.empty:
+                                        try:
+                                            assets = []
+                                            for _, row in edited_df.iterrows():
+                                                # Parse tax treatment (from human-readable to enum)
+                                                tax_treatment_str = row["Tax Treatment"]
+                                                if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
+                                                    asset_type = AssetType.TAX_DEFERRED
+                                                elif tax_treatment_str == "Post-Tax":
+                                                    asset_type = AssetType.POST_TAX
+                                                elif tax_treatment_str == "Tax-Free":
+                                                    # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                                    asset_type = AssetType.POST_TAX
+                                                else:
+                                                    raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+
+                                                # Create asset
+                                                asset = Asset(
+                                                    name=row["Account"],
+                                                    asset_type=asset_type,
+                                                    current_balance=float(row["Current Balance"]),
+                                                    annual_contribution=float(row["Annual Contribution"]),
+                                                    growth_rate_pct=float(row["Growth Rate (%)"]),
+                                                    tax_rate_pct=float(row["Tax Rate on Gains (%)"])
+                                                )
+                                                assets.append(asset)
+
+                                            st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
+
+                                        except Exception as e:
+                                            st.error(f"❌ Error processing extracted data: {str(e)}")
+                                            st.info("💡 Please check the values in the table.")
+
+                            else:
+                                progress_bar.progress(100)
+                                status_text.text("✗ Extraction failed")
+                                st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
+
+                        except N8NError as e:
                             progress_bar.progress(100)
-                            status_text.text("✗ Extraction failed")
-                            st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
+                            status_text.text("✗ Configuration error")
+                            st.error(f"Configuration Error: {str(e)}")
+                            st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
 
-                    except N8NError as e:
-                        progress_bar.progress(100)
-                        status_text.text("✗ Configuration error")
-                        st.error(f"Configuration Error: {str(e)}")
-                        st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
-
-                    except Exception as e:
-                        progress_bar.progress(100)
-                        status_text.text("✗ Unexpected error")
-                        st.error(f"Error: {str(e)}")
+                        except Exception as e:
+                            progress_bar.progress(100)
+                            status_text.text("✗ Unexpected error")
+                            st.error(f"Error: {str(e)}")
 
     elif setup_option == "Upload CSV File":
         st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
