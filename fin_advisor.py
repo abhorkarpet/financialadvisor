@@ -702,10 +702,11 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story.append(Paragraph("Recommendations", heading_style))
     
     recommendations = []
+    tax_percentage = (result.get("Total Tax Liability", 0) / result.get("Total Future Value (Pre-Tax)", 1) * 100) if result.get("Total Future Value (Pre-Tax)", 0) > 0 else 0
     if tax_efficiency > 85:
-        recommendations.append("🎉 <b>Excellent tax efficiency!</b> Your portfolio is well-optimized.")
+        recommendations.append("🎉 <b>Excellent tax efficiency!</b> Your portfolio is well-optimized with minimal tax liability.")
     elif tax_efficiency > 75:
-        recommendations.append("⚠️ <b>Good tax efficiency</b>, but there may be room for improvement.")
+        recommendations.append(f"⚠️ <b>Good tax efficiency</b> ({tax_percentage:.1f}% tax burden), but there may be room for improvement. <i>Goal: Lower this percentage by shifting assets to tax-advantaged accounts.</i>")
         recommendations.append("💡 <b>Tax Optimization Tips:</b>")
         recommendations.append("• Optimize asset location (taxable vs tax-advantaged accounts)")
         recommendations.append("• Consider Roth vs Traditional contributions based on tax rates")
@@ -1352,9 +1353,74 @@ with tab3:
                                         else:
                                             asset_type_display = 'Post-Tax'  # default
 
-                                        # Get account name (keep actual name, don't humanize it)
+                                        # Get account name and humanize it
                                         account_name_raw = str(row.get('label', f"Account {idx+1}"))
-                                        account_name = account_name_raw  # Use actual account name
+
+                                        # Helper function to humanize account names
+                                        def humanize_account_name(name: str) -> str:
+                                            """Convert raw account names to human-readable format."""
+                                            # Handle common patterns
+                                            name_clean = name.strip()
+
+                                            # Stock plans - extract company and plan type
+                                            if 'STOCK PLAN' in name_clean.upper():
+                                                # "STOCK PLAN - MICROSOFT ESPP PLAN" → "Microsoft ESPP"
+                                                # "STOCK PLAN - ORACLE STOCK OPTIONS" → "Oracle Stock Options"
+                                                parts = name_clean.split('-')
+                                                if len(parts) >= 2:
+                                                    plan_details = parts[1].strip()
+                                                    # Extract company name (first word) and plan type
+                                                    words = plan_details.split()
+                                                    if len(words) >= 2:
+                                                        company = words[0].title()
+                                                        if 'ESPP' in plan_details.upper():
+                                                            return f"{company} ESPP"
+                                                        elif 'STOCK OPTION' in plan_details.upper():
+                                                            return f"{company} Stock Options"
+                                                        elif 'RSU' in plan_details.upper():
+                                                            return f"{company} RSUs"
+                                                        else:
+                                                            plan_type = ' '.join(words[1:]).title()
+                                                            return f"{company} {plan_type}"
+
+                                            # Brokerage accounts
+                                            if 'at Work Self-Directed' in name_clean:
+                                                # "Morgan Stanley at Work Self-Directed Account" → "Morgan Stanley Brokerage"
+                                                institution = name_clean.split(' at Work')[0]
+                                                return f"{institution} Brokerage"
+
+                                            # Generic brokerage account shortening
+                                            if name_clean.lower() == 'brokerage account':
+                                                return 'Brokerage'
+
+                                            # Fix common formatting issues
+                                            replacements = {
+                                                'rollover_ira': 'Rollover IRA',
+                                                'roth_ira': 'Roth IRA',
+                                                'traditional_ira': 'Traditional IRA',
+                                                'health_savings_account': 'HSA',
+                                                '401k': '401(k)',
+                                                '403b': '403(b)',
+                                                '457': '457(b)',
+                                            }
+
+                                            name_lower = name_clean.lower()
+                                            for key, value in replacements.items():
+                                                if key == name_lower:
+                                                    return value
+                                                # Also handle patterns like "401k - Traditional"
+                                                if name_lower.startswith(key):
+                                                    suffix = name_clean[len(key):].strip()
+                                                    return f"{value}{suffix}"
+
+                                            # Title case for all-caps names
+                                            if name_clean.isupper():
+                                                return name_clean.title()
+
+                                            # Return as-is if no pattern matches
+                                            return name_clean
+
+                                        account_name = humanize_account_name(account_name_raw)
 
                                         # Get institution and account number for display
                                         institution = str(row.get('document_type', ''))  # Institution is stored in document_type
@@ -1930,24 +1996,52 @@ try:
         # Create detailed asset breakdown with calculation explainability
         if 'asset_results' in result and 'assets_input' in result:
             asset_data = []
+            # Track totals for summary row
+            total_current = 0
+            total_contributions = 0
+            total_growth = 0
+            total_pre_tax = 0
+            total_taxes = 0
+            total_after_tax = 0
+
             for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
                 current_balance = asset_input.current_balance
-                total_contributions = asset_result['total_contributions']
+                contributions = asset_result['total_contributions']
                 pre_tax_value = asset_result['pre_tax_value']
                 tax_liability = asset_result['tax_liability']
                 after_tax_value = asset_result['after_tax_value']
 
                 # Calculate investment growth
-                growth = pre_tax_value - current_balance - total_contributions
+                growth = pre_tax_value - current_balance - contributions
+
+                # Accumulate totals
+                total_current += current_balance
+                total_contributions += contributions
+                total_growth += growth
+                total_pre_tax += pre_tax_value
+                total_taxes += tax_liability
+                total_after_tax += after_tax_value
 
                 asset_data.append({
                     "Account": humanize_account_name(asset_result['name']),
                     "Current Balance": f"${current_balance:,.0f}",
-                    "Your Contributions": f"${total_contributions:,.0f}",
+                    "Your Contributions": f"${contributions:,.0f}",
                     "Investment Growth": f"${growth:,.0f}",
                     "Pre-Tax Value": f"${pre_tax_value:,.0f}",
                     "Est. Taxes": f"${tax_liability:,.0f}",
                     "After-Tax Value": f"${after_tax_value:,.0f}"
+                })
+
+            # Add totals row
+            if asset_data:
+                asset_data.append({
+                    "Account": "📊 TOTAL",
+                    "Current Balance": f"${total_current:,.0f}",
+                    "Your Contributions": f"${total_contributions:,.0f}",
+                    "Investment Growth": f"${total_growth:,.0f}",
+                    "Pre-Tax Value": f"${total_pre_tax:,.0f}",
+                    "Est. Taxes": f"${total_taxes:,.0f}",
+                    "After-Tax Value": f"${total_after_tax:,.0f}"
                 })
 
             if asset_data:
@@ -1983,9 +2077,9 @@ try:
         
         with col2:
             if result["Tax Efficiency (%)"] > 85:
-                st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized.")
+                st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized with minimal tax liability.")
             elif result["Tax Efficiency (%)"] > 75:
-                st.warning("⚠️ **Good tax efficiency**, but there may be room for improvement.")
+                st.warning(f"⚠️ **Good tax efficiency** ({tax_percentage:.1f}% tax burden), but there may be room for improvement. *Goal: Lower this percentage by shifting assets to tax-advantaged accounts.*")
                 with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
                     st.markdown("""
                     ### 🎯 **Tax Optimization Strategies**
