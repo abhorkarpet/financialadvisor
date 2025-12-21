@@ -1075,7 +1075,7 @@ with tab3:
                         
                         # Create updated asset
                         updated_asset = Asset(
-                            name=row["Account"],
+                            name=row["Account Name"],
                             asset_type=asset_type,
                             current_balance=float(row["Current Balance"]),
                             annual_contribution=float(row["Annual Contribution"]),
@@ -1352,10 +1352,13 @@ with tab3:
                                         else:
                                             asset_type_display = 'Post-Tax'  # default
 
-                                        # Get account name and humanize it
+                                        # Get account name (keep actual name, don't humanize it)
                                         account_name_raw = str(row.get('label', f"Account {idx+1}"))
-                                        # Humanize common account name patterns
-                                        account_name = humanize_account_type(account_name_raw)
+                                        account_name = account_name_raw  # Use actual account name
+
+                                        # Get institution and account number for display
+                                        institution = str(row.get('document_type', ''))  # Institution is stored in document_type
+                                        account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
 
                                         # Get current balance
                                         current_balance = float(row.get('value', 0))
@@ -1404,7 +1407,9 @@ with tab3:
 
                                         table_row = {
                                             "#": f"#{idx+1}",
-                                            "Account": account_name,
+                                            "Institution": institution,
+                                            "Account Name": account_name,
+                                            "Last 4": account_number_last4,
                                             "Account Type": account_type,
                                             "Tax Treatment": asset_type_display,
                                             "Current Balance": current_balance,
@@ -1428,12 +1433,29 @@ with tab3:
 
                                     # Define column configuration
                                     column_config = {
-                                        "#": st.column_config.TextColumn("#", disabled=True, help="Account number", width="small"),
-                                        "Account": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                                        "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                                        "Institution": st.column_config.TextColumn(
+                                            "Institution",
+                                            disabled=True,
+                                            help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                                            width="medium"
+                                        ),
+                                        "Account Name": st.column_config.TextColumn(
+                                            "Account Name",
+                                            help="Account name/description from statement",
+                                            width="medium"
+                                        ),
+                                        "Last 4": st.column_config.TextColumn(
+                                            "Last 4",
+                                            disabled=True,
+                                            help="Last 4 digits of account number",
+                                            width="small"
+                                        ),
                                         "Account Type": st.column_config.TextColumn(
                                             "Account Type",
                                             disabled=True,
-                                            help="Type of account (401k, IRA, Savings, etc.) - extracted from statement"
+                                            help="Type of account (401k, IRA, Savings, etc.) - extracted from statement",
+                                            width="small"
                                         ),
                                         "Tax Treatment": st.column_config.SelectboxColumn(
                                             "Tax Treatment",
@@ -1559,7 +1581,7 @@ with tab3:
 
                                                 # Create asset
                                                 asset = Asset(
-                                                    name=row["Account"],
+                                                    name=row["Account Name"],
                                                     asset_type=asset_type,
                                                     current_balance=float(row["Current Balance"]),
                                                     annual_contribution=float(row["Annual Contribution"]),
@@ -1702,7 +1724,7 @@ with tab3:
                                 
                                 # Create updated asset
                                 updated_asset = Asset(
-                                    name=row["Account"],
+                                    name=row["Account Name"],
                                     asset_type=asset_type,
                                     current_balance=float(row["Current Balance"]),
                                     annual_contribution=float(row["Annual Contribution"]),
