@@ -770,76 +770,75 @@ if 'retirement_age' not in st.session_state:
     st.session_state.retirement_age = 65
 if 'life_expectancy' not in st.session_state:
     st.session_state.life_expectancy = 85
-if 'annual_income' not in st.session_state:
-    st.session_state.annual_income = 85000
 if 'retirement_income_goal' not in st.session_state:
-    st.session_state.retirement_income_goal = int(85000 * 0.75)
+    st.session_state.retirement_income_goal = 63750  # Typical target
 if 'client_name' not in st.session_state:
     st.session_state.client_name = ""
 if 'assets' not in st.session_state:
     st.session_state.assets = []
 
 # ==========================================
-# SIDEBAR - Settings (Tax & Growth Assumptions)
+# SIDEBAR - Advanced Settings (Collapsed by Default)
 # ==========================================
-st.sidebar.title("⚙️ Settings")
-st.sidebar.markdown("### Tax Settings")
+with st.sidebar:
+    with st.expander("⚙️ Advanced Settings", expanded=False):
+        st.markdown("### Tax Settings")
 
-# Current tax rate with helpful guidance
-with st.sidebar.expander("💡 How to find your current tax rate", expanded=False):
-    st.markdown("""
-    **To find your current marginal tax rate:**
-    1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
-    2. **Use IRS tax brackets**: Find which bracket your income falls into
+        # Current tax rate with helpful guidance
+        with st.expander("💡 How to find your current tax rate", expanded=False):
+            st.markdown("""
+            **To find your current marginal tax rate:**
+            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+            2. **Use IRS tax brackets**: Find which bracket your income falls into
 
-    **2024 Tax Brackets (Single):**
-    - 10%: $0 - $11,600
-    - 12%: $11,601 - $47,150
-    - 22%: $47,151 - $100,525
-    - 24%: $100,526 - $191,950
-    - 32%: $191,951 - $243,725
-    - 35%: $243,726 - $609,350
-    - 37%: $609,351+
-    """)
+            **2024 Tax Brackets (Single):**
+            - 10%: $0 - $11,600
+            - 12%: $11,601 - $47,150
+            - 22%: $47,151 - $100,525
+            - 24%: $100,526 - $191,950
+            - 32%: $191,951 - $243,725
+            - 35%: $243,726 - $609,350
+            - 37%: $609,351+
+            """)
 
-current_tax_rate = st.sidebar.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
 
-with st.sidebar.expander("💡 How to estimate retirement tax rate", expanded=False):
-    st.markdown("""
-    **Consider these factors:**
-    1. **Lower income**: Most people have lower income in retirement
-    2. **Social Security**: Only 85% is taxable for most people
-    3. **Roth withdrawals**: Tax-free if qualified
-    4. **Required Minimum Distributions**: Start at age 73 (2024)
+        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
+            st.markdown("""
+            **Consider these factors:**
+            1. **Lower income**: Most people have lower income in retirement
+            2. **Social Security**: Only 85% is taxable for most people
+            3. **Roth withdrawals**: Tax-free if qualified
+            4. **Required Minimum Distributions**: Start at age 73 (2024)
 
-    **Common scenarios:**
-    - **Conservative**: Same as current rate
-    - **Optimistic**: 10-15% lower than current
-    - **Pessimistic**: 5-10% higher (if tax rates increase)
-    """)
+            **Common scenarios:**
+            - **Conservative**: Same as current rate
+            - **Optimistic**: 10-15% lower than current
+            - **Pessimistic**: 5-10% higher (if tax rates increase)
+            """)
 
-retirement_tax_rate = st.sidebar.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Growth Rate Assumptions")
+        st.markdown("---")
+        st.markdown("### Growth Rate Assumptions")
 
-with st.sidebar.expander("💡 Inflation guidance", expanded=False):
-    st.markdown("""
-    **Historical context:**
-    - **Long-term average**: 3.0-3.5% annually
-    - **Recent years**: 2-4% (2020-2024)
-    - **Federal Reserve target**: 2% annually
+        with st.expander("💡 Inflation guidance", expanded=False):
+            st.markdown("""
+            **Historical context:**
+            - **Long-term average**: 3.0-3.5% annually
+            - **Recent years**: 2-4% (2020-2024)
+            - **Federal Reserve target**: 2% annually
 
-    **Consider:**
-    - **Conservative**: 2-3% (Fed target)
-    - **Moderate**: 3-4% (historical average)
-    - **Aggressive**: 4-5% (higher inflation)
-    """)
+            **Consider:**
+            - **Conservative**: 2-3% (Fed target)
+            - **Moderate**: 3-4% (historical average)
+            - **Aggressive**: 4-5% (higher inflation)
+            """)
 
-inflation_rate = st.sidebar.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
+        st.markdown("---")
+        st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
 
 # Reset button (only show if onboarding is complete)
 if st.session_state.onboarding_complete:
@@ -975,49 +974,36 @@ if current_step == 1:
         st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
 
     with col2:
-        annual_income = st.number_input(
-            "Annual Income ($)",
-            min_value=10000,
-            value=st.session_state.annual_income,
-            step=1000,
-            help="Your current annual income",
-            key="annual_income_input"
-        )
-        st.session_state.annual_income = annual_income
-
         # Retirement income goal
-        st.subheader("🎯 Retirement Income Goal")
-        with st.expander("💡 How to estimate retirement income needs", expanded=False):
+        st.subheader("🎯 Desired Annual Retirement Income")
+        with st.expander("💡 How much do you need in retirement?", expanded=False):
             st.markdown("""
-            **Common retirement income replacement ratios:**
-            - **70-80%**: Conservative estimate (most financial advisors recommend)
-            - **60-70%**: Moderate estimate (if you plan to downsize lifestyle)
-            - **80-90%**: Higher estimate (if you plan to travel more or have health costs)
-            - **100%+**: Same or higher lifestyle in retirement
+            **Typical annual retirement income needs:**
+            - **$40,000 - $60,000**: Modest lifestyle
+            - **$60,000 - $80,000**: Comfortable lifestyle
+            - **$80,000 - $100,000**: Enhanced lifestyle
+            - **$100,000+**: Premium lifestyle
 
-            **Factors to consider:**
-            1. **Lower expenses**: No commuting, work clothes, retirement savings
-            2. **Higher expenses**: Healthcare, travel, hobbies
-            3. **Social Security**: Will provide some income (check ssa.gov)
-            4. **Pension**: If you have one
-            5. **Lifestyle changes**: Downsizing, moving to lower-cost area
+            **Consider:**
+            - **Housing costs**: Rent/mortgage, property taxes, maintenance
+            - **Healthcare**: Insurance premiums, out-of-pocket costs
+            - **Daily living**: Food, utilities, transportation
+            - **Lifestyle**: Travel, hobbies, entertainment
+            - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
+
+            **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
             """)
 
-        # Calculate suggested retirement income (75% replacement ratio)
-        suggested_retirement_income = annual_income * 0.75
         retirement_income_goal = st.number_input(
-            "Desired Annual Retirement Income ($)",
+            "Annual Income Needed in Retirement ($)",
             min_value=10000,
+            max_value=500000,
             value=st.session_state.retirement_income_goal,
-            step=1000,
-            help=f"Based on 75% replacement ratio: ${suggested_retirement_income:,.0f}",
+            step=5000,
+            help="How much you want to spend each year in retirement (before taxes)",
             key="retirement_income_goal_input"
         )
         st.session_state.retirement_income_goal = retirement_income_goal
-
-        # Show replacement ratio
-        replacement_ratio = (retirement_income_goal / annual_income) * 100
-        st.info(f"📊 **Income Replacement Ratio**: {replacement_ratio:.1f}% of current income")
 
         # Client name for personalization
         client_name = st.text_input(
@@ -1041,9 +1027,6 @@ if current_step == 1:
 # STEP 2: Asset Configuration
 # ==========================================
 elif current_step == 2:
-    # Load values from session state for use in this step
-    annual_income = st.session_state.annual_income
-
     # Tax Rate Explanation
     with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
         st.markdown("""
@@ -1952,7 +1935,6 @@ current_year = datetime.now().year
 age = current_year - st.session_state.birth_year
 retirement_age = st.session_state.retirement_age
 life_expectancy = st.session_state.life_expectancy
-annual_income = st.session_state.annual_income
 retirement_income_goal = st.session_state.retirement_income_goal
 client_name = st.session_state.client_name
 assets = st.session_state.assets
@@ -1962,7 +1944,7 @@ try:
         age=int(age),
         retirement_age=int(retirement_age),
         life_expectancy=int(life_expectancy),
-        annual_income=float(annual_income),
+        annual_income=0.0,  # Not used in calculations anymore
         contribution_rate_pct=15.0,  # Not used in new system
         expected_growth_rate_pct=7.0,  # Not used in new system
         inflation_rate_pct=float(inflation_rate),
@@ -2254,7 +2236,6 @@ try:
                             'age': age,
                             'retirement_age': retirement_age,
                             'life_expectancy': life_expectancy,
-                            'annual_income': annual_income,
                             'birth_year': birth_year,
                             'retirement_income_goal': retirement_income_goal
                         }
