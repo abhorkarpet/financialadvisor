@@ -160,9 +160,9 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **3.1.0**
+Current Version: **3.5.0**
 
-### What's New in 3.1.0
+### What's New in 3.5.0
 **Onboarding Improvements:**
 - Reorganized flow into 2 clear sequential steps
 - Moved tax settings and inflation rate to "Advanced Settings" sidebar (collapsed by default)
@@ -174,7 +174,7 @@ Current Version: **3.1.0**
 
 **Simplified Personal Information:**
 - Removed "Annual Income" field (no longer needed)
-- Retirement income goal is now standalone with direct dollar amount entry
+- Retirement income goal is now **optional** (can be set to $0)
 - Helpful guidance shows typical ranges ($40k-$100k+)
 - No more percentage-based calculations or replacement ratios
 - Simpler, more intuitive user experience
@@ -182,16 +182,20 @@ Current Version: **3.1.0**
 **Asset Configuration Simplification:**
 - Removed confusing "Default Portfolio" option
 - Removed confusing "Legacy Mode (Simple)" option
-- Added user-configurable default growth rate (0-20%)
-- Default growth rate auto-populates across all setup methods
+- Default growth rate moved to Advanced Settings sidebar
+- Reference note in Asset Configuration points to Advanced Settings
 - Only 3 clear setup options remain:
   1. Upload Financial Statements (AI)
   2. Upload CSV File
   3. Configure Individual Assets
 - Consistent growth rate defaults across all methods
 
-**UI/UX Enhancements:**
-- Advanced Settings sidebar collapsed by default (cleaner look)
+**Advanced Settings Enhancements:**
+- Sidebar collapsed by default (cleaner look)
+- All settings consolidated in one place:
+  - Tax rates (current and retirement)
+  - Inflation rate
+  - Default investment growth rate ⭐ NEW
 - Settings easily accessible when needed
 - Reduced cognitive load with fewer fields
 - Better focus on essential information
