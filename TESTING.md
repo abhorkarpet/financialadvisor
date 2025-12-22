@@ -39,12 +39,13 @@ The application will automatically open in your default browser at `http://local
 - Click **"Next: Asset Configuration →"**
 
 **Step 2: Asset Configuration**
-- Choose one of the setup methods:
-  - **Use Default Portfolio** - Quick start with 4 pre-configured accounts
-  - **Upload Financial Statements (AI)** - Upload PDF statements (requires n8n integration)
-  - **Upload CSV File** - Upload a CSV with your accounts
-  - **Configure Individual Assets** - Manually add each account
-  - **Legacy Mode (Simple)** - Single blended calculation
+- **Set Default Growth Rate** - Configure the default annual growth rate for investment accounts (slider: 0-20%)
+  - Typical rates: Stocks 7-10%, Bonds 4-5%, Savings 2-4%
+  - This rate auto-populates when adding accounts
+- Choose one of the 3 setup methods:
+  - **Upload Financial Statements (AI)** - Upload PDF statements for AI extraction (requires n8n integration)
+  - **Upload CSV File** - Download template, fill it out, and upload
+  - **Configure Individual Assets** - Manually add each account one by one
 - Click **"Complete Onboarding ✓"**
 
 **View Results**
@@ -134,11 +135,14 @@ streamlit run fin_advisor.py --server.enableCORS false
 - [ ] Help expanders provide guidance
 - [ ] Settings persist across steps
 
-✅ **Asset Configuration Methods**
-- [ ] Default Portfolio loads 4 accounts
+✅ **Asset Configuration**
+- [ ] Default growth rate slider works (0-20%)
+- [ ] Growth rate help text shows typical rates
+- [ ] AI upload uses default growth rate for investment accounts
 - [ ] CSV upload accepts template format
-- [ ] Manual asset configuration works
+- [ ] Manual asset configuration defaults to user's growth rate
 - [ ] Editable tables update correctly
+- [ ] Only 3 clear setup options (no Legacy or Default Portfolio)
 
 ✅ **Results Section**
 - [ ] Shows only after onboarding complete
@@ -158,10 +162,22 @@ streamlit run fin_advisor.py --server.enableCORS false
 Current Version: **3.1.0**
 
 ### What's New in 3.1.0
-- Reorganized onboarding flow into 2 sequential steps
-- Moved tax and growth settings to sidebar
-- Added progress indicator
-- Implemented step navigation
+**Onboarding Improvements:**
+- Reorganized flow into 2 clear sequential steps
+- Moved tax settings and inflation rate to sidebar for easy access
+- Added progress indicator showing current step
+- Implemented step navigation (Next/Previous/Complete buttons)
 - Session state persistence across steps
 - Results shown only after onboarding completion
 - Added reset onboarding functionality
+
+**Asset Configuration Simplification:**
+- Removed confusing "Default Portfolio" option
+- Removed confusing "Legacy Mode (Simple)" option
+- Added user-configurable default growth rate (0-20%)
+- Default growth rate auto-populates across all setup methods
+- Only 3 clear setup options remain:
+  1. Upload Financial Statements (AI)
+  2. Upload CSV File
+  3. Configure Individual Assets
+- Consistent growth rate defaults across all methods
