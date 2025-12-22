@@ -1077,136 +1077,37 @@ elif current_step == 2:
         
         💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
         """)
-    
-    # Quick setup options
+
+    # Default Growth Rate Setting
+    st.markdown("### 📈 Default Growth Rate for Investment Accounts")
+    st.markdown("Set a default growth rate that will auto-populate for your investment accounts.")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        default_growth_rate = st.slider(
+            "Default Annual Growth Rate (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=7.0,
+            step=0.5,
+            help="This will be used as the default for stocks/investment accounts. Typical: 7-10% for stocks, 4-5% for bonds, 2-4% for savings"
+        )
+    with col2:
+        st.info(f"**Default Rate:** {default_growth_rate}%")
+        st.caption("💡 Typical rates:\n- Stocks: 7-10%\n- Bonds: 4-5%\n- Savings: 2-4%")
+
+    st.markdown("---")
+
+    # Simplified setup options (removed Default Portfolio and Legacy Mode)
     setup_option = st.radio(
-        "Choose setup method:",
-        ["Use Default Portfolio", "Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets", "Legacy Mode (Simple)"],
-        help="Select how you want to configure your retirement accounts"
+        "Choose how to configure your accounts:",
+        ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
+        help="Select how you want to add your retirement accounts"
     )
 
     assets = []
 
-    if setup_option == "Use Default Portfolio":
-        assets = create_default_assets()
-        st.success("✅ Using default portfolio with 401(k), Roth IRA, Brokerage, and Savings accounts")
-        
-        # Show default portfolio details in editable table format
-        with st.expander("📋 Default Portfolio Details (Editable)", expanded=True):
-            # Helper function to convert asset type to human-readable format
-            def asset_type_to_display(asset: Asset) -> str:
-                """Convert AssetType enum to human-readable display value."""
-                if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
-                    return "Tax-Deferred"
-                elif asset.asset_type == AssetType.POST_TAX:
-                    # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
-                    if asset.tax_rate_pct == 0:
-                        return "Tax-Free"
-                    else:
-                        return "Post-Tax"
-                return "Post-Tax"  # default
-
-            # Create editable table data
-            table_data = []
-            for i, asset in enumerate(assets):
-                row = {
-                    "Index": i,
-                    "Account Name": asset.name,
-                    "Tax Treatment": asset_type_to_display(asset),
-                    "Current Balance": asset.current_balance,
-                    "Annual Contribution": asset.annual_contribution,
-                    "Growth Rate (%)": asset.growth_rate_pct,
-                    "Tax Rate on Gains (%)": asset.tax_rate_pct
-                }
-                table_data.append(row)
-            
-            # Create editable dataframe
-            df = pd.DataFrame(table_data)
-            
-            # Define column configuration for editing
-            column_config = {
-                "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
-                "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                "Tax Treatment": st.column_config.SelectboxColumn(
-                    "Tax Treatment",
-                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                    help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                ),
-                "Current Balance": st.column_config.NumberColumn(
-                    "Current Balance ($)",
-                    min_value=0,
-                    format="$%d",
-                    help="Current account balance"
-                ),
-                "Annual Contribution": st.column_config.NumberColumn(
-                    "Annual Contribution ($)",
-                    min_value=0,
-                    format="$%d",
-                    help="Annual contribution amount"
-                ),
-                "Growth Rate (%)": st.column_config.NumberColumn(
-                    "Growth Rate (%)",
-                    min_value=0,
-                    max_value=50,
-                    format="%.1f%%",
-                    help="Expected annual growth rate"
-                ),
-                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                    "Tax Rate on Gains (%)",
-                    min_value=0,
-                    max_value=50,
-                    format="%.1f%%",
-                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                )
-            }
-            
-            # Display editable table
-            st.info("💡 **Edit the default portfolio directly in the table below. Changes will be applied when you run the analysis.**")
-            edited_df = st.data_editor(
-                df, 
-                column_config=column_config,
-                use_container_width=True, 
-                hide_index=True,
-                num_rows="dynamic"
-            )
-            
-            # Convert edited dataframe back to Asset objects
-            if not edited_df.empty:
-                try:
-                    updated_assets = []
-                    for _, row in edited_df.iterrows():
-                        # Parse tax treatment (from human-readable to enum)
-                        tax_treatment_str = row["Tax Treatment"]
-                        if tax_treatment_str == "Tax-Deferred":
-                            asset_type = AssetType.TAX_DEFERRED
-                        elif tax_treatment_str == "Post-Tax":
-                            asset_type = AssetType.POST_TAX
-                        elif tax_treatment_str == "Tax-Free":
-                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                            asset_type = AssetType.POST_TAX
-                        else:
-                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-
-                        # Create updated asset
-                        updated_asset = Asset(
-                            name=row["Account Name"],
-                            asset_type=asset_type,
-                            current_balance=float(row["Current Balance"]),
-                            annual_contribution=float(row["Annual Contribution"]),
-                            growth_rate_pct=float(row["Growth Rate (%)"]),
-                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                        )
-                        updated_assets.append(updated_asset)
-                    
-                    # Update the assets list
-                    assets = updated_assets
-                    st.success(f"✅ Default portfolio updated! {len(assets)} assets ready for analysis.")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error updating default portfolio: {str(e)}")
-                    st.info("💡 Please check your input values and try again.")
-
-    elif setup_option == "Upload Financial Statements (AI)":
+    if setup_option == "Upload Financial Statements (AI)":
         if not _N8N_AVAILABLE:
             st.error("❌ **n8n integration not available**")
             st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
@@ -1620,13 +1521,10 @@ elif current_step == 2:
                                             # Set default growth rate based on account type
                                             account_type_lower = str(account_type_raw).lower()
                                             if account_type_lower in ['savings', 'checking']:
-                                                default_growth_rate = 4.0  # HYSA/Savings: ~4% APY
-                                            elif account_type_lower == 'hsa':
-                                                default_growth_rate = 7.0  # HSA invested in market
-                                            elif account_type_lower in ['401k', 'ira', 'roth_ira', 'roth_401k', 'brokerage']:
-                                                default_growth_rate = 7.0  # Stock market average
+                                                account_growth_rate = 3.0  # HYSA/Savings: conservative rate
                                             else:
-                                                default_growth_rate = 7.0  # Default to market return
+                                                # Use the user's default growth rate for all investment accounts
+                                                account_growth_rate = default_growth_rate
     
                                             table_row = {
                                                 "#": f"#{idx+1}",
@@ -1637,7 +1535,7 @@ elif current_step == 2:
                                                 "Tax Treatment": asset_type_display,
                                                 "Current Balance": current_balance,
                                                 "Annual Contribution": 0.0,  # User needs to fill
-                                                "Growth Rate (%)": default_growth_rate,
+                                                "Growth Rate (%)": account_growth_rate,
                                                 "Tax Rate on Gains (%)": default_tax_rate
                                             }
     
@@ -1702,7 +1600,7 @@ elif current_step == 2:
                                             min_value=0,
                                             max_value=50,
                                             format="%.1f%%",
-                                            help="Expected annual growth rate (default: 7% stocks, 4% savings)"
+                                            help=f"Expected annual growth rate (your default: {default_growth_rate}%)"
                                         ),
                                         "Tax Rate on Gains (%)": st.column_config.NumberColumn(
                                             "Tax Rate on Gains (%)",
@@ -1924,7 +1822,7 @@ elif current_step == 2:
                             min_value=0,
                             max_value=50,
                             format="%.1f%%",
-                            help="Expected annual growth rate"
+                            help=f"Expected annual growth rate (your default: {default_growth_rate}%)"
                         ),
                         "Tax Rate on Gains (%)": st.column_config.NumberColumn(
                             "Tax Rate on Gains (%)",
@@ -2005,7 +1903,7 @@ elif current_step == 2:
                     current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000, help="Current account balance")
                     annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
                 with col3:
-                    growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, 7, help="Expected annual return")
+                    growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, int(default_growth_rate), help=f"Expected annual return (default: {default_growth_rate}%)")
                     if asset_type[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
                         tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
                     else:
@@ -2019,22 +1917,6 @@ elif current_step == 2:
                     growth_rate_pct=growth_rate,
                     tax_rate_pct=tax_rate
                 ))
-
-    else:  # Legacy mode
-        st.info("📊 Legacy mode: Single blended calculation")
-        contribution_rate = st.slider("Annual Savings Rate (% of income)", 0, 50, 15, help="Percentage of income you save")
-        current_balance = st.number_input("Current Total Savings ($)", min_value=0, value=50000, step=1000, help="Total current savings")
-        expected_growth_rate = st.slider("Expected Annual Growth Rate (%)", 0, 20, 7, help="Expected annual return")
-        
-        # Create legacy asset
-        total_contribution = annual_income * (contribution_rate / 100.0)
-        assets = [Asset(
-            name="401(k) / Traditional IRA (Pre-Tax)",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=current_balance,
-            annual_contribution=total_contribution,
-            growth_rate_pct=expected_growth_rate
-        )]
 
     # Save assets to session state
     st.session_state.assets = assets
