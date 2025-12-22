@@ -33,8 +33,7 @@ The application will automatically open in your default browser at `http://local
 - Enter your birth year
 - Set target retirement age
 - Set life expectancy
-- Enter annual income
-- Set retirement income goal
+- Set desired annual retirement income (with helpful guidance on typical ranges)
 - (Optional) Enter your name for PDF reports
 - Click **"Next: Asset Configuration →"**
 
@@ -56,9 +55,9 @@ The application will automatically open in your default browser at `http://local
   - Summary charts
   - PDF download option
 
-### 4. Adjust Settings (Sidebar)
+### 4. Adjust Advanced Settings (Sidebar)
 
-At any time, you can adjust:
+Click **"⚙️ Advanced Settings"** in the sidebar (collapsed by default) to adjust:
 - **Current Marginal Tax Rate** - Your current tax bracket
 - **Projected Retirement Tax Rate** - Expected tax rate in retirement
 - **Expected Inflation Rate** - Long-term inflation assumption
@@ -129,7 +128,9 @@ streamlit run fin_advisor.py --server.enableCORS false
 - [ ] Navigation buttons (Next/Previous/Complete) work
 - [ ] Progress bar shows correct step
 
-✅ **Settings (Sidebar)**
+✅ **Advanced Settings (Sidebar)**
+- [ ] Sidebar expander is collapsed by default
+- [ ] Advanced Settings expander opens when clicked
 - [ ] Tax rate sliders work
 - [ ] Inflation rate slider works
 - [ ] Help expanders provide guidance
@@ -164,12 +165,19 @@ Current Version: **3.1.0**
 ### What's New in 3.1.0
 **Onboarding Improvements:**
 - Reorganized flow into 2 clear sequential steps
-- Moved tax settings and inflation rate to sidebar for easy access
+- Moved tax settings and inflation rate to "Advanced Settings" sidebar (collapsed by default)
 - Added progress indicator showing current step
 - Implemented step navigation (Next/Previous/Complete buttons)
 - Session state persistence across steps
 - Results shown only after onboarding completion
 - Added reset onboarding functionality
+
+**Simplified Personal Information:**
+- Removed "Annual Income" field (no longer needed)
+- Retirement income goal is now standalone with direct dollar amount entry
+- Helpful guidance shows typical ranges ($40k-$100k+)
+- No more percentage-based calculations or replacement ratios
+- Simpler, more intuitive user experience
 
 **Asset Configuration Simplification:**
 - Removed confusing "Default Portfolio" option
@@ -181,3 +189,9 @@ Current Version: **3.1.0**
   2. Upload CSV File
   3. Configure Individual Assets
 - Consistent growth rate defaults across all methods
+
+**UI/UX Enhancements:**
+- Advanced Settings sidebar collapsed by default (cleaner look)
+- Settings easily accessible when needed
+- Reduced cognitive load with fewer fields
+- Better focus on essential information
