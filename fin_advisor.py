@@ -756,24 +756,120 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
 
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 st.set_page_config(page_title="Financial Advisor - Stage 2", layout="wide")
+
+# Initialize session state for onboarding flow
+if 'onboarding_step' not in st.session_state:
+    st.session_state.onboarding_step = 1
+if 'onboarding_complete' not in st.session_state:
+    st.session_state.onboarding_complete = False
+
+# Initialize session state for form values
+if 'birth_year' not in st.session_state:
+    st.session_state.birth_year = datetime.now().year - 30
+if 'retirement_age' not in st.session_state:
+    st.session_state.retirement_age = 65
+if 'life_expectancy' not in st.session_state:
+    st.session_state.life_expectancy = 85
+if 'annual_income' not in st.session_state:
+    st.session_state.annual_income = 85000
+if 'retirement_income_goal' not in st.session_state:
+    st.session_state.retirement_income_goal = int(85000 * 0.75)
+if 'client_name' not in st.session_state:
+    st.session_state.client_name = ""
+if 'assets' not in st.session_state:
+    st.session_state.assets = []
+
+# ==========================================
+# SIDEBAR - Settings (Tax & Growth Assumptions)
+# ==========================================
+st.sidebar.title("⚙️ Settings")
+st.sidebar.markdown("### Tax Settings")
+
+# Current tax rate with helpful guidance
+with st.sidebar.expander("💡 How to find your current tax rate", expanded=False):
+    st.markdown("""
+    **To find your current marginal tax rate:**
+    1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+    2. **Use IRS tax brackets**: Find which bracket your income falls into
+
+    **2024 Tax Brackets (Single):**
+    - 10%: $0 - $11,600
+    - 12%: $11,601 - $47,150
+    - 22%: $47,151 - $100,525
+    - 24%: $100,526 - $191,950
+    - 32%: $191,951 - $243,725
+    - 35%: $243,726 - $609,350
+    - 37%: $609,351+
+    """)
+
+current_tax_rate = st.sidebar.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+
+with st.sidebar.expander("💡 How to estimate retirement tax rate", expanded=False):
+    st.markdown("""
+    **Consider these factors:**
+    1. **Lower income**: Most people have lower income in retirement
+    2. **Social Security**: Only 85% is taxable for most people
+    3. **Roth withdrawals**: Tax-free if qualified
+    4. **Required Minimum Distributions**: Start at age 73 (2024)
+
+    **Common scenarios:**
+    - **Conservative**: Same as current rate
+    - **Optimistic**: 10-15% lower than current
+    - **Pessimistic**: 5-10% higher (if tax rates increase)
+    """)
+
+retirement_tax_rate = st.sidebar.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Growth Rate Assumptions")
+
+with st.sidebar.expander("💡 Inflation guidance", expanded=False):
+    st.markdown("""
+    **Historical context:**
+    - **Long-term average**: 3.0-3.5% annually
+    - **Recent years**: 2-4% (2020-2024)
+    - **Federal Reserve target**: 2% annually
+
+    **Consider:**
+    - **Conservative**: 2-3% (Fed target)
+    - **Moderate**: 3-4% (historical average)
+    - **Aggressive**: 4-5% (higher inflation)
+    """)
+
+inflation_rate = st.sidebar.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
+
+# Reset button (only show if onboarding is complete)
+if st.session_state.onboarding_complete:
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔄 Reset Onboarding", use_container_width=True):
+        st.session_state.onboarding_step = 1
+        st.session_state.onboarding_complete = False
+        st.rerun()
+
+# ==========================================
+# MAIN AREA - Header & Disclaimer
+# ==========================================
 st.title("💰 Financial Advisor - Advanced Retirement Planning")
 
 # Legal Disclaimer
-with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=True):
+with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
     st.markdown("""
     ### 🚨 **DISCLAIMER - READ CAREFULLY**
-    
+
     **This application provides educational and informational content only. It is NOT financial, tax, legal, or investment advice.**
-    
+
     **Important Limitations:**
     - **Not Professional Advice**: This tool is for educational purposes only and does not constitute professional financial, tax, legal, or investment advice
     - **No Personal Recommendations**: Results are based on general assumptions and may not be suitable for your specific situation
     - **No Guarantees**: Past performance does not guarantee future results; all projections are estimates
     - **Consult Professionals**: Always consult with qualified financial advisors, tax professionals, and legal counsel before making financial decisions
     - **Your Responsibility**: You are solely responsible for your financial decisions and their consequences
-    
+
     **No Liability**: The creators and operators of this application disclaim all liability for any losses, damages, or consequences arising from the use of this information.
-    
+
     **By using this application, you acknowledge and agree to these terms.**
     """)
 
@@ -790,58 +886,105 @@ with st.expander("ℹ️ About This Application", expanded=False):
         """
     )
 
-# Input Section with clear visual separation
+# ==========================================
+# ONBOARDING FLOW - Progress Indicator
+# ==========================================
 st.markdown("---")
-st.header("📝 Input Parameters")
 
-# Create tabs for better organization
-tab1, tab2, tab3 = st.tabs(["👤 Personal Info", "💰 Tax Settings", "🏦 Asset Configuration"])
+# Progress indicator
+total_steps = 2
+current_step = st.session_state.onboarding_step
 
-with tab1:
+# Visual progress bar
+progress_text = f"**Step {current_step} of {total_steps}**"
+progress_percentage = (current_step - 1) / total_steps
+st.progress(progress_percentage, text=progress_text)
+
+# Step titles
+step_titles = {
+    1: "👤 Personal Information",
+    2: "🏦 Asset Configuration"
+}
+
+st.header(f"📝 {step_titles[current_step]}")
+st.markdown("---")
+
+# ==========================================
+# STEP 1: Personal Information
+# ==========================================
+if current_step == 1:
     col1, col2 = st.columns(2)
+
     with col1:
         # Birth year input instead of age
         current_year = datetime.now().year
-        birth_year = st.number_input("Birth Year", min_value=current_year-90, max_value=current_year-18, value=current_year-30, help="Your birth year (age will be calculated automatically)")
+        birth_year = st.number_input(
+            "Birth Year",
+            min_value=current_year-90,
+            max_value=current_year-18,
+            value=st.session_state.birth_year,
+            help="Your birth year (age will be calculated automatically)",
+            key="birth_year_input"
+        )
+        st.session_state.birth_year = birth_year
         age = current_year - birth_year
         st.info(f"📅 **Current Age**: {age} years old")
-        
-        retirement_age = st.number_input("Target Retirement Age", min_value=40, max_value=80, value=65, help="When you plan to retire")
+
+        retirement_age = st.number_input(
+            "Target Retirement Age",
+            min_value=40,
+            max_value=80,
+            value=st.session_state.retirement_age,
+            help="When you plan to retire",
+            key="retirement_age_input"
+        )
+        st.session_state.retirement_age = retirement_age
         st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
-        
+
         # Life expectancy input with guidance
         with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
             st.markdown("""
             ### 🎯 **How to Estimate Your Life Expectancy**
-            
+
             **Average Life Expectancy by Age:**
             - **At birth**: ~79 years (US average)
             - **At age 30**: ~80 years
             - **At age 50**: ~82 years
             - **At age 65**: ~85 years
-            
+
             **Factors to Consider:**
             - **Family history**: Long-lived parents/grandparents
             - **Health status**: Current health conditions
             - **Lifestyle**: Exercise, diet, smoking, stress
             - **Gender**: Women typically live 3-5 years longer
             - **Education/Income**: Higher education/income correlates with longer life
-            
+
             **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
             """)
-        
+
         life_expectancy = st.number_input(
-            "Life Expectancy (Age)", 
-            min_value=retirement_age+1, 
-            max_value=120, 
-            value=85, 
-            help="Expected age at death - use guidance above to estimate"
+            "Life Expectancy (Age)",
+            min_value=retirement_age+1,
+            max_value=120,
+            value=st.session_state.life_expectancy,
+            help="Expected age at death - use guidance above to estimate",
+            key="life_expectancy_input"
         )
+        st.session_state.life_expectancy = life_expectancy
         years_in_retirement = life_expectancy - retirement_age
         st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
+
     with col2:
-        annual_income = st.number_input("Annual Income ($)", min_value=10000, value=85000, step=1000, help="Your current annual income")
-        
+        annual_income = st.number_input(
+            "Annual Income ($)",
+            min_value=10000,
+            value=st.session_state.annual_income,
+            step=1000,
+            help="Your current annual income",
+            key="annual_income_input"
+        )
+        st.session_state.annual_income = annual_income
+
         # Retirement income goal
         st.subheader("🎯 Retirement Income Goal")
         with st.expander("💡 How to estimate retirement income needs", expanded=False):
@@ -851,7 +994,7 @@ with tab1:
             - **60-70%**: Moderate estimate (if you plan to downsize lifestyle)
             - **80-90%**: Higher estimate (if you plan to travel more or have health costs)
             - **100%+**: Same or higher lifestyle in retirement
-            
+
             **Factors to consider:**
             1. **Lower expenses**: No commuting, work clothes, retirement savings
             2. **Higher expenses**: Healthcare, travel, hobbies
@@ -859,92 +1002,48 @@ with tab1:
             4. **Pension**: If you have one
             5. **Lifestyle changes**: Downsizing, moving to lower-cost area
             """)
-        
+
         # Calculate suggested retirement income (75% replacement ratio)
         suggested_retirement_income = annual_income * 0.75
         retirement_income_goal = st.number_input(
-            "Desired Annual Retirement Income ($)", 
-            min_value=10000, 
-            value=int(suggested_retirement_income), 
-            step=1000, 
-            help=f"Based on 75% replacement ratio: ${suggested_retirement_income:,.0f}"
+            "Desired Annual Retirement Income ($)",
+            min_value=10000,
+            value=st.session_state.retirement_income_goal,
+            step=1000,
+            help=f"Based on 75% replacement ratio: ${suggested_retirement_income:,.0f}",
+            key="retirement_income_goal_input"
         )
-        
+        st.session_state.retirement_income_goal = retirement_income_goal
+
         # Show replacement ratio
         replacement_ratio = (retirement_income_goal / annual_income) * 100
         st.info(f"📊 **Income Replacement Ratio**: {replacement_ratio:.1f}% of current income")
-        
+
         # Client name for personalization
-        client_name = st.text_input("Client Name (for report personalization)", value="", placeholder="Enter your name for the PDF report", help="Optional: Your name will appear on the PDF report")
+        client_name = st.text_input(
+            "Client Name (for report personalization)",
+            value=st.session_state.client_name,
+            placeholder="Enter your name for the PDF report",
+            help="Optional: Your name will appear on the PDF report",
+            key="client_name_input"
+        )
+        st.session_state.client_name = client_name
 
-with tab2:
-    col1, col2 = st.columns(2)
-    with col1:
-        # Current tax rate with helpful guidance
-        st.subheader("📊 Current Tax Rate")
-        with st.expander("💡 How to find your current tax rate", expanded=False):
-            st.markdown("""
-            **To find your current marginal tax rate:**
-            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
-            2. **Use IRS tax brackets**: Find which bracket your income falls into
-            3. **Online calculator**: Use IRS.gov tax bracket calculator
-            4. **Tax software**: Most tax software shows your marginal rate
-            
-            **2024 Tax Brackets (Single):**
-            - 10%: $0 - $11,600
-            - 12%: $11,601 - $47,150  
-            - 22%: $47,151 - $100,525
-            - 24%: $100,526 - $191,950
-            - 32%: $191,951 - $243,725
-            - 35%: $243,726 - $609,350
-            - 37%: $609,351+
-            """)
-        
-        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
-        
-        # Retirement tax rate with guidance
-        st.subheader("🏖️ Retirement Tax Rate")
-        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
-            st.markdown("""
-            **Consider these factors for retirement tax rate:**
-            1. **Lower income**: Most people have lower income in retirement
-            2. **Social Security**: Only 85% is taxable for most people
-            3. **Roth withdrawals**: Tax-free if qualified
-            4. **Required Minimum Distributions**: Start at age 73 (2024)
-            5. **State taxes**: Some states don't tax retirement income
-            
-            **Common scenarios:**
-            - **Conservative estimate**: Same as current rate
-            - **Optimistic estimate**: 10-15% lower than current
-            - **Pessimistic estimate**: 5-10% higher (if tax rates increase)
-            """)
-        
-        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement (often lower than current)")
-        
-    with col2:
-        # Inflation rate with guidance
-        st.subheader("📈 Inflation Rate")
-        with st.expander("💡 How to estimate inflation", expanded=False):
-            st.markdown("""
-            **Historical context:**
-            - **Long-term average**: 3.0-3.5% annually
-            - **Recent years**: 2-4% (2020-2024)
-            - **Federal Reserve target**: 2% annually
-            
-            **Consider:**
-            1. **Conservative estimate**: 2-3% (Fed target)
-            2. **Moderate estimate**: 3-4% (historical average)
-            3. **Aggressive estimate**: 4-5% (higher inflation periods)
-            
-            **Impact on retirement:**
-            - Higher inflation = need more money in retirement
-            - Affects purchasing power of fixed income
-            - Consider inflation-protected investments (TIPS, I-Bonds)
-            """)
-        
-        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+    # Navigation button for Step 1
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col3:
+        if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
+            st.session_state.onboarding_step = 2
+            st.rerun()
 
-with tab3:
+# ==========================================
+# STEP 2: Asset Configuration
+# ==========================================
+elif current_step == 2:
+    # Load values from session state for use in this step
+    annual_income = st.session_state.annual_income
+
     # Tax Rate Explanation
     with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
         st.markdown("""
@@ -1937,9 +2036,44 @@ with tab3:
             growth_rate_pct=expected_growth_rate
         )]
 
+    # Save assets to session state
+    st.session_state.assets = assets
+
+    # Navigation buttons for Step 2
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if st.button("← Previous: Personal Info", use_container_width=True):
+            st.session_state.onboarding_step = 1
+            st.rerun()
+    with col3:
+        if st.button("Complete Onboarding ✓", type="primary", use_container_width=True):
+            st.session_state.onboarding_complete = True
+            st.session_state.onboarding_step = 2  # Stay on step 2
+            st.rerun()
+
+# ==========================================
+# Results Section
+# ==========================================
+# Only show results after onboarding is complete
+if not st.session_state.onboarding_complete:
+    st.markdown("---")
+    st.info("👆 **Please complete the onboarding steps above to see your retirement projection results.**")
+    st.stop()
+
 # Results Section with clear visual separation
 st.markdown("---")
 st.header("📊 Retirement Projection Results")
+
+# Calculate values from session state for results
+current_year = datetime.now().year
+age = current_year - st.session_state.birth_year
+retirement_age = st.session_state.retirement_age
+life_expectancy = st.session_state.life_expectancy
+annual_income = st.session_state.annual_income
+retirement_income_goal = st.session_state.retirement_income_goal
+client_name = st.session_state.client_name
+assets = st.session_state.assets
 
 try:
     inputs = UserInputs(
