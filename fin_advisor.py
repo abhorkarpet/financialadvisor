@@ -838,6 +838,30 @@ with st.sidebar:
         inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
 
         st.markdown("---")
+        st.markdown("### Investment Growth Rate")
+
+        with st.expander("💡 Growth rate guidance", expanded=False):
+            st.markdown("""
+            **Typical annual growth rates:**
+            - **Stocks/Equity funds**: 7-10%
+            - **Bonds/Fixed income**: 4-5%
+            - **Savings accounts**: 2-4%
+            - **Conservative portfolio**: 5-6%
+            - **Aggressive portfolio**: 8-10%
+
+            **Note:** This is used as the default when adding investment accounts.
+            """)
+
+        default_growth_rate = st.slider(
+            "Default Growth Rate for Investments (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=7.0,
+            step=0.5,
+            help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
+        )
+
+        st.markdown("---")
         st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
 
 # Reset button (only show if onboarding is complete)
@@ -1066,23 +1090,8 @@ elif current_step == 2:
         💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
         """)
 
-    # Default Growth Rate Setting
-    st.markdown("### 📈 Default Growth Rate for Investment Accounts")
-    st.markdown("Set a default growth rate that will auto-populate for your investment accounts.")
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        default_growth_rate = st.slider(
-            "Default Annual Growth Rate (%)",
-            min_value=0.0,
-            max_value=20.0,
-            value=7.0,
-            step=0.5,
-            help="This will be used as the default for stocks/investment accounts. Typical: 7-10% for stocks, 4-5% for bonds, 2-4% for savings"
-        )
-    with col2:
-        st.info(f"**Default Rate:** {default_growth_rate}%")
-        st.caption("💡 Typical rates:\n- Stocks: 7-10%\n- Bonds: 4-5%\n- Savings: 2-4%")
+    # Reference to Advanced Settings for default growth rate
+    st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
 
     st.markdown("---")
 
