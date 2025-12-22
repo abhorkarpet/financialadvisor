@@ -19,6 +19,19 @@ A comprehensive Python-based financial planning tool that helps users project th
   - Programmatic API for integration
 - **Comprehensive Testing**: Built-in unit test suite with 13 test cases
 
+### NEW: Financial Statement Uploader (AI-Powered)
+- **Automated Data Extraction**: Upload PDF statements and extract account data automatically
+- **AI Processing**: Uses GPT-4.1 to intelligently categorize accounts
+- **Tax Classification**: Automatically maps accounts to pre_tax/post_tax categories
+- **Multi-File Support**: Process multiple statements at once
+- **PII Removal**: Automatically removes personal information for privacy
+- **Structured Output**: Returns clean CSV data ready for analysis
+- **n8n Integration**: Leverages workflow automation for reliable processing
+
+**Supported Statements:** 401(k), Traditional IRA, Roth IRA, Brokerage, HSA, Bank statements
+
+📖 **Setup Guide:** See [SETUP_STATEMENT_UPLOADER.md](SETUP_STATEMENT_UPLOADER.md) for complete setup instructions.
+
 ## Installation
 
 ### Prerequisites
@@ -50,6 +63,20 @@ This will open your web browser with the full-featured interface including:
 - Real-time tax efficiency analysis
 - Interactive charts and visualizations
 - Multiple portfolio scenarios
+
+### Statement Uploader (AI Data Extraction)
+Launch the statement uploader application:
+```bash
+streamlit run statement_uploader.py
+```
+
+This opens a separate interface for:
+- Uploading PDF financial statements
+- AI-powered data extraction
+- Automatic tax categorization
+- CSV/JSON export
+
+**Setup required:** See [SETUP_STATEMENT_UPLOADER.md](SETUP_STATEMENT_UPLOADER.md) for n8n workflow configuration.
 
 ### Testing
 Execute the built-in test suite:
@@ -97,15 +124,25 @@ The Streamlit web interface provides intuitive controls for:
 
 ```
 financialadvisor/
-├── fin_advisor.py          # Main application file
-├── requirements.txt        # Python dependencies
-├── setup.py               # Package installation script
-├── README.md              # This file
-├── LICENSE                # MIT License
-├── .gitignore             # Git ignore rules
+├── fin_advisor.py                    # Main retirement planning app
+├── statement_uploader.py             # AI-powered statement uploader
+├── requirements.txt                  # Python dependencies
+├── setup.py                         # Package installation script
+├── README.md                        # This file
+├── SETUP_STATEMENT_UPLOADER.md      # Statement uploader setup guide
+├── LICENSE                          # MIT License
+├── .gitignore                       # Git ignore rules
+├── .env.example                     # Environment config template
+├── integrations/                    # External service integrations
+│   ├── __init__.py
+│   ├── n8n_client.py               # n8n webhook client
+│   └── README.md                   # Integration docs
+├── workflows/                       # n8n workflow definitions
+│   ├── n8n-statement-categorizer.json
+│   └── README.md                   # Workflow setup guide
 └── .github/
     └── workflows/
-        └── ci.yml         # GitHub Actions CI/CD
+        └── ci.yml                  # GitHub Actions CI/CD
 ```
 
 ## Development

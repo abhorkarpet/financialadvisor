@@ -152,6 +152,7 @@ Thumbs.db
 *.csv
 *.xlsx
 *.json
+!workflows/*.json
 logs/
 data/
 temp/
