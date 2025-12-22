@@ -771,7 +771,7 @@ if 'retirement_age' not in st.session_state:
 if 'life_expectancy' not in st.session_state:
     st.session_state.life_expectancy = 85
 if 'retirement_income_goal' not in st.session_state:
-    st.session_state.retirement_income_goal = 63750  # Typical target
+    st.session_state.retirement_income_goal = 0  # Optional field
 if 'client_name' not in st.session_state:
     st.session_state.client_name = ""
 if 'assets' not in st.session_state:
@@ -995,15 +995,20 @@ if current_step == 1:
             """)
 
         retirement_income_goal = st.number_input(
-            "Annual Income Needed in Retirement ($)",
-            min_value=10000,
+            "Annual Income Needed in Retirement ($) - Optional",
+            min_value=0,
             max_value=500000,
             value=st.session_state.retirement_income_goal,
             step=5000,
-            help="How much you want to spend each year in retirement (before taxes)",
+            help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
             key="retirement_income_goal_input"
         )
         st.session_state.retirement_income_goal = retirement_income_goal
+
+        if retirement_income_goal > 0:
+            st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
+        else:
+            st.info("💡 **No target set** - Analysis will show your projected portfolio value")
 
         # Client name for personalization
         client_name = st.text_input(
