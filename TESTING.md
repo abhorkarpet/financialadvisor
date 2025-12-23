@@ -158,9 +158,55 @@ streamlit run fin_advisor.py --server.enableCORS false
 - [ ] Clicking reset returns to Step 1
 - [ ] Session state clears properly
 
+✅ **Share & Feedback Module (Sidebar)**
+- [ ] Share & Feedback expander appears in sidebar
+- [ ] Thumbs up/down rating buttons work
+- [ ] Rating buttons generate mailto links to smartretireai@gmail.com
+- [ ] Social share buttons (Twitter, LinkedIn, Facebook) open correctly
+- [ ] Email share button creates proper mailto link
+- [ ] Copy link functionality works
+- [ ] Feedback form accepts input
+- [ ] Email/GitHub Issue submission options work
+- [ ] Contact Us section displays smartretireai@gmail.com
+
+✅ **AI Extraction Feedback**
+- [ ] Feedback module appears after AI extraction
+- [ ] "Looks Good" button generates positive feedback email
+- [ ] "Needs Work" button shows detailed feedback form
+- [ ] Issue type multiselect allows multiple selections
+- [ ] Specific issues text area accepts input
+- [ ] Statement type input is optional
+- [ ] Form validates required fields
+- [ ] Submit generates proper feedback email with details
+- [ ] Feedback helps identify extraction accuracy issues
+
 ## Version Information
 
-Current Version: **3.5.0**
+Current Version: **4.0.0**
+
+### What's New in 4.0.0
+**Rebranding:**
+- Renamed application from "Financial Advisor" to **Smart Retire AI**
+- Updated all user-facing text, titles, and documentation
+- New brand identity across the entire application
+
+**User Feedback & Engagement:**
+- Added comprehensive **Share & Feedback** module in sidebar
+  - Social sharing (Twitter, LinkedIn, Facebook, Email)
+  - Thumbs up/down rating system
+  - Detailed feedback form with email/GitHub Issue submission
+  - Contact Us section with smartretireai@gmail.com
+- Added **AI Extraction Quality Feedback** after document processing
+  - Quick "Looks Good" / "Needs Work" buttons
+  - Detailed issue reporting form for extraction problems
+  - Helps improve AI accuracy over time
+  - Reports sent to smartretireai@gmail.com
+
+**Extraction Feedback Features:**
+- Rate extraction accuracy immediately after viewing extracted data
+- Report specific issues: wrong balances, incorrect types, missing accounts, etc.
+- Provide context about statement type and institution
+- Automated email generation with detailed issue information
 
 ### What's New in 3.5.0
 **Onboarding Improvements:**

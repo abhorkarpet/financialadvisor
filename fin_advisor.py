@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 3.5.0
+Version: 4.0.0
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "3.5.0"
+VERSION = "4.0.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -1755,6 +1755,105 @@ elif current_step == 2:
 
                                     # Save edited table to session state for persistence across reruns
                                     st.session_state.ai_edited_table = edited_df
+
+                                    # Extraction Quality Feedback Module
+                                    st.markdown("---")
+                                    st.markdown("#### 💬 Data Extraction Feedback")
+                                    st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
+
+                                    feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
+
+                                    with feedback_col1:
+                                        if st.button("👍 Looks Good", key="extraction_feedback_good", use_container_width=True, type="secondary"):
+                                            # Positive feedback - send email
+                                            subject = "AI Extraction Feedback - Accurate Data"
+                                            body = f"""Hi Smart Retire AI team,
+
+The AI extraction worked great! Here are the details:
+
+Number of accounts extracted: {len(edited_df)}
+Institution(s): {', '.join(edited_df['Institution'].unique())}
+
+The extracted data was accurate and saved me time.
+
+Thank you!
+"""
+                                            # URL encode the body
+                                            body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                            email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                            st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
+
+                                    with feedback_col2:
+                                        if st.button("👎 Needs Work", key="extraction_feedback_bad", use_container_width=True, type="secondary"):
+                                            # Negative feedback - show form
+                                            st.session_state.show_extraction_feedback_form = True
+
+                                    # Show detailed feedback form if user clicked "Needs Work"
+                                    if st.session_state.get('show_extraction_feedback_form', False):
+                                        st.markdown("---")
+                                        st.markdown("##### 📝 Tell us what went wrong")
+
+                                        with st.form("extraction_feedback_form", clear_on_submit=True):
+                                            issue_type = st.multiselect(
+                                                "What issues did you encounter? (Select all that apply)",
+                                                [
+                                                    "Wrong account balances",
+                                                    "Incorrect account types",
+                                                    "Wrong tax classification",
+                                                    "Missing accounts",
+                                                    "Duplicate accounts",
+                                                    "Wrong institution name",
+                                                    "Account numbers incorrect",
+                                                    "Other"
+                                                ]
+                                            )
+
+                                            specific_issues = st.text_area(
+                                                "Specific details about the issue:",
+                                                placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
+                                                height=100
+                                            )
+
+                                            statement_type = st.text_input(
+                                                "Statement type/institution (optional):",
+                                                placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
+                                            )
+
+                                            submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary", use_container_width=True)
+
+                                            if submit_feedback:
+                                                if issue_type and specific_issues:
+                                                    # Generate email
+                                                    subject = "AI Extraction Issue Report"
+                                                    issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
+                                                    body = f"""Hi Smart Retire AI team,
+
+I encountered issues with the AI extraction feature:
+
+ISSUES ENCOUNTERED:
+{issues_list}
+
+SPECIFIC DETAILS:
+{specific_issues}
+
+STATEMENT INFO:
+{statement_type if statement_type else 'Not provided'}
+
+NUMBER OF ACCOUNTS: {len(edited_df)}
+INSTITUTIONS: {', '.join(edited_df['Institution'].unique())}
+
+Please investigate and improve the extraction accuracy.
+
+Thank you!
+"""
+                                                    # URL encode the body
+                                                    body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                                    email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                                    st.success("✅ Thank you for the detailed feedback!")
+                                                    st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
+                                                    st.session_state.show_extraction_feedback_form = False
+                                                else:
+                                                    st.error("⚠️ Please select at least one issue type and provide specific details.")
 
                                     # Display tax bucket breakdowns if available
                                     if tax_buckets_by_account:
