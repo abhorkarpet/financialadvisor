@@ -2586,7 +2586,13 @@ try:
 
     # Recommendations based on income analysis (only if goal is set)
     if retirement_income_goal > 0:
-        with st.expander("💡 Income Optimization Recommendations", expanded=False):
+        # Use actionable heading when there's a shortfall
+        if income_shortfall > 0:
+            expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
+        else:
+            expander_title = "💡 Income Optimization Recommendations"
+
+        with st.expander(expander_title, expanded=False):
             if income_shortfall > 0:
                 st.markdown(f"""
                 **To close the ${income_shortfall:,.0f} annual shortfall:**
