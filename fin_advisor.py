@@ -2677,13 +2677,29 @@ except Exception as e:
     with st.expander("🔍 Error Details", expanded=False):
         st.exception(e)
 
-# Version footer
+# Page footer with version, copyright, and contact information
 st.markdown("---")
 st.markdown(
     f"""
-    <div style='text-align: center; color: #666; font-size: 0.8em; padding: 10px;'>
-        <strong>Smart Retire AI v{VERSION}</strong> |
-        Advanced Retirement Planning with Asset Classification & Tax Optimization
+    <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
+        <div style='margin-bottom: 8px;'>
+            <strong style='color: #1f77b4;'>Smart Retire AI v{VERSION}</strong>
+        </div>
+        <div style='margin-bottom: 8px; color: #888;'>
+            Advanced Retirement Planning with Asset Classification & Tax Optimization
+        </div>
+        <div style='margin-bottom: 8px;'>
+            <span style='color: #555;'>© 2024-2025 Smart Retire AI. All rights reserved.</span>
+        </div>
+        <div>
+            <span style='color: #555;'>Questions? Contact us: </span>
+            <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4; text-decoration: none; font-weight: 500;'>
+                smartretireai@gmail.com
+            </a>
+        </div>
+        <div style='margin-top: 12px; font-size: 0.75em; color: #999;'>
+            <em>Disclaimer: This tool provides estimates for educational purposes. Consult a financial advisor for personalized advice.</em>
+        </div>
     </div>
     """,
     unsafe_allow_html=True
