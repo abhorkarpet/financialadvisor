@@ -1100,7 +1100,7 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-        <p>Part of the Financial Advisor - Retirement Planning Tool</p>
+        <p>Part of the Smart Retire AI - Retirement Planning Tool</p>
         <p>For support, see the main application documentation</p>
     </div>
     """, unsafe_allow_html=True)

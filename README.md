@@ -1,4 +1,4 @@
-# Financial Advisor - Advanced Retirement Planning Tool
+# Smart Retire AI - Advanced Retirement Planning Tool
 
 A comprehensive Python-based financial planning tool that helps users project their retirement savings with sophisticated asset classification and tax optimization.
 

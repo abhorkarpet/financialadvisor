@@ -1,4 +1,4 @@
-# Testing Financial Advisor Locally
+# Testing Smart Retire AI Locally
 
 ## Prerequisites
 
