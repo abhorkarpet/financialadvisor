@@ -1298,6 +1298,62 @@ elif current_step == 2:
                         for warning in warnings:
                             st.warning(warning)
 
+                # **NEW: Display the editable table for previously extracted data**
+                # This ensures the table persists when navigating between steps
+                if df_extracted is not None:
+                    with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
+                        st.info("💡 **Review and edit your account data. These are preserved even when you change personal info in Step 1.**")
+
+                        # Display the editable table from session state
+                        if st.session_state.ai_edited_table is not None:
+                            df_table = st.session_state.ai_edited_table
+                        else:
+                            # This shouldn't happen, but fallback to extracted data
+                            df_table = df_extracted
+
+                        # Define column configuration
+                        column_config = {
+                            "Account Name": st.column_config.TextColumn("Account Name", width="medium"),
+                            "Institution": st.column_config.TextColumn("Institution", width="medium"),
+                            "Tax Treatment": st.column_config.SelectboxColumn(
+                                "Tax Treatment",
+                                options=["Pre-Tax", "Post-Tax", "Tax-Free"],
+                                width="medium"
+                            ),
+                            "Current Balance": st.column_config.NumberColumn(
+                                "Current Balance",
+                                format="$%d",
+                                width="medium"
+                            ),
+                            "Annual Contribution": st.column_config.NumberColumn(
+                                "Annual Contribution",
+                                format="$%d",
+                                width="medium"
+                            ),
+                            "Growth Rate (%)": st.column_config.NumberColumn(
+                                "Growth Rate (%)",
+                                format="%.1f%%",
+                                width="small"
+                            ),
+                            "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                "Tax Rate on Gains (%)",
+                                format="%.1f%%",
+                                width="small"
+                            )
+                        }
+
+                        # Display editable table
+                        edited_df = st.data_editor(
+                            df_table,
+                            column_config=column_config,
+                            use_container_width=True,
+                            hide_index=True,
+                            num_rows="dynamic"
+                        )
+
+                        # Save edited table to session state
+                        st.session_state.ai_edited_table = edited_df
+
                 # CRITICAL: Convert edited table to assets on every rerun
                 # This ensures assets persist even when user changes personal info
                 if st.session_state.ai_edited_table is not None:
