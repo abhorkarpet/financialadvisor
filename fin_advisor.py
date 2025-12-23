@@ -864,132 +864,6 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
 
-# Share & Feedback section
-with st.sidebar:
-    st.markdown("---")
-    with st.expander("📢 Share & Feedback", expanded=False):
-        st.markdown("### Share This App")
-
-        # App URL (you can customize this)
-        app_url = "https://github.com/abhorkarpet/financialadvisor"
-        app_title = "Smart Retire AI - Retirement Planning Tool"
-        share_text = "Check out Smart Retire AI - an advanced retirement planning tool with asset classification and tax optimization!"
-
-        # Social media share buttons
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Twitter/X
-            twitter_url = f"https://twitter.com/intent/tweet?text={share_text}&url={app_url}"
-            st.markdown(f"[![Twitter](https://img.shields.io/badge/Share-Twitter-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)]({twitter_url})")
-
-            # LinkedIn
-            linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-            st.markdown(f"[![LinkedIn](https://img.shields.io/badge/Share-LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)]({linkedin_url})")
-
-        with col2:
-            # Facebook
-            facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-            st.markdown(f"[![Facebook](https://img.shields.io/badge/Share-Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white)]({facebook_url})")
-
-            # Email
-            email_subject = f"Check out: {app_title}"
-            email_body = f"{share_text}\n\n{app_url}"
-            email_url = f"mailto:?subject={email_subject}&body={email_body}"
-            st.markdown(f"[![Email](https://img.shields.io/badge/Share-Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)]({email_url})")
-
-        # Copy link button
-        st.markdown("---")
-        st.markdown("**📋 Copy Link**")
-        st.code(app_url, language=None)
-        st.caption("Copy and share via iMessage, WhatsApp, or any other app")
-
-        # Feedback section
-        st.markdown("---")
-        st.markdown("### 💬 Rate & Feedback")
-
-        # Quick rating with thumbs up/down
-        st.markdown("**How is your experience?**")
-        col1, col2, col3 = st.columns([1, 1, 2])
-        with col1:
-            if st.button("👍 Good", use_container_width=True):
-                st.session_state.user_rating = "positive"
-                # Create mailto link for positive feedback
-                feedback_email = "smartretireai@gmail.com"
-                email_subject = "Smart Retire AI - Positive Feedback"
-                email_body = "I had a great experience with Smart Retire AI!\n\nHere's what I liked:\n\n"
-                st.success("✓ Thank you for the positive feedback!")
-                st.markdown(f"[Tell us more via email](mailto:{feedback_email}?subject={email_subject}&body={email_body})")
-
-        with col2:
-            if st.button("👎 Needs Work", use_container_width=True):
-                st.session_state.user_rating = "negative"
-                # Create mailto link for improvement suggestions
-                feedback_email = "smartretireai@gmail.com"
-                email_subject = "Smart Retire AI - Suggestions for Improvement"
-                email_body = "I have some suggestions for improving Smart Retire AI:\n\n"
-                st.warning("Thank you for your feedback!")
-                st.markdown(f"[Share your suggestions via email](mailto:{feedback_email}?subject={email_subject}&body={email_body})")
-
-        st.markdown("---")
-        st.markdown("**Send Detailed Feedback**")
-        st.markdown("""
-        We'd love to hear from you!
-
-        - **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback)
-        - **GitHub Issues:** [Report here](https://github.com/abhorkarpet/financialadvisor/issues)
-        """)
-
-        # Quick feedback form
-        with st.form("feedback_form"):
-            feedback_type = st.selectbox(
-                "Feedback Type",
-                ["Feature Request", "Bug Report", "General Feedback", "Question"]
-            )
-            feedback_text = st.text_area(
-                "Your Message",
-                placeholder="Tell us what you think...",
-                height=100
-            )
-
-            # Email option
-            send_method = st.radio(
-                "Send via:",
-                ["Email", "GitHub Issue"],
-                horizontal=True
-            )
-
-            submitted = st.form_submit_button("Send Feedback", type="primary")
-
-            if submitted and feedback_text:
-                if send_method == "Email":
-                    # Create mailto link
-                    email_subject = f"Smart Retire AI - {feedback_type}"
-                    email_body = f"Type: {feedback_type}\n\n{feedback_text}\n\n---\nSent from Smart Retire AI"
-                    email_url = f"mailto:smartretireai@gmail.com?subject={email_subject}&body={email_body}"
-
-                    st.success("✓ Ready to send!")
-                    st.markdown(f"[Click here to open your email client]({email_url})")
-                else:
-                    # Create GitHub issue URL with pre-filled content
-                    issue_title = f"[{feedback_type}] User Feedback"
-                    issue_body = f"**Type:** {feedback_type}\n\n**Feedback:**\n{feedback_text}\n\n---\n*Submitted via Smart Retire AI*"
-                    github_issue_url = f"https://github.com/abhorkarpet/financialadvisor/issues/new?title={issue_title}&body={issue_body}"
-
-                    st.success("✓ Ready to submit!")
-                    st.markdown(f"[Click here to create GitHub issue]({github_issue_url})")
-
-        # Contact Us section
-        st.markdown("---")
-        st.markdown("### 📧 Contact Us")
-        st.markdown("""
-        **Smart Retire AI Team**
-
-        Email: [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
-
-        We typically respond within 24-48 hours.
-        """)
-
 # Reset button (only show if onboarding is complete)
 if st.session_state.onboarding_complete:
     st.sidebar.markdown("---")
@@ -997,6 +871,211 @@ if st.session_state.onboarding_complete:
         st.session_state.onboarding_step = 1
         st.session_state.onboarding_complete = False
         st.rerun()
+
+# ==========================================
+# TOP NAVIGATION BAR - Share & Feedback
+# ==========================================
+# Initialize session state for feedback panel
+if 'show_feedback_panel' not in st.session_state:
+    st.session_state.show_feedback_panel = False
+
+# Create top navigation bar with custom styling
+st.markdown("""
+<style>
+    .top-nav {
+        background: linear-gradient(90deg, #1f77b4 0%, #2ca02c 100%);
+        padding: 10px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .top-nav h3 {
+        color: white;
+        margin: 0;
+        font-size: 1.2em;
+        display: inline-block;
+    }
+    .feedback-button {
+        background-color: white;
+        color: #1f77b4;
+        padding: 8px 16px;
+        border-radius: 5px;
+        font-weight: bold;
+        text-decoration: none;
+        display: inline-block;
+        margin-left: 10px;
+    }
+</style>
+<div class="top-nav">
+    <h3>💰 Smart Retire AI</h3>
+    <span style="color: white; margin-left: 20px; font-size: 0.9em;">Advanced Retirement Planning Tool</span>
+</div>
+""", unsafe_allow_html=True)
+
+# Feedback button in a prominent position
+nav_col1, nav_col2, nav_col3 = st.columns([3, 2, 1])
+with nav_col3:
+    if st.button("💬 Share & Feedback", use_container_width=True, type="primary"):
+        st.session_state.show_feedback_panel = not st.session_state.show_feedback_panel
+
+# Show feedback panel if toggled
+if st.session_state.show_feedback_panel:
+    with st.container():
+        st.markdown("""
+        <style>
+            .feedback-panel {
+                background-color: #f0f8ff;
+                border: 2px solid #1f77b4;
+                border-radius: 10px;
+                padding: 20px;
+                margin: 20px 0;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }
+        </style>
+        <div class="feedback-panel">
+        """, unsafe_allow_html=True)
+
+        st.markdown("## 💬 Share & Feedback")
+
+        # Create tabs for different sections
+        tab1, tab2, tab3 = st.tabs(["📤 Share", "⭐ Rate Us", "📧 Contact"])
+
+        with tab1:
+            st.markdown("### Share Smart Retire AI")
+
+            # App URL
+            app_url = "https://github.com/abhorkarpet/financialadvisor"
+            app_title = "Smart Retire AI - Retirement Planning Tool"
+            share_text = "Check out Smart Retire AI - an advanced retirement planning tool with asset classification and tax optimization!"
+
+            # Social media share buttons in a cleaner layout
+            share_col1, share_col2, share_col3, share_col4 = st.columns(4)
+
+            with share_col1:
+                twitter_url = f"https://twitter.com/intent/tweet?text={share_text}&url={app_url}"
+                st.markdown(f"[![Twitter](https://img.shields.io/badge/Twitter-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)]({twitter_url})")
+
+            with share_col2:
+                linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
+                st.markdown(f"[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)]({linkedin_url})")
+
+            with share_col3:
+                facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
+                st.markdown(f"[![Facebook](https://img.shields.io/badge/Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white)]({facebook_url})")
+
+            with share_col4:
+                email_subject = f"Check out: {app_title}"
+                email_body = f"{share_text}\n\n{app_url}"
+                email_url = f"mailto:?subject={email_subject}&body={email_body}"
+                st.markdown(f"[![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)]({email_url})")
+
+            st.markdown("---")
+            st.markdown("**📋 Share Link**")
+            st.code(app_url, language=None)
+            st.caption("📱 Copy and share via iMessage, WhatsApp, Slack, or any messaging app")
+
+        with tab2:
+            st.markdown("### ⭐ How's Your Experience?")
+            st.info("Your feedback helps us improve Smart Retire AI!")
+
+            # Quick rating
+            rating_col1, rating_col2, rating_col3 = st.columns([1, 1, 2])
+            with rating_col1:
+                if st.button("👍 Great!", use_container_width=True, type="secondary"):
+                    st.session_state.user_rating = "positive"
+                    feedback_email = "smartretireai@gmail.com"
+                    email_subject = "Smart Retire AI - Positive Feedback"
+                    email_body = "I had a great experience with Smart Retire AI!\n\nHere's what I liked:\n\n"
+                    st.success("✓ Thank you for the positive feedback!")
+                    st.markdown(f"📧 [Tell us more via email](mailto:{feedback_email}?subject={email_subject}&body={email_body})")
+
+            with rating_col2:
+                if st.button("👎 Could Be Better", use_container_width=True, type="secondary"):
+                    st.session_state.user_rating = "negative"
+                    feedback_email = "smartretireai@gmail.com"
+                    email_subject = "Smart Retire AI - Suggestions for Improvement"
+                    email_body = "I have some suggestions for improving Smart Retire AI:\n\n"
+                    st.warning("Thank you for your feedback!")
+                    st.markdown(f"📧 [Share your suggestions via email](mailto:{feedback_email}?subject={email_subject}&body={email_body})")
+
+            st.markdown("---")
+            st.markdown("**📝 Detailed Feedback**")
+
+            # Feedback form
+            with st.form("main_feedback_form"):
+                feedback_type = st.selectbox(
+                    "What kind of feedback?",
+                    ["Feature Request", "Bug Report", "General Feedback", "Question", "Other"]
+                )
+                feedback_text = st.text_area(
+                    "Your Message",
+                    placeholder="Tell us what you think or what we can improve...",
+                    height=120
+                )
+
+                send_method = st.radio(
+                    "How would you like to send this?",
+                    ["📧 Email", "🐙 GitHub Issue"],
+                    horizontal=True
+                )
+
+                submitted = st.form_submit_button("📤 Send Feedback", type="primary", use_container_width=True)
+
+                if submitted and feedback_text:
+                    if "Email" in send_method:
+                        email_subject = f"Smart Retire AI - {feedback_type}"
+                        email_body = f"Type: {feedback_type}\n\n{feedback_text}\n\n---\nSent from Smart Retire AI"
+                        email_url = f"mailto:smartretireai@gmail.com?subject={email_subject}&body={email_body}"
+                        st.success("✅ Ready to send!")
+                        st.markdown(f"[📧 Click here to open your email client]({email_url})")
+                    else:
+                        issue_title = f"[{feedback_type}] User Feedback"
+                        issue_body = f"**Type:** {feedback_type}\n\n**Feedback:**\n{feedback_text}\n\n---\n*Submitted via Smart Retire AI*"
+                        github_issue_url = f"https://github.com/abhorkarpet/financialadvisor/issues/new?title={issue_title}&body={issue_body}"
+                        st.success("✅ Ready to submit!")
+                        st.markdown(f"[🐙 Click here to create GitHub issue]({github_issue_url})")
+
+        with tab3:
+            st.markdown("### 📧 Contact Smart Retire AI Team")
+
+            contact_col1, contact_col2 = st.columns([1, 2])
+
+            with contact_col1:
+                st.markdown("""
+                **📬 Email Us**
+
+                [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
+
+                **⏱️ Response Time**
+
+                Typically 24-48 hours
+                """)
+
+            with contact_col2:
+                st.info("""
+                **What can you contact us about?**
+
+                ✅ Technical issues or bugs
+                ✅ Feature requests
+                ✅ Questions about the tool
+                ✅ Partnership inquiries
+                ✅ General feedback
+
+                We read every message and value your input!
+                """)
+
+            st.markdown("---")
+            st.markdown("**🐙 GitHub**")
+            st.markdown("[View Repository](https://github.com/abhorkarpet/financialadvisor) | [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Close button
+        if st.button("✖️ Close", use_container_width=False, type="secondary"):
+            st.session_state.show_feedback_panel = False
+            st.rerun()
+
+st.markdown("---")
 
 # ==========================================
 # MAIN AREA - Header & Disclaimer
