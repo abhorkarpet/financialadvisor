@@ -2460,7 +2460,7 @@ try:
                             'age': age,
                             'retirement_age': retirement_age,
                             'life_expectancy': life_expectancy,
-                            'birth_year': birth_year,
+                            'birth_year': st.session_state.birth_year,
                             'retirement_income_goal': retirement_income_goal
                         }
                         
