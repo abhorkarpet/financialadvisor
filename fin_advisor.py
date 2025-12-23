@@ -583,9 +583,9 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     
     story.append(summary_table)
     story.append(Spacer(1, 20))
-    
-    # Portfolio Breakdown
-    story.append(Paragraph("Portfolio Breakdown", heading_style))
+
+    # Asset Breakdown
+    story.append(Paragraph("Asset Breakdown", heading_style))
     
     # Asset details table
     asset_data = [["Account", "Type", "Current Balance", "Annual Contribution", "Growth Rate", "Tax Rate"]]
@@ -613,8 +613,16 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     ]))
     
     story.append(asset_table)
+    story.append(Spacer(1, 12))
+
+    # Note about brokerage account taxation
+    note_style = ParagraphStyle('Note', parent=styles['Normal'], fontSize=9, textColor=colors.orangered,
+                                borderWidth=1, borderColor=colors.orangered, borderPadding=6, spaceAfter=20)
+    story.append(Paragraph("<b>Note on Brokerage Accounts:</b> Current analysis assumes the entire balance is taxable at withdrawal. "
+                          "In reality, only the gains portion should be taxed. This will be corrected in a future version "
+                          "to provide more accurate projections for brokerage accounts.", note_style))
     story.append(Spacer(1, 20))
-    
+
     # Individual Asset Results
     story.append(Paragraph("Individual Asset Projections", heading_style))
     
@@ -2676,9 +2684,9 @@ elif st.session_state.current_page == 'results':
         
         # Detailed breakdown in tabs
         st.subheader("📈 Detailed Analysis")
-        
-        detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Portfolio Breakdown", "📊 Tax Analysis", "📋 Summary"])
-        
+
+        detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
+
         with detail_tab1:
             st.write("**Individual Asset Values at Retirement**")
     
@@ -2751,6 +2759,9 @@ elif st.session_state.current_page == 'results':
                 if asset_data:
                     st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
                     st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+
+                    # Note about brokerage account taxation limitation
+                    st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
                 else:
                     st.info("No individual asset breakdown available")
             else:
