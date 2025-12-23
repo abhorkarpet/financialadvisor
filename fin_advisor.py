@@ -1184,6 +1184,83 @@ elif current_step == 2:
         else:
             st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
 
+            # Privacy and How It Works explanation
+            with st.expander("🔒 How It Works & Your Privacy", expanded=False):
+                st.markdown("""
+                ### 🤖 What Happens to Your Statements?
+
+                **Your privacy is our priority.** Here's exactly what happens when you upload:
+
+                #### 📋 The Process (Simple Version):
+                1. **Upload** → You select your PDF statements (401k, IRA, brokerage, etc.)
+                2. **Extract** → AI reads the PDFs to find account numbers, balances, and types
+                3. **Clean** → Personal information (SSN, address, full names) is automatically removed
+                4. **Organize** → Data is structured into a clean table for you to review
+                5. **You Control** → You can edit, delete, or clear any extracted data
+
+                ---
+
+                ### 🔐 Privacy & Security
+
+                **What we protect:**
+                - ✅ **Personal Identifiable Information (PII)** is automatically scrubbed
+                - ✅ **Social Security Numbers** are removed
+                - ✅ **Full names and addresses** are stripped out
+                - ✅ Only account types, balances, and institution names are kept
+
+                **What stays:**
+                - 📊 Account balances (needed for retirement planning)
+                - 🏦 Account types (401k, IRA, Roth, etc.)
+                - 🏢 Institution names (Fidelity, Vanguard, etc.)
+                - 🔢 Last 4 digits of account numbers (for your reference)
+
+                **Your data, your control:**
+                - 💾 Data is processed temporarily and not permanently stored
+                - ❌ No data is saved to our servers long-term
+                - 🔄 You can clear extracted data anytime with "Clear and Upload New"
+                - ✏️ You can edit any extracted information before using it
+
+                ---
+
+                ### 🛠️ Technical Details (For The Curious)
+
+                **AI Processing:**
+                - Uses GPT-4 to intelligently read and categorize your statements
+                - Identifies account types (401k, Roth IRA, Brokerage, etc.)
+                - Extracts current balances and tax treatment
+                - Handles complex statements with multiple account types
+
+                **Why it's better than manual:**
+                - ⏱️ **Faster**: Seconds instead of minutes per statement
+                - 🎯 **Accurate**: AI recognizes formats from 100+ financial institutions
+                - 🧠 **Smart**: Automatically categorizes tax treatments (pre-tax, post-tax, tax-free)
+                - 🔄 **Consistent**: Standardizes data across different statement formats
+
+                **Supported Documents:**
+                - 401(k) and 403(b) statements
+                - Traditional and Roth IRAs
+                - Brokerage account statements
+                - HSA statements
+                - Bank account statements
+                - Annuity statements
+
+                ---
+
+                ### ❓ Common Questions
+
+                **Q: Can I use scanned PDFs?**
+                A: Yes! The AI can read both digital PDFs and scanned documents.
+
+                **Q: What if extraction makes a mistake?**
+                A: You review and edit all extracted data before it's used. Plus, you can rate the accuracy to help us improve.
+
+                **Q: Is my data encrypted?**
+                A: Yes, all uploads use secure HTTPS encryption.
+
+                **Q: What happens to my PDFs after processing?**
+                A: PDFs are processed temporarily and deleted. Only the extracted data (balances, account types) is shown to you.
+                """)
+
             # Initialize session state for extracted data
             if 'ai_extracted_accounts' not in st.session_state:
                 st.session_state.ai_extracted_accounts = None
