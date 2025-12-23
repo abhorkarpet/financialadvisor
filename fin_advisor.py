@@ -888,7 +888,21 @@ if not st.session_state.splash_dismissed:
 
     st.markdown("---")
 
-    st.info("**🚀 Getting Started:** Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.")
+    # Getting Started section with green background
+    st.markdown(
+        """
+        <div style='background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+                    padding: 20px;
+                    border-radius: 10px;
+                    border-left: 5px solid #4caf50;
+                    margin: 20px 0;'>
+            <p style='margin: 0; font-size: 1.05em; color: #2e7d32;'>
+                <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
