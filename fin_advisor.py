@@ -1926,10 +1926,24 @@ elif current_step == 2:
             st.session_state.onboarding_step = 1
             st.rerun()
     with col3:
-        if st.button("Complete Onboarding ✓", type="primary", use_container_width=True):
+        # Disable complete button if no assets configured
+        has_assets = len(assets) > 0
+        button_disabled = not has_assets
+
+        if st.button(
+            "Complete Onboarding ✓",
+            type="primary",
+            use_container_width=True,
+            disabled=button_disabled,
+            help="Configure at least one asset to complete onboarding" if button_disabled else "Complete onboarding and view results"
+        ):
             st.session_state.onboarding_complete = True
             st.session_state.onboarding_step = 2  # Stay on step 2
             st.rerun()
+
+    # Show warning if no assets configured
+    if not has_assets:
+        st.warning("⚠️ Please configure at least one asset before completing onboarding.")
 
 # ==========================================
 # Results Section
