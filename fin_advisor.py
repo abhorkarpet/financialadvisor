@@ -2452,11 +2452,13 @@ try:
                 if _REPORTLAB_AVAILABLE:
                     try:
                         # Prepare user inputs for PDF
+                        # Note: sidebar variables (current_tax_rate, retirement_tax_rate, inflation_rate)
+                        # are defined in the sidebar section above and should always be accessible
                         user_inputs = {
                             'client_name': client_name if client_name else 'Client',
-                            'current_marginal_tax_rate_pct': current_tax_rate,
-                            'retirement_marginal_tax_rate_pct': retirement_tax_rate,
-                            'inflation_rate_pct': inflation_rate,
+                            'current_marginal_tax_rate_pct': current_tax_rate if 'current_tax_rate' in locals() else 22,
+                            'retirement_marginal_tax_rate_pct': retirement_tax_rate if 'retirement_tax_rate' in locals() else 25,
+                            'inflation_rate_pct': inflation_rate if 'inflation_rate' in locals() else 3,
                             'age': age,
                             'retirement_age': retirement_age,
                             'life_expectancy': life_expectancy,
