@@ -1268,25 +1268,57 @@ elif current_step == 2:
 
                 if uploaded_files:
                     if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
+                        import time
+
                         progress_bar = st.progress(0)
                         status_text = st.empty()
+                        timer_text = st.empty()
 
                         try:
-                            # Initialize n8n client
-                            status_text.text("Initializing AI extraction...")
-                            progress_bar.progress(10)
+                            start_time = time.time()
 
+                            # Phase 1: Upload (0-30%)
+                            status_text.markdown("**📤 Phase 1/2: Uploading Files**")
+                            progress_bar.progress(5)
+                            time.sleep(0.2)
+
+                            status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(uploaded_files)} file(s) to AI processor...")
+                            progress_bar.progress(15)
+
+                            # Initialize n8n client and prepare files
                             client = N8NClient()
-
-                            # Prepare files for upload
-                            status_text.text(f"Uploading {len(uploaded_files)} file(s)...")
-                            progress_bar.progress(30)
-
                             files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
 
-                            # Upload to n8n
+                            progress_bar.progress(25)
+                            elapsed = time.time() - start_time
+                            status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(uploaded_files)} file(s)...")
+                            timer_text.markdown(f"⏱️ Elapsed: {elapsed:.1f}s")
+                            time.sleep(0.2)
+
+                            progress_bar.progress(30)
+                            elapsed = time.time() - start_time
+                            status_text.markdown(f"**✅ Upload Complete** - Starting AI processing...")
+                            timer_text.markdown(f"⏱️ Elapsed: {elapsed:.1f}s")
+                            time.sleep(0.3)
+
+                            # Phase 2: Processing (30-90%)
+                            processing_start = time.time()
+                            status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements...")
+                            progress_bar.progress(40)
+                            elapsed = time.time() - start_time
+                            timer_text.markdown(f"⏱️ Processing: {elapsed:.1f}s")
+
+                            # Make the actual API call
                             result = client.upload_statements(files_to_upload)
+
+                            # Show completion
+                            processing_complete_time = time.time()
+                            total_time = processing_complete_time - start_time
+                            processing_time = processing_complete_time - processing_start
+
                             progress_bar.progress(90)
+                            status_text.markdown(f"**✅ AI Processing Complete** ({processing_time:.1f}s)")
+                            timer_text.markdown(f"⏱️ Total time: {total_time:.1f}s")
 
                             if result['success']:
                                 progress_bar.progress(100)
