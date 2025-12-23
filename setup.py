@@ -13,8 +13,16 @@ def read_readme():
 
 # Read requirements
 def read_requirements():
-    with open("requirements.txt", "r", encoding="utf-8") as fh:
-        return [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+    try:
+        with open("requirements.txt", "r", encoding="utf-8") as fh:
+            return [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+    except FileNotFoundError:
+        # Fallback to core dependencies if requirements.txt not found during build
+        return [
+            "streamlit>=1.28.0",
+            "pandas>=2.0.0",
+            "reportlab>=4.0.0",
+        ]
 
 setup(
     name="financial-advisor",
