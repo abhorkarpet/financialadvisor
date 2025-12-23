@@ -1311,36 +1311,80 @@ elif current_step == 2:
                             # This shouldn't happen, but fallback to extracted data
                             df_table = df_extracted
 
-                        # Define column configuration
+                        # Define column configuration - MUST MATCH the original extraction config
                         column_config = {
-                            "Account Name": st.column_config.TextColumn("Account Name", width="medium"),
-                            "Institution": st.column_config.TextColumn("Institution", width="medium"),
+                            "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                            "Institution": st.column_config.TextColumn(
+                                "Institution",
+                                disabled=True,
+                                help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                                width="medium"
+                            ),
+                            "Account Name": st.column_config.TextColumn(
+                                "Account Name",
+                                help="Account name/description from statement",
+                                width="medium"
+                            ),
+                            "Last 4": st.column_config.TextColumn(
+                                "Last 4",
+                                disabled=True,
+                                help="Last 4 digits of account number",
+                                width="small"
+                            ),
+                            "Account Type": st.column_config.TextColumn(
+                                "Account Type",
+                                disabled=True,
+                                help="Type of account (401k, IRA, Savings, etc.)",
+                                width="small"
+                            ),
                             "Tax Treatment": st.column_config.SelectboxColumn(
                                 "Tax Treatment",
-                                options=["Pre-Tax", "Post-Tax", "Tax-Free"],
-                                width="medium"
+                                options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
                             ),
-                            "Current Balance": st.column_config.NumberColumn(
-                                "Current Balance",
+                            "Current Balance ($)": st.column_config.NumberColumn(
+                                "Current Balance ($)",
+                                min_value=0,
                                 format="$%d",
-                                width="medium"
+                                help="Current account balance"
                             ),
-                            "Annual Contribution": st.column_config.NumberColumn(
-                                "Annual Contribution",
+                            "Annual Contribution ($)": st.column_config.NumberColumn(
+                                "Annual Contribution ($)",
+                                min_value=0,
                                 format="$%d",
-                                width="medium"
+                                help="How much you contribute annually"
                             ),
                             "Growth Rate (%)": st.column_config.NumberColumn(
                                 "Growth Rate (%)",
+                                min_value=0.0,
+                                max_value=20.0,
                                 format="%.1f%%",
-                                width="small"
+                                help="Expected annual growth rate"
                             ),
                             "Tax Rate on Gains (%)": st.column_config.NumberColumn(
                                 "Tax Rate on Gains (%)",
+                                min_value=0.0,
+                                max_value=50.0,
                                 format="%.1f%%",
-                                width="small"
+                                help="Tax rate on gains (capital gains or income tax)"
                             )
                         }
+
+                        # Add optional column configs if they exist in the data
+                        if "Income Eligibility" in df_table.columns:
+                            column_config["Income Eligibility"] = st.column_config.TextColumn(
+                                "Income Eligibility",
+                                disabled=True,
+                                help="Income restrictions for this account type",
+                                width="small"
+                            )
+                        if "Purpose" in df_table.columns:
+                            column_config["Purpose"] = st.column_config.TextColumn(
+                                "Purpose",
+                                disabled=True,
+                                help="Primary purpose of this account",
+                                width="small"
+                            )
 
                         # Display editable table
                         edited_df = st.data_editor(
@@ -1363,7 +1407,7 @@ elif current_step == 2:
                         for _, row in edited_df.iterrows():
                             # Parse tax treatment (from human-readable to enum)
                             tax_treatment_str = row["Tax Treatment"]
-                            if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
+                            if tax_treatment_str == "Tax-Deferred":
                                 asset_type = AssetType.TAX_DEFERRED
                             elif tax_treatment_str == "Post-Tax":
                                 asset_type = AssetType.POST_TAX
@@ -1373,12 +1417,12 @@ elif current_step == 2:
                             else:
                                 raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
 
-                            # Create asset
+                            # Create asset - use correct column names with ($) suffix
                             asset = Asset(
                                 name=row["Account Name"],
                                 asset_type=asset_type,
-                                current_balance=float(row["Current Balance"]),
-                                annual_contribution=float(row["Annual Contribution"]),
+                                current_balance=float(row["Current Balance ($)"]),
+                                annual_contribution=float(row["Annual Contribution ($)"]),
                                 growth_rate_pct=float(row["Growth Rate (%)"]),
                                 tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                             )
