@@ -298,10 +298,11 @@ def check_configuration():
     Returns:
         tuple: (is_configured: bool, webhook_url: str, error_message: str)
     """
-    webhook_url = os.getenv('N8N_WEBHOOK_URL')
+    # Try statement-uploader-specific URL first, then fall back to general webhook URL
+    webhook_url = os.getenv('N8N_STATEMENT_UPLOADER_URL') or os.getenv('N8N_WEBHOOK_URL')
 
     if not webhook_url:
-        return False, None, "N8N_WEBHOOK_URL environment variable not set"
+        return False, None, "N8N_STATEMENT_UPLOADER_URL or N8N_WEBHOOK_URL environment variable not set"
 
     # Basic URL validation
     if not webhook_url.startswith(('http://', 'https://')):
@@ -328,7 +329,13 @@ def display_configuration_help():
 
     Create a `.env` file in the project root:
     ```bash
+    # Dedicated URL for statement uploader (recommended)
+    N8N_STATEMENT_UPLOADER_URL=https://your-n8n-instance.com/webhook/statement-uploader
+
+    # OR use the general webhook URL (fallback)
     N8N_WEBHOOK_URL=https://your-n8n-instance.com/webhook/financial-statement-upload
+
+    # Optional authentication token
     N8N_WEBHOOK_TOKEN=your_optional_auth_token
     ```
 
@@ -344,9 +351,11 @@ def display_configuration_help():
     **For Testing:**
     You can also set the environment variable directly:
     ```bash
-    export N8N_WEBHOOK_URL="https://your-webhook-url"
+    export N8N_STATEMENT_UPLOADER_URL="https://your-webhook-url"
     streamlit run statement_uploader.py
     ```
+
+    **Note:** The app will use `N8N_STATEMENT_UPLOADER_URL` if set, otherwise falls back to `N8N_WEBHOOK_URL`.
     """)
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -836,7 +845,7 @@ def main():
         if st.button("Test Webhook Connection"):
             with st.spinner("Testing connection..."):
                 try:
-                    client = N8NClient()
+                    client = N8NClient(webhook_url=webhook_url)
                     if client.test_connection():
                         st.success("✓ Webhook is reachable!")
                     else:
@@ -999,7 +1008,7 @@ def main():
                     status_text.text("Initializing connection to n8n workflow...")
                     progress_bar.progress(10)
 
-                    client = N8NClient()
+                    client = N8NClient(webhook_url=webhook_url)
 
                     # Prepare files
                     status_text.text(f"Uploading {len(files_to_process)} file(s)...")
@@ -1091,7 +1100,7 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-        <p>Part of the Financial Advisor - Retirement Planning Tool</p>
+        <p>Part of the Smart Retire AI - Retirement Planning Tool</p>
         <p>For support, see the main application documentation</p>
     </div>
     """, unsafe_allow_html=True)
