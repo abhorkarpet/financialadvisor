@@ -1417,12 +1417,13 @@ elif current_step == 2:
                             else:
                                 raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
 
-                            # Create asset - use correct column names with ($) suffix
+                            # Create asset - use actual DataFrame column names (without $ suffix)
+                            # Note: column_config labels are just for display, DataFrame columns keep original names
                             asset = Asset(
                                 name=row["Account Name"],
                                 asset_type=asset_type,
-                                current_balance=float(row["Current Balance ($)"]),
-                                annual_contribution=float(row["Annual Contribution ($)"]),
+                                current_balance=float(row["Current Balance"]),
+                                annual_contribution=float(row["Annual Contribution"]),
                                 growth_rate_pct=float(row["Growth Rate (%)"]),
                                 tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                             )
