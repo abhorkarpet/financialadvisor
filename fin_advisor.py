@@ -2181,77 +2181,91 @@ try:
     # Income Analysis Section
     st.markdown("---")
     st.subheader("💰 Retirement Income Analysis")
-    
+
     # Calculate retirement income from portfolio
     total_after_tax = result['Total After-Tax Balance']
     years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
     annual_retirement_income = total_after_tax / years_in_retirement
-    
-    # Calculate shortfall or surplus
-    income_shortfall = retirement_income_goal - annual_retirement_income
-    income_ratio = (annual_retirement_income / retirement_income_goal) * 100
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            "Projected Annual Income", 
-            f"${annual_retirement_income:,.0f}",
-            help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
-        )
-    with col2:
-        st.metric(
-            "Income Goal", 
-            f"${retirement_income_goal:,.0f}",
-            help="Your desired retirement income"
-        )
-    with col3:
-        if income_shortfall > 0:
+
+    # Only show income goal comparison if user set a goal
+    if retirement_income_goal > 0:
+        # Calculate shortfall or surplus
+        income_shortfall = retirement_income_goal - annual_retirement_income
+        income_ratio = (annual_retirement_income / retirement_income_goal) * 100
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.metric(
-                "Annual Shortfall", 
-                f"${income_shortfall:,.0f}",
-                delta=f"-{income_ratio:.1f}%",
-                delta_color="inverse"
+                "Projected Annual Income",
+                f"${annual_retirement_income:,.0f}",
+                help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
             )
+        with col2:
+            st.metric(
+                "Income Goal",
+                f"${retirement_income_goal:,.0f}",
+                help="Your desired retirement income"
+            )
+        with col3:
+            if income_shortfall > 0:
+                st.metric(
+                    "Annual Shortfall",
+                    f"${income_shortfall:,.0f}",
+                    delta=f"-{income_ratio:.1f}%",
+                    delta_color="inverse"
+                )
+            else:
+                surplus = -income_shortfall
+                st.metric(
+                    "Annual Surplus",
+                    f"${surplus:,.0f}",
+                    delta=f"+{income_ratio:.1f}%",
+                    delta_color="normal"
+                )
+
+        # Income status analysis
+        if income_ratio >= 100:
+            st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
+        elif income_ratio >= 80:
+            st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
+        elif income_ratio >= 60:
+            st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
         else:
-            surplus = -income_shortfall
-            st.metric(
-                "Annual Surplus", 
-                f"${surplus:,.0f}",
-                delta=f"+{income_ratio:.1f}%",
-                delta_color="normal"
-            )
-    
-    # Income status analysis
-    if income_ratio >= 100:
-        st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
-    elif income_ratio >= 80:
-        st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
-    elif income_ratio >= 60:
-        st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
+            st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
     else:
-        st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
-    
-    # Recommendations based on income analysis
-    with st.expander("💡 Income Optimization Recommendations", expanded=False):
-        if income_shortfall > 0:
-            st.markdown(f"""
-            **To close the ${income_shortfall:,.0f} annual shortfall:**
-            
-            1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
-            2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
-            3. **Optimize asset allocation**: Consider higher-growth investments
-            4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
-            5. **Consider part-time work**: Supplement retirement income
-            """)
-        else:
-            st.markdown("""
-            **You're on track! Consider these optimizations:**
-            
-            1. **Tax optimization**: Maximize Roth contributions
-            2. **Asset allocation**: Balance growth vs. preservation
-            3. **Estate planning**: Consider legacy goals
-            4. **Lifestyle upgrades**: You may be able to increase retirement spending
-            """)
+        # No income goal set - just show projected income
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(
+                "Projected Annual Income",
+                f"${annual_retirement_income:,.0f}",
+                help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+            )
+        with col2:
+            st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
+
+    # Recommendations based on income analysis (only if goal is set)
+    if retirement_income_goal > 0:
+        with st.expander("💡 Income Optimization Recommendations", expanded=False):
+            if income_shortfall > 0:
+                st.markdown(f"""
+                **To close the ${income_shortfall:,.0f} annual shortfall:**
+
+                1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
+                2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
+                3. **Optimize asset allocation**: Consider higher-growth investments
+                4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
+                5. **Consider part-time work**: Supplement retirement income
+                """)
+            else:
+                st.markdown("""
+                **You're on track! Consider these optimizations:**
+
+                1. **Tax optimization**: Maximize Roth contributions
+                2. **Asset allocation**: Balance growth vs. preservation
+                3. **Estate planning**: Consider legacy goals
+                4. **Lifestyle upgrades**: You may be able to increase retirement spending
+                """)
     
     # Detailed breakdown in tabs
     st.subheader("📈 Detailed Analysis")
