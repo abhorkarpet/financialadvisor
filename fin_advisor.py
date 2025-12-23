@@ -1386,13 +1386,14 @@ elif current_step == 2:
                                 width="small"
                             )
 
-                        # Display editable table
+                        # Display editable table with unique key for reload view
                         edited_df = st.data_editor(
                             df_table,
                             column_config=column_config,
                             use_container_width=True,
                             hide_index=True,
-                            num_rows="dynamic"
+                            num_rows="dynamic",
+                            key="ai_table_reload_view"  # Unique key for this table
                         )
 
                         # Save edited table to session state
@@ -1879,13 +1880,14 @@ elif current_step == 2:
                                         )
                                     }
 
-                                    # Display editable table
+                                    # Display editable table with unique key for fresh extraction view
                                     edited_df = st.data_editor(
                                         df_table,
                                         column_config=column_config,
                                         use_container_width=True,
                                         hide_index=True,
-                                        num_rows="dynamic"
+                                        num_rows="dynamic",
+                                        key="ai_table_fresh_extraction"  # Unique key for this table
                                     )
 
                                     # Save edited table to session state for persistence across reruns
