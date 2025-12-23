@@ -918,24 +918,33 @@ with st.expander("💬 Share & Feedback", expanded=False):
         st.markdown("**Share Smart Retire AI with others:**")
 
         app_url = "https://github.com/abhorkarpet/financialadvisor"
-        share_text = "Check out Smart Retire AI - an advanced retirement planning tool!"
 
-        # Social share buttons - compact layout
+        # Social share buttons - simple button layout
         col1, col2, col3, col4 = st.columns(4)
+
         with col1:
-            twitter_url = f"https://twitter.com/intent/tweet?text={share_text}&url={app_url}"
-            st.markdown(f"[🐦 Twitter]({twitter_url})")
+            twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://github.com/abhorkarpet/financialadvisor"
+            if st.button("🐦 Twitter", use_container_width=True):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
+
         with col2:
             linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-            st.markdown(f"[💼 LinkedIn]({linkedin_url})")
+            if st.button("💼 LinkedIn", use_container_width=True):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
+
         with col3:
             facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-            st.markdown(f"[📘 Facebook]({facebook_url})")
-        with col4:
-            email_body = f"{share_text}\n\n{app_url}"
-            st.markdown(f"[📧 Email](mailto:?subject=Check%20this%20out&body={email_body})")
+            if st.button("📘 Facebook", use_container_width=True):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
 
-        st.text_input("Copy link:", value=app_url, disabled=True, label_visibility="collapsed")
+        with col4:
+            if st.button("📧 Email", use_container_width=True):
+                email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://github.com/abhorkarpet/financialadvisor"
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("**Or copy and share the link:**")
+        st.code(app_url, language=None)
 
     with feedback_tab2:
         st.markdown("**We'd love to hear from you!**")
