@@ -917,13 +917,13 @@ with st.expander("💬 Share & Feedback", expanded=False):
     with feedback_tab1:
         st.markdown("**Share Smart Retire AI with others:**")
 
-        app_url = "https://github.com/abhorkarpet/financialadvisor"
+        app_url = "https://smartretireai.streamlit.app"
 
         # Social share buttons - simple button layout
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://github.com/abhorkarpet/financialadvisor"
+            twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://smartretireai.streamlit.app"
             if st.button("🐦 Twitter", use_container_width=True):
                 st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
 
@@ -939,7 +939,7 @@ with st.expander("💬 Share & Feedback", expanded=False):
 
         with col4:
             if st.button("📧 Email", use_container_width=True):
-                email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://github.com/abhorkarpet/financialadvisor"
+                email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://smartretireai.streamlit.app"
                 st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
 
         st.markdown("---")
