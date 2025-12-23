@@ -38,14 +38,23 @@ The application will automatically open in your default browser at `http://local
 - Click **"Next: Asset Configuration →"**
 
 **Step 2: Asset Configuration**
-- **Set Default Growth Rate** - Configure the default annual growth rate for investment accounts (slider: 0-20%)
-  - Typical rates: Stocks 7-10%, Bonds 4-5%, Savings 2-4%
-  - This rate auto-populates when adding accounts
 - Choose one of the 3 setup methods:
   - **Upload Financial Statements (AI)** - Upload PDF statements for AI extraction (requires n8n integration)
   - **Upload CSV File** - Download template, fill it out, and upload
   - **Configure Individual Assets** - Manually add each account one by one
-- Click **"Complete Onboarding ✓"**
+    - Default growth rate is 7% for all accounts
+- Click **"Complete Setup → View Results"**
+
+**Results & Analysis Page**
+- After completing onboarding, you'll be taken to the Results & Analysis page
+- **Fixed Facts Section** (collapsible expander):
+  - Shows your baseline data: birth year, current age, baseline retirement age, life expectancy, income goal, and number of accounts
+  - These values are locked - use "← Back to Setup" button to change them
+- **What-If Scenario Adjustments**:
+  - Adjust retirement age, life expectancy, income goal, tax rates, and inflation rate
+  - All visualizations update instantly as you change values
+  - Use "🔄 Reset to Baseline Values" to restore original onboarding data
+- **Navigation**: Click "← Back to Setup" to return to onboarding and modify your accounts
 
 **View Results**
 - After completing onboarding, scroll down to see:
@@ -182,7 +191,41 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **4.0.0**
+Current Version: **4.5.0**
+
+### What's New in 4.5.0
+**Major UX Reorganization:**
+- **Separated Onboarding from Results** into distinct pages for clearer workflow
+  - Onboarding Page: Steps 1 & 2 for data entry only
+  - Results & Analysis Page: Projections, visualizations, and what-if scenarios
+  - Button navigation: "Complete Setup → View Results" and "← Back to Setup"
+
+**What-If Scenario Analysis:**
+- Moved all scenario controls from sidebar to main Results page
+- **Fixed Facts Section**: Displays non-editable baseline data from onboarding
+  - Birth year (fixed - cannot change)
+  - Current age (calculated from birth year)
+  - Baseline retirement age, life expectancy, and income goal
+  - Number of accounts configured
+- **What-If Scenario Knobs**: Adjustable parameters for exploring scenarios
+  - Retirement Age (adjustable slider)
+  - Life Expectancy (adjustable slider)
+  - Annual Retirement Income Goal (adjustable input)
+  - Current Tax Rate (adjustable slider)
+  - Retirement Tax Rate (adjustable slider)
+  - Inflation Rate (adjustable slider)
+- **Reset to Baseline** button to restore original onboarding values
+- All visualizations update instantly as you adjust what-if parameters
+
+**Improved Visual Design:**
+- Updated splash screen "Getting Started" section with green gradient background
+- More actionable income recommendations heading when there's a shortfall
+  - Shows: "🎯 Strategies to Close Your $X Income Gap" instead of generic "Income Optimization"
+- Clearer separation between real data (onboarding) and scenario exploration (results)
+
+**Removed:**
+- Sidebar "Advanced Settings" (functionality moved to Results page)
+- Confusion between editing real data vs. exploring scenarios
 
 ### What's New in 4.0.0
 **Rebranding:**
