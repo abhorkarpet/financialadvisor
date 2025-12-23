@@ -757,6 +757,10 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 st.set_page_config(page_title="Smart Retire AI", layout="wide")
 
+# Initialize session state for splash screen
+if 'splash_dismissed' not in st.session_state:
+    st.session_state.splash_dismissed = False
+
 # Initialize session state for onboarding flow
 if 'onboarding_step' not in st.session_state:
     st.session_state.onboarding_step = 1
@@ -776,6 +780,123 @@ if 'client_name' not in st.session_state:
     st.session_state.client_name = ""
 if 'assets' not in st.session_state:
     st.session_state.assets = []
+
+# ==========================================
+# SPLASH SCREEN / WELCOME PAGE
+# ==========================================
+if not st.session_state.splash_dismissed:
+    # Display splash screen
+    st.markdown(
+        """
+        <style>
+            .splash-container {
+                background: linear-gradient(135deg, #1f77b4 0%, #2ca02c 100%);
+                padding: 60px 40px;
+                border-radius: 20px;
+                text-align: center;
+                color: white;
+                margin: 40px auto;
+                max-width: 900px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            }
+            .splash-title {
+                font-size: 3em;
+                font-weight: bold;
+                margin-bottom: 10px;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+            }
+            .splash-version {
+                font-size: 1.2em;
+                opacity: 0.9;
+                margin-bottom: 30px;
+            }
+            .splash-tagline {
+                font-size: 1.4em;
+                font-weight: 500;
+                margin-bottom: 40px;
+                opacity: 0.95;
+            }
+            .splash-description {
+                font-size: 1.1em;
+                line-height: 1.8;
+                margin-bottom: 40px;
+                text-align: left;
+                background: rgba(255,255,255,0.1);
+                padding: 30px;
+                border-radius: 10px;
+            }
+            .splash-features {
+                text-align: left;
+                margin: 30px 0;
+            }
+            .splash-feature {
+                font-size: 1.05em;
+                margin: 12px 0;
+                padding-left: 10px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        f"""
+        <div class="splash-container">
+            <div class="splash-title">💰 Smart Retire AI</div>
+            <div class="splash-version">Version {VERSION}</div>
+            <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
+            <div class="splash-description">
+                <p><strong>Welcome!</strong> Smart Retire AI helps you plan for a comfortable retirement with sophisticated financial modeling and AI-powered insights.</p>
+
+                <div class="splash-features">
+                    <div class="splash-feature">✨ <strong>AI Statement Upload:</strong> Automatically extract account data from PDFs</div>
+                    <div class="splash-feature">📊 <strong>Smart Tax Planning:</strong> Optimize your tax strategy with pre-tax, post-tax, and tax-free accounts</div>
+                    <div class="splash-feature">📈 <strong>Growth Projections:</strong> See your portfolio grow year by year until retirement</div>
+                    <div class="splash-feature">💡 <strong>Personalized Insights:</strong> Get recommendations tailored to your financial situation</div>
+                    <div class="splash-feature">🎯 <strong>What-If Scenarios:</strong> Easily adjust assumptions and see instant results</div>
+                </div>
+
+                <p style="margin-top: 30px; font-size: 0.95em; opacity: 0.9;">
+                    <strong>Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Buttons and checkbox
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Note: The checkbox state is automatically captured by Streamlit
+        # We'll check its value when the button is clicked
+        st.checkbox("✓ Don't show this again", key="dont_show_splash")
+
+        if st.button("🚀 Get Started", type="primary", use_container_width=True):
+            # Check if user wants to hide splash permanently
+            if st.session_state.get("dont_show_splash", False):
+                st.session_state.splash_dismissed = True
+            else:
+                # Just dismiss for this session, will show again on page reload
+                st.session_state.splash_dismissed = True
+            st.rerun()
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # Contact info at bottom
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.9em; padding: 20px;'>
+            Questions? Contact us at <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4;'>smartretireai@gmail.com</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Stop rendering the rest of the page
+    st.stop()
 
 # ==========================================
 # SIDEBAR - Advanced Settings (Collapsed by Default)
