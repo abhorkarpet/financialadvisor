@@ -839,31 +839,56 @@ if not st.session_state.splash_dismissed:
         unsafe_allow_html=True
     )
 
+    # Splash header with gradient
     st.markdown(
         f"""
         <div class="splash-container">
             <div class="splash-title">💰 Smart Retire AI</div>
             <div class="splash-version">Version {VERSION}</div>
             <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
-            <div class="splash-description">
-                <p><strong>Welcome!</strong> Smart Retire AI helps you plan for a comfortable retirement with sophisticated financial modeling and AI-powered insights.</p>
-
-                <div class="splash-features">
-                    <div class="splash-feature">✨ <strong>AI Statement Upload:</strong> Automatically extract account data from PDFs</div>
-                    <div class="splash-feature">📊 <strong>Smart Tax Planning:</strong> Optimize your tax strategy with pre-tax, post-tax, and tax-free accounts</div>
-                    <div class="splash-feature">📈 <strong>Growth Projections:</strong> See your portfolio grow year by year until retirement</div>
-                    <div class="splash-feature">💡 <strong>Personalized Insights:</strong> Get recommendations tailored to your financial situation</div>
-                    <div class="splash-feature">🎯 <strong>What-If Scenarios:</strong> Easily adjust assumptions and see instant results</div>
-                </div>
-
-                <p style="margin-top: 30px; font-size: 0.95em; opacity: 0.9;">
-                    <strong>Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
-                </p>
-            </div>
         </div>
         """,
         unsafe_allow_html=True
     )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Content using Streamlit components for proper rendering
+    st.markdown("### 👋 Welcome!")
+    st.markdown("""
+    Smart Retire AI helps you plan for a comfortable retirement with sophisticated
+    financial modeling and AI-powered insights.
+    """)
+
+    st.markdown("### ✨ Key Features")
+
+    # Two-column layout for features
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**✨ AI Statement Upload**")
+        st.caption("Automatically extract account data from PDF statements")
+        st.markdown("")
+
+        st.markdown("**📊 Smart Tax Planning**")
+        st.caption("Optimize with pre-tax, post-tax, and tax-free accounts")
+        st.markdown("")
+
+        st.markdown("**📈 Growth Projections**")
+        st.caption("See your portfolio grow year by year until retirement")
+
+    with col2:
+        st.markdown("**💡 Personalized Insights**")
+        st.caption("Get recommendations tailored to your financial situation")
+        st.markdown("")
+
+        st.markdown("**🎯 What-If Scenarios**")
+        st.caption("Easily adjust assumptions and see instant results")
+        st.markdown("")
+
+    st.markdown("---")
+
+    st.info("**🚀 Getting Started:** Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
