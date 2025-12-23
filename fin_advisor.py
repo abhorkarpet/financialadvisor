@@ -864,6 +864,78 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
 
+# Share & Feedback section
+with st.sidebar:
+    st.markdown("---")
+    with st.expander("📢 Share & Feedback", expanded=False):
+        st.markdown("### Share This App")
+
+        # App URL (you can customize this)
+        app_url = "https://github.com/abhorkarpet/financialadvisor"
+        app_title = "Financial Advisor - Retirement Planning Tool"
+        share_text = "Check out this advanced retirement planning tool with asset classification and tax optimization!"
+
+        # Social media share buttons
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Twitter/X
+            twitter_url = f"https://twitter.com/intent/tweet?text={share_text}&url={app_url}"
+            st.markdown(f"[![Twitter](https://img.shields.io/badge/Share-Twitter-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)]({twitter_url})")
+
+            # LinkedIn
+            linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
+            st.markdown(f"[![LinkedIn](https://img.shields.io/badge/Share-LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)]({linkedin_url})")
+
+        with col2:
+            # Facebook
+            facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
+            st.markdown(f"[![Facebook](https://img.shields.io/badge/Share-Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white)]({facebook_url})")
+
+            # Email
+            email_subject = f"Check out: {app_title}"
+            email_body = f"{share_text}\n\n{app_url}"
+            email_url = f"mailto:?subject={email_subject}&body={email_body}"
+            st.markdown(f"[![Email](https://img.shields.io/badge/Share-Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)]({email_url})")
+
+        # Copy link button
+        st.markdown("---")
+        st.markdown("**📋 Copy Link**")
+        st.code(app_url, language=None)
+        st.caption("Copy and share via iMessage, WhatsApp, or any other app")
+
+        # Feedback section
+        st.markdown("---")
+        st.markdown("### 💬 Feedback")
+        st.markdown("""
+        Have suggestions or found a bug?
+
+        - **GitHub Issues:** [Report here](https://github.com/abhorkarpet/financialadvisor/issues)
+        - **Email:** Share your thoughts via email
+        """)
+
+        # Quick feedback form
+        with st.form("feedback_form"):
+            feedback_type = st.selectbox(
+                "Feedback Type",
+                ["Feature Request", "Bug Report", "General Feedback"]
+            )
+            feedback_text = st.text_area(
+                "Your Feedback",
+                placeholder="Tell us what you think...",
+                height=100
+            )
+            submitted = st.form_submit_button("Submit Feedback")
+
+            if submitted and feedback_text:
+                # Create GitHub issue URL with pre-filled content
+                issue_title = f"[{feedback_type}] User Feedback"
+                issue_body = f"**Type:** {feedback_type}\n\n**Feedback:**\n{feedback_text}\n\n---\n*Submitted via app*"
+                github_issue_url = f"https://github.com/abhorkarpet/financialadvisor/issues/new?title={issue_title}&body={issue_body}"
+
+                st.success("✓ Thank you for your feedback!")
+                st.markdown(f"[Click here to submit on GitHub]({github_issue_url})")
+
 # Reset button (only show if onboarding is complete)
 if st.session_state.onboarding_complete:
     st.sidebar.markdown("---")
