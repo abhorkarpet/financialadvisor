@@ -946,6 +946,13 @@ if not st.session_state.splash_dismissed:
                 margin: 12px 0;
                 padding-left: 10px;
             }
+            .splash-desktop-note {
+                font-size: 0.95em;
+                margin-top: 8px;
+                opacity: 0.95;
+                font-style: italic;
+                color: rgba(255,255,255,0.9);
+            }
         </style>
         """,
         unsafe_allow_html=True
@@ -958,6 +965,7 @@ if not st.session_state.splash_dismissed:
             <div class="splash-title">💰 Smart Retire AI</div>
             <div class="splash-version">Version {VERSION}</div>
             <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
+            <div class="splash-desktop-note">Best used on a desktop browser for the full experience.</div>
         </div>
         """,
         unsafe_allow_html=True
