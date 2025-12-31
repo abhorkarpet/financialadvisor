@@ -191,7 +191,18 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **4.5.0**
+Current Version: **4.6.0**
+
+### What's New in 4.6.0
+**Projected Balance Explanation Module:**
+- **New explain_projected_balance() function** provides detailed breakdown of retirement calculations
+  - Shows complete mathematical formula: `FV = P × (1 + r)^t + C × [((1 + r)^t - 1) / r]`
+  - Step-by-step calculation with user's actual numbers
+  - Separates principal growth from contribution growth
+  - Explains how annual contributions are incorporated (end-of-year assumption)
+  - Tax treatment explanation for each asset type
+- **Example script** (examples/explain_projection.py) demonstrating various scenarios
+- **Comprehensive documentation** (EXPLANATION_MODULE.md) with usage guide
 
 ### What's New in 4.5.0
 **Major UX Reorganization:**
