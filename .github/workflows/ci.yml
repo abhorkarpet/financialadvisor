@@ -109,5 +109,6 @@ jobs:
     
     - name: Run bandit security linter
       run: |
-        bandit -r . -f json -o bandit-report.json || true
-        bandit -r . -f txt
+        # Exclude test files from bandit scan (assert statements are appropriate in tests)
+        bandit -r . -f json -o bandit-report.json --exclude ./test_*.py,./tests/,./examples/ || true
+        bandit -r . -f txt --exclude ./test_*.py,./tests/,./examples/

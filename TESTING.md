@@ -191,7 +191,19 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **4.6.0**
+Current Version: **5.0.0**
+
+### What's New in 5.0.0
+**Interactive Calculation Explanation in UI:**
+- **New "How Are These Numbers Calculated?" section** in Results page
+  - Expandable panel with detailed calculation explanation
+  - "Show Detailed Calculation Explanation" button displays formula breakdown
+  - Download button to save explanation as text file
+  - Provides transparency into retirement projection methodology
+- **Modular Architecture** (from 4.6.0 refactoring)
+  - Core logic extracted into `financialadvisor/` package
+  - Can now use as library: `from financialadvisor import project`
+  - 100% backward compatible with existing code
 
 ### What's New in 4.6.0
 **Projected Balance Explanation Module:**

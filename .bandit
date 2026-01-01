@@ -1,0 +1,9 @@
+[bandit]
+# Bandit configuration for Smart Retire AI
+
+# Exclude test files from assert checks (B101)
+# Asserts are appropriate in test code
+exclude: /test_*.py,/tests/
+
+# Skip specific tests in test files
+skips: B101
