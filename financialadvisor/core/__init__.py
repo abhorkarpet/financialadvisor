@@ -16,6 +16,12 @@ from financialadvisor.core.projector import project
 
 from financialadvisor.core.explainer import explain_projected_balance
 
+from financialadvisor.core.monte_carlo import (
+    run_monte_carlo_simulation,
+    calculate_probability_of_goal,
+    get_confidence_interval,
+)
+
 __all__ = [
     "years_to_retirement",
     "future_value_with_contrib",
@@ -25,4 +31,7 @@ __all__ = [
     "apply_tax_logic",
     "project",
     "explain_projected_balance",
+    "run_monte_carlo_simulation",
+    "calculate_probability_of_goal",
+    "get_confidence_interval",
 ]
