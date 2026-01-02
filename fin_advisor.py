@@ -2380,26 +2380,6 @@ elif st.session_state.current_page == 'results':
             with col4:
                 st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
 
-        # Calculation Explanation Section
-        st.markdown("---")
-        with st.expander("📊 How Are These Numbers Calculated?", expanded=False):
-            st.markdown("""
-            Click below to see a detailed breakdown of the calculation formula and methodology.
-            """)
-
-            if st.button("🔍 Show Detailed Calculation Explanation", key="show_explanation_btn"):
-                explanation = explain_projected_balance(inputs)
-                st.text(explanation)
-
-                # Add download button for explanation
-                st.download_button(
-                    label="📥 Download Explanation",
-                    data=explanation,
-                    file_name=f"retirement_calculation_explanation_{client_name.replace(' ', '_')}.txt",
-                    mime="text/plain",
-                    key="download_explanation_btn"
-                )
-
         # Income Analysis Section
         st.markdown("---")
         st.subheader("💰 Retirement Income Analysis")
@@ -2592,7 +2572,27 @@ elif st.session_state.current_page == 'results':
                     st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
                 else:
                     st.info("No individual asset breakdown available")
-        
+
+            # Calculation Explanation Section
+            st.markdown("---")
+            with st.expander("📊 How Are These Numbers Calculated?", expanded=False):
+                st.markdown("""
+                Click below to see a detailed breakdown of the calculation formula and methodology.
+                """)
+
+                if st.button("🔍 Show Detailed Calculation Explanation", key="show_explanation_btn"):
+                    explanation = explain_projected_balance(inputs)
+                    st.text(explanation)
+
+                    # Add download button for explanation
+                    st.download_button(
+                        label="📥 Download Explanation",
+                        data=explanation,
+                        file_name=f"retirement_calculation_explanation_{client_name.replace(' ', '_')}.txt",
+                        mime="text/plain",
+                        key="download_explanation_btn"
+                    )
+
         with detail_tab2:
             tax_liability = result.get("Total Tax Liability", 0)
             total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
