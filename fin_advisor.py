@@ -553,7 +553,12 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
 
 
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
-st.set_page_config(page_title="Smart Retire AI", layout="wide")
+st.set_page_config(
+    page_title="Smart Retire AI",
+    page_icon="💰",
+    layout="wide",
+    initial_sidebar_state="auto"
+)
 
 # Initialize session state for splash screen
 if 'splash_dismissed' not in st.session_state:
