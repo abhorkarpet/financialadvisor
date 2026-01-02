@@ -957,7 +957,7 @@ def main():
 
     # Show configuration status
     with st.expander("ℹ️ Configuration Status"):
-        st.success(f"✓ Webhook configured: {webhook_url[:50]}...")
+        st.success(f"✓ Webhook configured: {webhook_url}")
 
         # Test connection
         if st.button("Test Webhook Connection"):
