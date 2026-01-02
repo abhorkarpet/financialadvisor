@@ -2339,196 +2339,6 @@ elif st.session_state.current_page == 'results':
 
     st.markdown("---")
 
-    # Advanced Analysis: Monte Carlo Simulation
-    with st.expander("🎲 Advanced: Monte Carlo Simulation", expanded=False):
-        st.markdown("""
-        ### What is Monte Carlo Simulation?
-
-        Monte Carlo simulation runs **thousands of possible market scenarios** to show you the range of
-        potential retirement outcomes, not just a single projection.
-
-        **Why use it?**
-        - Markets don't deliver consistent returns every year
-        - See probability ranges (best case, worst case, most likely)
-        - Understand uncertainty in your retirement plan
-        - Make more informed decisions with probabilistic analysis
-
-        **How it works:**
-        1. Runs 1,000+ simulations with varying market returns
-        2. Returns vary randomly around your expected growth rate
-        3. Shows distribution of possible outcomes
-        4. Calculates probability of meeting your retirement goals
-        """)
-
-        st.markdown("---")
-
-        # Configuration options
-        col1, col2 = st.columns(2)
-
-        with col1:
-            num_simulations = st.select_slider(
-                "Number of Simulations",
-                options=[100, 500, 1000, 5000, 10000],
-                value=1000,
-                help="More simulations = more accurate results (but slower)"
-            )
-
-        with col2:
-            volatility = st.slider(
-                "Market Volatility (Standard Deviation %)",
-                min_value=5.0,
-                max_value=30.0,
-                value=15.0,
-                step=1.0,
-                help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
-            )
-
-        st.markdown("")
-
-        if st.button("🎲 Run Monte Carlo Simulation", type="primary", key="run_monte_carlo_btn"):
-            from financialadvisor.core.monte_carlo import (
-                run_monte_carlo_simulation,
-                calculate_probability_of_goal,
-                get_confidence_interval
-            )
-
-            # Prepare inputs for simulation (need current_year variable)
-            current_year_mc = datetime.now().year
-
-            # Prepare inputs for simulation
-            simulation_inputs = UserInputs(
-                age=current_year_mc - st.session_state.birth_year,
-                retirement_age=int(st.session_state.whatif_retirement_age),
-                life_expectancy=int(st.session_state.whatif_life_expectancy),
-                annual_income=0.0,
-                contribution_rate_pct=15.0,
-                expected_growth_rate_pct=7.0,
-                inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
-                current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
-                retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
-                assets=st.session_state.assets
-            )
-
-            with st.spinner(f"Running {num_simulations:,} simulations..."):
-                results = run_monte_carlo_simulation(
-                    simulation_inputs,
-                    num_simulations=num_simulations,
-                    volatility=volatility
-                )
-
-                # Calculate probability of meeting income goal
-                if st.session_state.whatif_retirement_income_goal > 0:
-                    prob_success = calculate_probability_of_goal(
-                        results["outcomes"],
-                        int(st.session_state.whatif_retirement_age),
-                        int(st.session_state.whatif_life_expectancy),
-                        float(st.session_state.whatif_retirement_income_goal)
-                    )
-                else:
-                    prob_success = None
-
-                # Get confidence interval
-                ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
-
-            # Display Results
-            st.success(f"✅ Completed {num_simulations:,} simulations!")
-
-            st.markdown("### 📊 Monte Carlo Results")
-
-            # Key metrics
-            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-            with metric_col1:
-                st.metric(
-                    "Median Outcome",
-                    f"${results['percentiles']['50th']:,.0f}",
-                    help="50th percentile - half of outcomes above, half below"
-                )
-
-            with metric_col2:
-                st.metric(
-                    "Mean Outcome",
-                    f"${results['mean']:,.0f}",
-                    help="Average of all simulated outcomes"
-                )
-
-            with metric_col3:
-                st.metric(
-                    "Best Case (90th %ile)",
-                    f"${results['percentiles']['90th']:,.0f}",
-                    help="90% of outcomes are below this value"
-                )
-
-            with metric_col4:
-                st.metric(
-                    "Worst Case (10th %ile)",
-                    f"${results['percentiles']['10th']:,.0f}",
-                    help="Only 10% of outcomes are below this value"
-                )
-
-            # Probability of success
-            if prob_success is not None:
-                st.markdown("")
-                if prob_success >= 80:
-                    st.success(f"🎯 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
-                elif prob_success >= 60:
-                    st.warning(f"⚠️ **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
-                else:
-                    st.error(f"🚨 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
-
-            # Percentile breakdown
-            st.markdown("#### Outcome Range (Percentiles)")
-
-            percentile_data = {
-                "Percentile": ["10th", "25th", "50th (Median)", "75th", "90th"],
-                "After-Tax Balance": [
-                    f"${results['percentiles']['10th']:,.0f}",
-                    f"${results['percentiles']['25th']:,.0f}",
-                    f"${results['percentiles']['50th']:,.0f}",
-                    f"${results['percentiles']['75th']:,.0f}",
-                    f"${results['percentiles']['90th']:,.0f}",
-                ]
-            }
-
-            st.table(percentile_data)
-
-            # 95% Confidence Interval
-            st.markdown(f"""
-            **95% Confidence Interval:** ${ci_lower:,.0f} - ${ci_upper:,.0f}
-
-            There's a 95% probability your retirement balance will fall within this range.
-            """)
-
-            # Distribution visualization using st.bar_chart
-            st.markdown("#### Distribution of Outcomes")
-
-            # Create histogram data
-            import math
-            num_bins = 30
-            min_val = results['min']
-            max_val = results['max']
-            bin_width = (max_val - min_val) / num_bins
-
-            bins = {}
-            for outcome in results['outcomes']:
-                bin_idx = min(int((outcome - min_val) / bin_width), num_bins - 1)
-                bin_center = min_val + (bin_idx + 0.5) * bin_width
-                bin_label = f"${bin_center/1000:.0f}K"
-                bins[bin_label] = bins.get(bin_label, 0) + 1
-
-            # Display as bar chart
-            st.bar_chart(bins)
-
-            st.info("""
-            💡 **Interpretation Tips:**
-            - The median (50th percentile) is your most likely outcome
-            - The 10th-90th percentile range shows 80% of possible outcomes
-            - Higher volatility = wider range of outcomes
-            - Conservative planning often targets the 25th percentile or lower
-            """)
-
-    st.markdown("---")
-
     # Calculate values from what-if session state for results
     current_year = datetime.now().year
     age = current_year - st.session_state.birth_year
@@ -2910,12 +2720,318 @@ elif st.session_state.current_page == 'results':
                     else:
                         st.warning("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
                         st.code("pip install reportlab", language="bash")
-        
+
+        # What Next Section - Monte Carlo Simulation
+        st.markdown("---")
+        st.subheader("🎯 What Next?")
+        st.markdown("""
+        Want to see how market uncertainty affects your retirement plan? Run a **Monte Carlo Simulation** to:
+        - See thousands of possible retirement scenarios
+        - Understand best-case and worst-case outcomes
+        - View projected annual income ranges (not just final balance)
+        - Calculate probability of meeting your retirement goals
+        """)
+
+        if st.button("🎲 Explore Monte Carlo Simulation →", type="primary", use_container_width=True):
+            st.session_state.current_page = 'monte_carlo'
+            st.rerun()
+
     except Exception as e:
         st.error(f"❌ **Error in calculation**: {e}")
         with st.expander("🔍 Error Details", expanded=False):
             st.exception(e)
-    
+
+elif st.session_state.current_page == 'monte_carlo':
+    # ==========================================
+    # MONTE CARLO SIMULATION PAGE
+    # ==========================================
+
+    # Add navigation buttons to go back
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("← Back to Results", use_container_width=True):
+            st.session_state.current_page = 'results'
+            st.rerun()
+
+    st.markdown("---")
+
+    # Header
+    st.header("🎲 Monte Carlo Simulation")
+    st.markdown("Explore thousands of possible retirement scenarios with probabilistic analysis")
+
+    st.markdown("---")
+
+    # Educational explanation
+    with st.expander("📚 What is Monte Carlo Simulation?", expanded=True):
+        st.markdown("""
+        ### What is Monte Carlo Simulation?
+
+        Monte Carlo simulation runs **thousands of possible market scenarios** to show you the range of
+        potential retirement outcomes, not just a single projection.
+
+        **Why use it?**
+        - Markets don't deliver consistent returns every year
+        - See probability ranges (best case, worst case, most likely)
+        - Understand uncertainty in your retirement plan
+        - Make more informed decisions with probabilistic analysis
+
+        **How it works:**
+        1. Runs 1,000+ simulations with varying market returns
+        2. Returns vary randomly around your expected growth rate
+        3. Shows distribution of possible outcomes
+        4. Calculates probability of meeting your retirement goals
+        5. **Shows projected annual income variation** (not just final balance)
+        """)
+
+    st.markdown("---")
+
+    # Configuration Section
+    st.subheader("⚙️ Simulation Settings")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        num_simulations = st.select_slider(
+            "Number of Simulations",
+            options=[100, 500, 1000, 5000, 10000],
+            value=1000,
+            help="More simulations = more accurate results (but slower)"
+        )
+
+    with col2:
+        volatility = st.slider(
+            "Market Volatility (Standard Deviation %)",
+            min_value=5.0,
+            max_value=30.0,
+            value=15.0,
+            step=1.0,
+            help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
+        )
+
+    st.markdown("---")
+
+    # Run Simulation Button
+    if st.button("🎲 Run Monte Carlo Simulation", type="primary", use_container_width=True, key="run_monte_carlo_main"):
+        from financialadvisor.core.monte_carlo import (
+            run_monte_carlo_simulation,
+            calculate_probability_of_goal,
+            get_confidence_interval
+        )
+
+        # Prepare inputs for simulation
+        current_year_mc = datetime.now().year
+
+        simulation_inputs = UserInputs(
+            age=current_year_mc - st.session_state.birth_year,
+            retirement_age=int(st.session_state.whatif_retirement_age),
+            life_expectancy=int(st.session_state.whatif_life_expectancy),
+            annual_income=0.0,
+            contribution_rate_pct=15.0,
+            expected_growth_rate_pct=7.0,
+            inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
+            current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
+            retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
+            assets=st.session_state.assets
+        )
+
+        with st.spinner(f"Running {num_simulations:,} simulations..."):
+            results = run_monte_carlo_simulation(
+                simulation_inputs,
+                num_simulations=num_simulations,
+                volatility=volatility
+            )
+
+            # Calculate probability of meeting income goal
+            if st.session_state.whatif_retirement_income_goal > 0:
+                prob_success = calculate_probability_of_goal(
+                    results["outcomes"],
+                    int(st.session_state.whatif_retirement_age),
+                    int(st.session_state.whatif_life_expectancy),
+                    float(st.session_state.whatif_retirement_income_goal)
+                )
+            else:
+                prob_success = None
+
+            # Get confidence interval
+            ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
+            ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+
+        # Display Results
+        st.success(f"✅ Completed {num_simulations:,} simulations!")
+
+        st.markdown("---")
+
+        # Key Metrics - Annual Income (Primary Focus)
+        st.markdown("### 💰 Projected Annual Income Distribution")
+        st.info("This shows how much annual income you could have in retirement across different market scenarios")
+
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+        with metric_col1:
+            st.metric(
+                "Median Annual Income",
+                f"${results['income_percentiles']['50th']:,.0f}",
+                help="50th percentile - half of outcomes above, half below"
+            )
+
+        with metric_col2:
+            st.metric(
+                "Mean Annual Income",
+                f"${results['mean_annual_income']:,.0f}",
+                help="Average annual income across all simulations"
+            )
+
+        with metric_col3:
+            st.metric(
+                "Best Case (90th %ile)",
+                f"${results['income_percentiles']['90th']:,.0f}",
+                help="90% of outcomes are below this annual income"
+            )
+
+        with metric_col4:
+            st.metric(
+                "Worst Case (10th %ile)",
+                f"${results['income_percentiles']['10th']:,.0f}",
+                help="Only 10% of outcomes are below this annual income"
+            )
+
+        # Annual Income Percentile Breakdown
+        st.markdown("#### Annual Income Range (Percentiles)")
+
+        income_percentile_data = {
+            "Percentile": ["10th", "25th", "50th (Median)", "75th", "90th"],
+            "Annual Income": [
+                f"${results['income_percentiles']['10th']:,.0f}",
+                f"${results['income_percentiles']['25th']:,.0f}",
+                f"${results['income_percentiles']['50th']:,.0f}",
+                f"${results['income_percentiles']['75th']:,.0f}",
+                f"${results['income_percentiles']['90th']:,.0f}",
+            ]
+        }
+
+        st.table(income_percentile_data)
+
+        # 95% Confidence Interval for Income
+        st.markdown(f"""
+        **95% Confidence Interval for Annual Income:** ${ci_income_lower:,.0f} - ${ci_income_upper:,.0f}
+
+        There's a 95% probability your annual retirement income will fall within this range.
+        """)
+
+        # Probability of success
+        if prob_success is not None:
+            st.markdown("")
+            if prob_success >= 80:
+                st.success(f"🎯 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+            elif prob_success >= 60:
+                st.warning(f"⚠️ **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+            else:
+                st.error(f"🚨 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+
+        # Distribution visualization for Annual Income
+        st.markdown("#### Distribution of Annual Income Outcomes")
+
+        # Create histogram data for income
+        import math
+        num_bins = 30
+        min_val = results['min_income']
+        max_val = results['max_income']
+        bin_width = (max_val - min_val) / num_bins
+
+        bins = {}
+        for outcome in results['annual_income_outcomes']:
+            bin_idx = min(int((outcome - min_val) / bin_width), num_bins - 1)
+            bin_center = min_val + (bin_idx + 0.5) * bin_width
+            bin_label = f"${bin_center/1000:.0f}K"
+            bins[bin_label] = bins.get(bin_label, 0) + 1
+
+        # Display as bar chart
+        st.bar_chart(bins)
+
+        st.info("""
+        💡 **Interpretation Tips:**
+        - The median (50th percentile) is your most likely annual income
+        - The 10th-90th percentile range shows 80% of possible income outcomes
+        - Higher volatility = wider range of annual income outcomes
+        - Conservative planning often targets the 25th percentile or lower
+        """)
+
+        st.markdown("---")
+
+        # Secondary Metrics - Total Balance
+        st.markdown("### 📊 Total Retirement Balance Distribution")
+
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+        with metric_col1:
+            st.metric(
+                "Median Balance",
+                f"${results['percentiles']['50th']:,.0f}",
+                help="50th percentile - half of outcomes above, half below"
+            )
+
+        with metric_col2:
+            st.metric(
+                "Mean Balance",
+                f"${results['mean']:,.0f}",
+                help="Average of all simulated outcomes"
+            )
+
+        with metric_col3:
+            st.metric(
+                "Best Case (90th %ile)",
+                f"${results['percentiles']['90th']:,.0f}",
+                help="90% of outcomes are below this value"
+            )
+
+        with metric_col4:
+            st.metric(
+                "Worst Case (10th %ile)",
+                f"${results['percentiles']['10th']:,.0f}",
+                help="Only 10% of outcomes are below this value"
+            )
+
+        # Percentile breakdown for balance
+        st.markdown("#### Total Balance Range (Percentiles)")
+
+        percentile_data = {
+            "Percentile": ["10th", "25th", "50th (Median)", "75th", "90th"],
+            "After-Tax Balance": [
+                f"${results['percentiles']['10th']:,.0f}",
+                f"${results['percentiles']['25th']:,.0f}",
+                f"${results['percentiles']['50th']:,.0f}",
+                f"${results['percentiles']['75th']:,.0f}",
+                f"${results['percentiles']['90th']:,.0f}",
+            ]
+        }
+
+        st.table(percentile_data)
+
+        # 95% Confidence Interval for Balance
+        st.markdown(f"""
+        **95% Confidence Interval for Total Balance:** ${ci_lower:,.0f} - ${ci_upper:,.0f}
+
+        There's a 95% probability your retirement balance will fall within this range.
+        """)
+
+        # Distribution visualization for Balance
+        st.markdown("#### Distribution of Balance Outcomes")
+
+        # Create histogram data for balance
+        min_val_balance = results['min']
+        max_val_balance = results['max']
+        bin_width_balance = (max_val_balance - min_val_balance) / num_bins
+
+        bins_balance = {}
+        for outcome in results['outcomes']:
+            bin_idx = min(int((outcome - min_val_balance) / bin_width_balance), num_bins - 1)
+            bin_center = min_val_balance + (bin_idx + 0.5) * bin_width_balance
+            bin_label = f"${bin_center/1000:.0f}K"
+            bins_balance[bin_label] = bins_balance.get(bin_label, 0) + 1
+
+        # Display as bar chart
+        st.bar_chart(bins_balance)
+
 # Page footer with version, copyright, and contact information
 st.markdown("---")
 st.markdown(

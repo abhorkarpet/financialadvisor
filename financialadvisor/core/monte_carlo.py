@@ -33,7 +33,9 @@ def run_monte_carlo_simulation(
     Returns:
         Dictionary containing:
         - outcomes: List of all after-tax balance outcomes
+        - annual_income_outcomes: List of annual income for each simulation
         - percentiles: Dict of percentile values (10th, 25th, 50th, 75th, 90th)
+        - income_percentiles: Dict of income percentile values
         - probability_of_success: Probability of meeting retirement income goal
         - mean: Average outcome
         - std_dev: Standard deviation of outcomes
@@ -45,6 +47,10 @@ def run_monte_carlo_simulation(
 
     years = inputs.retirement_age - inputs.age
     outcomes = []
+    annual_income_outcomes = []
+
+    # Calculate years in retirement
+    years_in_retirement = inputs.life_expectancy - inputs.retirement_age if hasattr(inputs, 'life_expectancy') else 30
 
     for _ in range(num_simulations):
         # Simulate each asset with varying returns
@@ -82,18 +88,32 @@ def run_monte_carlo_simulation(
 
         outcomes.append(total_after_tax)
 
-    # Calculate statistics
+        # Calculate projected annual income from this outcome
+        annual_income = total_after_tax / years_in_retirement if years_in_retirement > 0 else 0
+        annual_income_outcomes.append(annual_income)
+
+    # Calculate statistics for balances
     outcomes_sorted = sorted(outcomes)
     mean = statistics.mean(outcomes)
     std_dev = statistics.stdev(outcomes) if len(outcomes) > 1 else 0.0
 
-    # Calculate percentiles
+    # Calculate percentiles for balances
     percentiles = {
         "10th": outcomes_sorted[int(len(outcomes) * 0.10)],
         "25th": outcomes_sorted[int(len(outcomes) * 0.25)],
         "50th": outcomes_sorted[int(len(outcomes) * 0.50)],  # Median
         "75th": outcomes_sorted[int(len(outcomes) * 0.75)],
         "90th": outcomes_sorted[int(len(outcomes) * 0.90)],
+    }
+
+    # Calculate percentiles for annual income
+    income_sorted = sorted(annual_income_outcomes)
+    income_percentiles = {
+        "10th": income_sorted[int(len(income_sorted) * 0.10)],
+        "25th": income_sorted[int(len(income_sorted) * 0.25)],
+        "50th": income_sorted[int(len(income_sorted) * 0.50)],  # Median
+        "75th": income_sorted[int(len(income_sorted) * 0.75)],
+        "90th": income_sorted[int(len(income_sorted) * 0.90)],
     }
 
     # Calculate probability of success (if income goal is set)
@@ -108,12 +128,17 @@ def run_monte_carlo_simulation(
 
     return {
         "outcomes": outcomes,
+        "annual_income_outcomes": annual_income_outcomes,
         "percentiles": percentiles,
+        "income_percentiles": income_percentiles,
         "probability_of_success": probability_of_success,
         "mean": mean,
+        "mean_annual_income": statistics.mean(annual_income_outcomes),
         "std_dev": std_dev,
         "min": min(outcomes),
         "max": max(outcomes),
+        "min_income": min(annual_income_outcomes),
+        "max_income": max(annual_income_outcomes),
         "num_simulations": num_simulations,
         "volatility": volatility,
     }
