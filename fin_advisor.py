@@ -588,6 +588,101 @@ if 'client_name' not in st.session_state:
 if 'assets' not in st.session_state:
     st.session_state.assets = []
 
+# ==========================================
+# SIDEBAR - Advanced Settings (Collapsed by Default)
+# ==========================================
+with st.sidebar:
+    with st.expander("⚙️ Advanced Settings", expanded=False):
+        st.markdown("### Tax Settings")
+
+        # Current tax rate with helpful guidance
+        with st.expander("💡 How to find your current tax rate", expanded=False):
+            st.markdown("""
+            **To find your current marginal tax rate:**
+            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+            2. **Use IRS tax brackets**: Find which bracket your income falls into
+
+            **2024 Tax Brackets (Single):**
+            - 10%: $0 - $11,600
+            - 12%: $11,601 - $47,150
+            - 22%: $47,151 - $100,525
+            - 24%: $100,526 - $191,950
+            - 32%: $191,951 - $243,725
+            - 35%: $243,726 - $609,350
+            - 37%: $609,351+
+            """)
+
+        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+
+        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
+            st.markdown("""
+            **Consider these factors:**
+            1. **Lower income**: Most people have lower income in retirement
+            2. **Social Security**: Only 85% is taxable for most people
+            3. **Roth withdrawals**: Tax-free if qualified
+            4. **Required Minimum Distributions**: Start at age 73 (2024)
+
+            **Common scenarios:**
+            - **Conservative**: Same as current rate
+            - **Optimistic**: 10-15% lower than current
+            - **Pessimistic**: 5-10% higher (if tax rates increase)
+            """)
+
+        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+
+        st.markdown("---")
+        st.markdown("### Growth Rate Assumptions")
+
+        with st.expander("💡 Inflation guidance", expanded=False):
+            st.markdown("""
+            **Historical context:**
+            - **Long-term average**: 3.0-3.5% annually
+            - **Recent years**: 2-4% (2020-2024)
+            - **Federal Reserve target**: 2% annually
+
+            **Consider:**
+            - **Conservative**: 2-3% (Fed target)
+            - **Moderate**: 3-4% (historical average)
+            - **Aggressive**: 4-5% (higher inflation)
+            """)
+
+        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+
+        st.markdown("---")
+        st.markdown("### Investment Growth Rate")
+
+        with st.expander("💡 Growth rate guidance", expanded=False):
+            st.markdown("""
+            **Typical annual growth rates:**
+            - **Stocks/Equity funds**: 7-10%
+            - **Bonds/Fixed income**: 4-5%
+            - **Savings accounts**: 2-4%
+            - **Conservative portfolio**: 5-6%
+            - **Aggressive portfolio**: 8-10%
+
+            **Note:** This is used as the default when adding investment accounts.
+            """)
+
+        default_growth_rate = st.slider(
+            "Default Growth Rate for Investments (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=7.0,
+            step=0.5,
+            help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
+        )
+
+        st.markdown("---")
+        st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
+
+# Reset button (only show if onboarding is complete)
+if st.session_state.onboarding_complete:
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔄 Reset Onboarding", use_container_width=True):
+        st.session_state.onboarding_step = 1
+        st.session_state.onboarding_complete = False
+        st.rerun()
+
 # Initialize session state for what-if scenario values (used on results page)
 if 'whatif_retirement_age' not in st.session_state:
     st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
