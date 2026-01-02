@@ -2951,6 +2951,13 @@ elif st.session_state.current_page == 'monte_carlo':
             {"Income Range": f"${center/1000:.0f}K", "Count": count}
             for center, count in sorted_bins
         ])
+
+        # Use categorical index to preserve sort order (prevent alphabetical re-sorting)
+        bins_df["Income Range"] = pd.Categorical(
+            bins_df["Income Range"],
+            categories=bins_df["Income Range"].tolist(),
+            ordered=True
+        )
         bins_df = bins_df.set_index("Income Range")
 
         # Display as bar chart
@@ -3043,6 +3050,13 @@ elif st.session_state.current_page == 'monte_carlo':
             {"Balance Range": f"${center/1000:.0f}K", "Count": count}
             for center, count in sorted_bins_balance
         ])
+
+        # Use categorical index to preserve sort order (prevent alphabetical re-sorting)
+        bins_balance_df["Balance Range"] = pd.Categorical(
+            bins_balance_df["Balance Range"],
+            categories=bins_balance_df["Balance Range"].tolist(),
+            ordered=True
+        )
         bins_balance_df = bins_balance_df.set_index("Balance Range")
 
         # Display as bar chart
