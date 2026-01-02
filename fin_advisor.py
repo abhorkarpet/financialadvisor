@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 5.0.0
+Version: 5.5.0
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "5.0.0"
+VERSION = "5.5.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
