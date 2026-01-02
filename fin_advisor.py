@@ -2938,15 +2938,23 @@ elif st.session_state.current_page == 'monte_carlo':
         max_val = results['max_income']
         bin_width = (max_val - min_val) / num_bins
 
-        bins = {}
+        # Store bins with numeric centers for proper sorting
+        bins_data = {}
         for outcome in results['annual_income_outcomes']:
             bin_idx = min(int((outcome - min_val) / bin_width), num_bins - 1)
             bin_center = min_val + (bin_idx + 0.5) * bin_width
-            bin_label = f"${bin_center/1000:.0f}K"
-            bins[bin_label] = bins.get(bin_label, 0) + 1
+            bins_data[bin_center] = bins_data.get(bin_center, 0) + 1
+
+        # Sort by bin_center and create labels
+        sorted_bins = sorted(bins_data.items())
+        bins_df = pd.DataFrame([
+            {"Income Range": f"${center/1000:.0f}K", "Count": count}
+            for center, count in sorted_bins
+        ])
+        bins_df = bins_df.set_index("Income Range")
 
         # Display as bar chart
-        st.bar_chart(bins)
+        st.bar_chart(bins_df)
 
         st.info("""
         💡 **Interpretation Tips:**
@@ -3022,15 +3030,23 @@ elif st.session_state.current_page == 'monte_carlo':
         max_val_balance = results['max']
         bin_width_balance = (max_val_balance - min_val_balance) / num_bins
 
-        bins_balance = {}
+        # Store bins with numeric centers for proper sorting
+        bins_balance_data = {}
         for outcome in results['outcomes']:
             bin_idx = min(int((outcome - min_val_balance) / bin_width_balance), num_bins - 1)
             bin_center = min_val_balance + (bin_idx + 0.5) * bin_width_balance
-            bin_label = f"${bin_center/1000:.0f}K"
-            bins_balance[bin_label] = bins_balance.get(bin_label, 0) + 1
+            bins_balance_data[bin_center] = bins_balance_data.get(bin_center, 0) + 1
+
+        # Sort by bin_center and create labels
+        sorted_bins_balance = sorted(bins_balance_data.items())
+        bins_balance_df = pd.DataFrame([
+            {"Balance Range": f"${center/1000:.0f}K", "Count": count}
+            for center, count in sorted_bins_balance
+        ])
+        bins_balance_df = bins_balance_df.set_index("Balance Range")
 
         # Display as bar chart
-        st.bar_chart(bins_balance)
+        st.bar_chart(bins_balance_df)
 
 # Page footer with version, copyright, and contact information
 st.markdown("---")
