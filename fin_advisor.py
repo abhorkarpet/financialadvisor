@@ -1172,34 +1172,24 @@ if st.session_state.current_page == 'onboarding':
             st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
 
         with col2:
-            # Life expectancy input with inline help
-            help_col1, help_col2 = st.columns([5, 1])
-            with help_col1:
-                st.markdown("**Life Expectancy (Age)**")
-            with help_col2:
-                with st.expander("❓"):
-                    st.markdown("""
-                    **Average Life Expectancy:**
-                    - At birth: ~79 years (US avg)
-                    - At age 30: ~80 years
-                    - At age 50: ~82 years
-                    - At age 65: ~85 years
-
-                    **Factors to Consider:**
-                    - Family history
-                    - Health status
-                    - Lifestyle (exercise, diet)
-                    - Gender (women live 3-5 yrs longer)
-
-                    💡 **Tip:** Add 5-10 years for safety.
-                    """)
-
+            # Life expectancy input with tooltip help
             life_expectancy = st.number_input(
-                "Life Expectancy",
+                "Life Expectancy (Age)",
                 min_value=retirement_age+1,
                 max_value=120,
                 value=st.session_state.life_expectancy,
-                label_visibility="collapsed",
+                help="""**Average Life Expectancy:**
+• At birth: ~79 years (US avg)
+• At age 30: ~80 years
+• At age 50: ~82 years
+• At age 65: ~85 years
+
+**Factors to Consider:**
+• Family history & health status
+• Lifestyle (exercise, diet, smoking)
+• Gender (women live 3-5 yrs longer)
+
+💡 **Tip:** Add 5-10 years for safety.""",
                 key="life_expectancy_input"
             )
             st.session_state.life_expectancy = life_expectancy
@@ -1208,36 +1198,27 @@ if st.session_state.current_page == 'onboarding':
 
             st.markdown("")  # Add spacing
 
-            # Retirement income goal with inline help
-            help_col1, help_col2 = st.columns([5, 1])
-            with help_col1:
-                st.markdown("**Annual Income Needed in Retirement ($)**")
-            with help_col2:
-                with st.expander("❓"):
-                    st.markdown("""
-                    **Typical Annual Needs:**
-                    - $40K-$60K: Modest
-                    - $60K-$80K: Comfortable
-                    - $80K-$100K: Enhanced
-                    - $100K+: Premium
-
-                    **Consider:**
-                    - Housing costs
-                    - Healthcare
-                    - Daily living
-                    - Lifestyle/travel
-                    - Social Security (~$20-40K/yr)
-
-                    💡 **Rule of thumb:** 70-80% of pre-retirement income
-                    """)
-
+            # Retirement income goal with tooltip help
             retirement_income_goal = st.number_input(
-                "Annual Income",
+                "Annual Income Needed in Retirement ($) - Optional",
                 min_value=0,
                 max_value=500000,
                 value=st.session_state.retirement_income_goal,
                 step=5000,
-                label_visibility="collapsed",
+                help="""**Typical Annual Needs:**
+• $40K-$60K: Modest lifestyle
+• $60K-$80K: Comfortable lifestyle
+• $80K-$100K: Enhanced lifestyle
+• $100K+: Premium lifestyle
+
+**Consider:**
+• Housing costs (rent/mortgage, taxes)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, hobbies)
+• Social Security (~$20-40K/yr)
+
+💡 **Rule of thumb:** 70-80% of pre-retirement income""",
                 key="retirement_income_goal_input"
             )
             st.session_state.retirement_income_goal = retirement_income_goal
