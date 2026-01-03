@@ -44,12 +44,23 @@ except Exception:
 
 POSTHOG_HOST = "https://app.posthog.com"  # or self-hosted URL
 
+# Debug mode (set ANALYTICS_DEBUG=true in .env to enable logging)
+DEBUG_MODE = os.getenv("ANALYTICS_DEBUG", "").lower() in ("true", "1", "yes")
+
 # Initialize PostHog once
 if POSTHOG_AVAILABLE and POSTHOG_API_KEY:
     posthog.api_key = POSTHOG_API_KEY
     posthog.host = POSTHOG_HOST
+    if DEBUG_MODE:
+        print(f"[Analytics] PostHog initialized with API key: {POSTHOG_API_KEY[:8]}...{POSTHOG_API_KEY[-4:]}")
+        print(f"[Analytics] Host: {POSTHOG_HOST}")
 else:
     POSTHOG_AVAILABLE = False
+    if DEBUG_MODE:
+        if not POSTHOG_API_KEY:
+            print("[Analytics] WARNING: No PostHog API key found")
+        if not POSTHOG_AVAILABLE:
+            print("[Analytics] WARNING: PostHog package not available")
 
 
 # ==========================================
@@ -95,11 +106,23 @@ def track_event(
         track_event('onboarding_step_1_completed', {'assets_count': 3})
     """
     # Only track if user has consented and PostHog is available
-    if not is_analytics_enabled() or not POSTHOG_AVAILABLE:
+    if not is_analytics_enabled():
+        if DEBUG_MODE:
+            print(f"[Analytics] Event '{event_name}' NOT tracked - consent not given")
+        return
+
+    if not POSTHOG_AVAILABLE:
+        if DEBUG_MODE:
+            print(f"[Analytics] Event '{event_name}' NOT tracked - PostHog not available")
         return
 
     try:
         user_id = get_or_create_user_id()
+
+        if DEBUG_MODE:
+            print(f"[Analytics] Tracking event: {event_name}")
+            print(f"[Analytics]   User ID: {user_id}")
+            print(f"[Analytics]   Properties: {properties}")
 
         # Capture event
         posthog.capture(
@@ -115,9 +138,12 @@ def track_event(
                 properties=user_properties
             )
 
+        if DEBUG_MODE:
+            print(f"[Analytics] ✓ Event '{event_name}' sent successfully")
+
     except Exception as e:
         # Silently fail - don't let analytics break the app
-        print(f"Analytics tracking error: {e}")
+        print(f"[Analytics] ERROR tracking '{event_name}': {e}")
 
 
 def track_error(
@@ -283,21 +309,29 @@ def set_analytics_consent(consented: bool) -> None:
     """
     st.session_state.analytics_consent = consented
 
+    if DEBUG_MODE:
+        print(f"[Analytics] Consent set to: {consented}")
+
     if consented:
         # Generate user ID and track consent acceptance
-        get_or_create_user_id()
+        user_id = get_or_create_user_id()
+        if DEBUG_MODE:
+            print(f"[Analytics] User ID created: {user_id}")
         track_event('analytics_consent_accepted')
     else:
         # Track consent rejection (this will be the only event tracked)
         if POSTHOG_AVAILABLE and POSTHOG_API_KEY:
             try:
+                if DEBUG_MODE:
+                    print("[Analytics] Tracking consent rejection anonymously")
                 # Track rejection without storing user ID
                 posthog.capture(
                     distinct_id='anonymous',
                     event='analytics_consent_rejected'
                 )
-            except:
-                pass
+            except Exception as e:
+                if DEBUG_MODE:
+                    print(f"[Analytics] Failed to track consent rejection: {e}")
 
 
 def opt_out() -> None:
