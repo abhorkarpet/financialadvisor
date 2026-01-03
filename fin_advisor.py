@@ -664,6 +664,9 @@ def generate_report_dialog():
                 client_name_clean = report_name.replace(" ", "_").replace(",", "").replace(".", "") if report_name else "Client"
                 filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
+                # Track successful PDF generation
+                track_pdf_generation(success=True)
+
                 # Show download button
                 st.success("✅ PDF report generated successfully!")
                 st.download_button(
@@ -675,6 +678,10 @@ def generate_report_dialog():
                 )
 
             except Exception as e:
+                # Track failed PDF generation
+                track_pdf_generation(success=False)
+                track_error('pdf_generation_error', str(e), {'report_name': report_name})
+
                 st.error(f"❌ Error generating PDF: {str(e)}")
                 st.info("💡 Try refreshing the page and running the analysis again.")
 
@@ -854,6 +861,33 @@ with st.sidebar:
             step=0.5,
             help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
         )
+
+        st.markdown("---")
+        st.markdown("### 📊 Analytics & Privacy")
+
+        # Show current analytics status
+        analytics_enabled = is_analytics_enabled()
+        if analytics_enabled:
+            st.success("✅ **Analytics Enabled** - Helping us improve Smart Retire AI")
+        else:
+            st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
+
+        # Privacy policy link
+        if st.button("📄 View Privacy Policy", use_container_width=True, key="sidebar_privacy_policy"):
+            show_privacy_policy()
+
+        # Opt-out/Opt-in toggle
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("❌ Disable Analytics", use_container_width=True, disabled=not analytics_enabled):
+                opt_out()
+                st.success("✅ Analytics disabled")
+                st.rerun()
+        with col2:
+            if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
+                opt_in()
+                st.success("✅ Analytics enabled")
+                st.rerun()
 
         st.markdown("---")
         st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
@@ -1492,6 +1526,9 @@ if st.session_state.current_page == 'onboarding':
     # STEP 1: Personal Information
     # ==========================================
     if current_step == 1:
+        # Track step 1 started
+        track_onboarding_step_started(1)
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -1580,6 +1617,14 @@ if st.session_state.current_page == 'onboarding':
         col1, col2, col3 = st.columns([1, 1, 1])
         with col3:
             if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
+                # Track step 1 completed
+                track_onboarding_step_completed(
+                    1,
+                    age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
+                    retirement_age=st.session_state.retirement_age,
+                    years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
+                    goal_range=get_goal_range(st.session_state.retirement_income_goal)
+                )
                 st.session_state.onboarding_step = 2
                 st.rerun()
     
@@ -1587,12 +1632,18 @@ if st.session_state.current_page == 'onboarding':
     # STEP 2: Asset Configuration
     # ==========================================
     elif current_step == 2:
+        # Track step 2 started
+        track_onboarding_step_started(2)
+
         # Simplified setup options (removed Default Portfolio and Legacy Mode)
         setup_option = st.radio(
             "Choose how to configure your accounts:",
             ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
             help="Select how you want to add your retirement accounts"
         )
+
+        # Track asset configuration method selected
+        track_event('asset_config_method_selected', {'method': setup_option})
     
         assets = []
     
@@ -2760,19 +2811,35 @@ if st.session_state.current_page == 'onboarding':
                 disabled=button_disabled,
                 help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
             ):
+                # Track step 2 completed
+                track_onboarding_step_completed(
+                    2,
+                    num_accounts=len(assets),
+                    setup_method=setup_option,
+                    total_balance=sum(asset.get('current_balance', 0) for asset in assets)
+                )
+
                 # Save baseline values from onboarding
                 st.session_state.baseline_retirement_age = st.session_state.retirement_age
                 st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
                 st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
-    
+
                 # Initialize what-if values to match baseline
                 st.session_state.whatif_retirement_age = st.session_state.retirement_age
                 st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
                 st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
-    
+
                 # Mark onboarding as complete and navigate to results page
                 st.session_state.onboarding_complete = True
                 st.session_state.current_page = 'results'
+
+                # Track onboarding completed
+                track_event('onboarding_completed', {
+                    'num_accounts': len(assets),
+                    'setup_method': setup_option,
+                    'has_retirement_goal': st.session_state.retirement_income_goal > 0
+                })
+
                 st.rerun()
     
         # Show warning if no assets configured
@@ -2784,8 +2851,12 @@ elif st.session_state.current_page == 'results':
     # RESULTS & ANALYSIS PAGE
     # ==========================================
 
+    # Track page view
+    track_page_view('results')
+
     # Add navigation button to go back to onboarding
     if st.button("← Back to Setup", use_container_width=False):
+        track_event('navigation_back_to_setup')
         st.session_state.current_page = 'onboarding'
         st.rerun()
 
@@ -2886,6 +2957,9 @@ elif st.session_state.current_page == 'results':
 
     # Reset button
     if st.button("🔄 Reset to Baseline Values"):
+        # Track What-If reset
+        track_feature_usage('what_if_reset')
+
         st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
         st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
         st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
@@ -3270,10 +3344,14 @@ elif st.session_state.current_page == 'monte_carlo':
     # MONTE CARLO SIMULATION PAGE
     # ==========================================
 
+    # Track page view
+    track_page_view('monte_carlo')
+
     # Add navigation buttons to go back
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("← Back to Results", use_container_width=True):
+            track_event('navigation_back_to_results')
             st.session_state.current_page = 'results'
             st.rerun()
 
@@ -3345,52 +3423,66 @@ elif st.session_state.current_page == 'monte_carlo':
 
     # Run Simulation Button
     if st.button("🎲 Run Monte Carlo Simulation", type="primary", use_container_width=True, key="run_monte_carlo_main"):
-        from financialadvisor.core.monte_carlo import (
-            run_monte_carlo_simulation,
-            calculate_probability_of_goal,
-            get_confidence_interval
-        )
-
-        # Prepare inputs for simulation
-        current_year_mc = datetime.now().year
-
-        simulation_inputs = UserInputs(
-            age=current_year_mc - st.session_state.birth_year,
-            retirement_age=int(st.session_state.whatif_retirement_age),
-            life_expectancy=int(st.session_state.whatif_life_expectancy),
-            annual_income=0.0,
-            contribution_rate_pct=15.0,
-            expected_growth_rate_pct=7.0,
-            inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
-            current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
-            retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
-            assets=st.session_state.assets
-        )
-
-        with st.spinner(f"Running {num_simulations:,} simulations..."):
-            results = run_monte_carlo_simulation(
-                simulation_inputs,
-                num_simulations=num_simulations,
-                volatility=volatility
+        try:
+            from financialadvisor.core.monte_carlo import (
+                run_monte_carlo_simulation,
+                calculate_probability_of_goal,
+                get_confidence_interval
             )
 
-            # Calculate probability of meeting income goal
-            if st.session_state.whatif_retirement_income_goal > 0:
-                prob_success = calculate_probability_of_goal(
-                    results["outcomes"],
-                    int(st.session_state.whatif_retirement_age),
-                    int(st.session_state.whatif_life_expectancy),
-                    float(st.session_state.whatif_retirement_income_goal)
+            # Prepare inputs for simulation
+            current_year_mc = datetime.now().year
+
+            simulation_inputs = UserInputs(
+                age=current_year_mc - st.session_state.birth_year,
+                retirement_age=int(st.session_state.whatif_retirement_age),
+                life_expectancy=int(st.session_state.whatif_life_expectancy),
+                annual_income=0.0,
+                contribution_rate_pct=15.0,
+                expected_growth_rate_pct=7.0,
+                inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
+                current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
+                retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
+                assets=st.session_state.assets
+            )
+
+            with st.spinner(f"Running {num_simulations:,} simulations..."):
+                results = run_monte_carlo_simulation(
+                    simulation_inputs,
+                    num_simulations=num_simulations,
+                    volatility=volatility
                 )
-            else:
-                prob_success = None
 
-            # Get confidence interval
-            ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
-            ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+                # Calculate probability of meeting income goal
+                if st.session_state.whatif_retirement_income_goal > 0:
+                    prob_success = calculate_probability_of_goal(
+                        results["outcomes"],
+                        int(st.session_state.whatif_retirement_age),
+                        int(st.session_state.whatif_life_expectancy),
+                        float(st.session_state.whatif_retirement_income_goal)
+                    )
+                else:
+                    prob_success = None
 
-        # Display Results
-        st.success(f"✅ Completed {num_simulations:,} simulations!")
+                # Get confidence interval
+                ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
+                ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+
+            # Track successful Monte Carlo run
+            track_monte_carlo_run(num_simulations=num_simulations, volatility=volatility)
+
+            # Display Results
+            st.success(f"✅ Completed {num_simulations:,} simulations!")
+
+        except Exception as e:
+            # Track Monte Carlo error
+            track_error('monte_carlo_error', str(e), {
+                'num_simulations': num_simulations,
+                'volatility': volatility
+            })
+            st.error(f"❌ Error running Monte Carlo simulation: {str(e)}")
+            st.info("💡 Try reducing the number of simulations or refreshing the page.")
+            st.stop()
 
         st.markdown("---")
 
