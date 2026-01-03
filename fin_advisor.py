@@ -1253,17 +1253,7 @@ if st.session_state.current_page == 'onboarding':
                 st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
             else:
                 st.info("💡 **No target set** - Analysis will show your projected portfolio value")
-    
-            # Client name for personalization
-            client_name = st.text_input(
-                "Client Name (for report personalization)",
-                value=st.session_state.client_name,
-                placeholder="Enter your name for the PDF report",
-                help="Optional: Your name will appear on the PDF report",
-                key="client_name_input"
-            )
-            st.session_state.client_name = client_name
-    
+
         # Navigation button for Step 1
         st.markdown("---")
         col1, col2, col3 = st.columns([1, 1, 1])
@@ -2591,7 +2581,6 @@ elif st.session_state.current_page == 'results':
     current_tax_rate = st.session_state.whatif_current_tax_rate
     retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
     inflation_rate = st.session_state.whatif_inflation_rate
-    client_name = st.session_state.client_name
     assets = st.session_state.assets
     
     try:
@@ -2834,7 +2823,7 @@ elif st.session_state.current_page == 'results':
                     st.download_button(
                         label="📥 Download Explanation",
                         data=explanation,
-                        file_name=f"retirement_calculation_explanation_{client_name.replace(' ', '_')}.txt",
+                        file_name=f"retirement_calculation_explanation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                         mime="text/plain",
                         key="download_explanation_btn"
                     )
