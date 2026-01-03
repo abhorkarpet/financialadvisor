@@ -3258,7 +3258,7 @@ st.markdown(
             Advanced Retirement Planning with Asset Classification & Tax Optimization
         </div>
         <div style='margin-bottom: 8px;'>
-            <span style='color: #555;'>© 2024-2025 Smart Retire AI. All rights reserved.</span>
+            <span style='color: #555;'>© 2025-2026 Smart Retire AI. All rights reserved.</span>
         </div>
         <div>
             <span style='color: #555;'>Questions? Contact us: </span>
