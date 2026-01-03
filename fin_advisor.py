@@ -845,6 +845,248 @@ if 'retirement_income_goal' not in st.session_state:
     st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
 
 # ==========================================
+# PRIVACY POLICY DIALOG
+# ==========================================
+
+@st.dialog("Privacy Policy")
+def show_privacy_policy():
+    """Display comprehensive privacy policy in a dialog."""
+    st.markdown("""
+    ## Smart Retire AI Privacy Policy
+
+    **Effective Date:** January 2026
+    **Last Updated:** January 3, 2026
+
+    ---
+
+    ### 📋 Introduction
+
+    Smart Retire AI ("we", "our", or "the app") is committed to protecting your privacy. This policy explains what data we collect, how we use it, and your rights.
+
+    ---
+
+    ### 🔐 Data We NEVER Collect
+
+    We want to be crystal clear about what we **DO NOT** collect:
+
+    ❌ **Financial Account Information**
+    - Account balances, numbers, or statements
+    - Investment holdings or transaction details
+    - Banking or credit card information
+
+    ❌ **Personally Identifiable Information (PII)**
+    - Names, email addresses, or phone numbers
+    - Social Security Numbers or tax IDs
+    - Home addresses or zip codes
+    - Birth dates (we use age ranges only)
+
+    ❌ **Sensitive Personal Data**
+    - Uploaded PDF file contents
+    - Exact retirement goals (we use ranges)
+    - Specific financial advice or recommendations
+
+    ---
+
+    ### ✅ Data We May Collect (With Your Consent)
+
+    **If you opt-in to analytics**, we collect anonymous usage data:
+
+    **1. Anonymous Usage Events**
+    - Actions you take in the app (e.g., "user completed step 1")
+    - Features you use (e.g., "PDF report generated")
+    - Anonymous user ID (random UUID, not linked to you)
+
+    **2. Technical Information**
+    - Browser type and version (for compatibility)
+    - Operating system (for compatibility)
+    - Device type (desktop/mobile/tablet)
+    - Screen resolution (for UI optimization)
+
+    **3. Session Data**
+    - Time spent in app
+    - Pages/screens visited
+    - Navigation patterns (to improve UX)
+
+    **4. Error Logs**
+    - Error types and frequency (for debugging)
+    - Performance metrics (load times, crashes)
+
+    **5. Aggregated Statistics**
+    - Number of assets added (count only, not values)
+    - Age ranges (e.g., 30-40, not exact age)
+    - Retirement goal ranges (not exact amounts)
+
+    ---
+
+    ### 🎯 How We Use Data
+
+    **Analytics data is used to:**
+    - ✅ Understand how users navigate the app
+    - ✅ Identify where users encounter problems
+    - ✅ Fix bugs and improve performance
+    - ✅ Improve user experience and interface
+    - ✅ Measure feature adoption and usage
+
+    **We NEVER:**
+    - ❌ Sell your data to third parties
+    - ❌ Use data for advertising or marketing
+    - ❌ Share data with financial institutions
+    - ❌ Track you across other websites
+    - ❌ Build personal profiles or credit scores
+
+    ---
+
+    ### 🔒 Data Storage & Security
+
+    **If you opt-in to analytics:**
+    - Data stored with PostHog (analytics platform)
+    - Servers located in US/EU (GDPR compliant)
+    - Data encrypted in transit (HTTPS)
+    - Data encrypted at rest (AES-256)
+    - Data automatically deleted after 90 days
+
+    **Financial calculations:**
+    - All calculations happen in your browser
+    - No financial data sent to our servers
+    - No cloud storage of your account information
+
+    ---
+
+    ### 🌍 GDPR & Privacy Compliance
+
+    **Your Rights:**
+    - ✅ **Right to Opt-Out**: Decline analytics at any time
+    - ✅ **Right to Access**: Request data we've collected
+    - ✅ **Right to Delete**: Request deletion of your data
+    - ✅ **Right to Export**: Request copy of your data
+    - ✅ **Right to Correct**: Request corrections to data
+
+    **GDPR Compliance:**
+    - ✅ Opt-in consent required (not opt-out)
+    - ✅ Clear explanation of data collection
+    - ✅ Easy to withdraw consent
+    - ✅ Data minimization (only what's needed)
+    - ✅ Purpose limitation (analytics only)
+
+    ---
+
+    ### 🍪 Cookies & Tracking
+
+    **Session Cookies (Required):**
+    - Used to maintain your session state
+    - Stored locally in your browser only
+    - Deleted when you close browser
+    - Not used for tracking across sites
+
+    **Analytics Cookies (Optional):**
+    - Only if you opt-in to analytics
+    - Used to recognize returning users (anonymously)
+    - Can be disabled by declining analytics
+    - No third-party advertising cookies
+
+    ---
+
+    ### 📊 Session Recording (Optional)
+
+    **If you opt-in to session recording:**
+    - We may record your interactions with the app
+    - Used to understand user experience and fix UI issues
+    - **Financial data is automatically masked**
+    - Recordings deleted after 30 days
+    - You can opt-out at any time
+
+    **What's Masked in Recordings:**
+    - All number inputs (balances, ages, goals)
+    - Text inputs (names, custom labels)
+    - Uploaded file names and contents
+
+    **What's Visible in Recordings:**
+    - Mouse movements and clicks
+    - Page navigation patterns
+    - Button clicks and interactions
+    - UI elements (labels, help text)
+
+    ---
+
+    ### 👤 Children's Privacy
+
+    Smart Retire AI is not intended for users under 18 years of age. We do not knowingly collect data from children.
+
+    ---
+
+    ### 🔄 Third-Party Services
+
+    **Analytics Provider:**
+    - PostHog (https://posthog.com)
+    - GDPR and SOC 2 compliant
+    - Privacy policy: https://posthog.com/privacy
+
+    **Hosting:**
+    - Streamlit Cloud (https://streamlit.io)
+    - Privacy policy: https://streamlit.io/privacy-policy
+
+    **AI Statement Processing:**
+    - n8n webhook (self-hosted)
+    - No data retention beyond processing
+
+    ---
+
+    ### ⚖️ Legal Basis for Processing
+
+    We process data based on:
+    - **Consent**: You explicitly opt-in to analytics
+    - **Legitimate Interest**: Error logging and app improvement
+    - **Contract**: Providing the app service you requested
+
+    ---
+
+    ### 🔔 Changes to Privacy Policy
+
+    We may update this policy to reflect:
+    - Changes in data practices
+    - New features or services
+    - Legal or regulatory requirements
+
+    **How you'll be notified:**
+    - Updated "Last Updated" date above
+    - In-app notification on next visit
+    - Option to review changes before continuing
+
+    ---
+
+    ### 📧 Contact Us
+
+    Questions about privacy or data practices?
+
+    **Email:** smartretireai@gmail.com
+    **Response Time:** 24-48 hours
+    **Data Requests:** Include "Privacy Request" in subject
+
+    ---
+
+    ### 📝 Your Consent
+
+    By clicking "I Accept" on the analytics consent screen:
+    - You acknowledge reading this privacy policy
+    - You consent to anonymous analytics collection
+    - You understand you can opt-out at any time
+    - You agree to the terms described above
+
+    By clicking "No Thanks" on the analytics consent screen:
+    - No analytics data will be collected
+    - The app will function normally
+    - You can opt-in later in Settings if desired
+
+    ---
+
+    **Thank you for trusting Smart Retire AI with your retirement planning!**
+    """)
+
+    if st.button("Close", use_container_width=True, type="primary"):
+        st.rerun()
+
+
+# ==========================================
 # SPLASH SCREEN / WELCOME PAGE
 # ==========================================
 if not st.session_state.splash_dismissed:
@@ -981,20 +1223,18 @@ if not st.session_state.splash_dismissed:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Buttons and checkbox
+    # Button with privacy policy link
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Note: The checkbox state is automatically captured by Streamlit
-        # We'll check its value when the button is clicked
-        st.checkbox("✓ Don't show this again", key="dont_show_splash")
+        # Privacy policy link button
+        if st.button("📄 View Privacy Policy", use_container_width=True):
+            show_privacy_policy()
 
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
-            # Check if user wants to hide splash permanently
-            if st.session_state.get("dont_show_splash", False):
-                st.session_state.splash_dismissed = True
-            else:
-                # Just dismiss for this session, will show again on page reload
-                st.session_state.splash_dismissed = True
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Main action button
+        if st.button("✅ I Understand (Privacy Policy)", type="primary", use_container_width=True):
+            st.session_state.splash_dismissed = True
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
