@@ -175,7 +175,13 @@ def track_page_view(page_name: str) -> None:
     Args:
         page_name: Name of the page (e.g., "onboarding", "results", "monte_carlo")
     """
-    track_event('page_viewed', {'page': page_name})
+    # Use PostHog's special properties for better page tracking
+    track_event('page_viewed', {
+        'page': page_name,
+        '$current_url': f'streamlit://smart-retire-ai/{page_name}',
+        '$pathname': f'/{page_name}',
+        '$screen_name': page_name.replace('_', ' ').title()
+    })
 
 
 def get_age_range(age: int) -> str:
@@ -281,6 +287,51 @@ def track_statement_upload(success: bool, num_statements: int = 0, num_accounts:
 
 
 # ==========================================
+# SESSION REPLAY (JavaScript Integration)
+# ==========================================
+
+def get_session_replay_script() -> str:
+    """
+    Get PostHog session replay JavaScript snippet.
+
+    This should be injected into the app using st.components.v1.html()
+    to enable browser-based session recording.
+
+    Returns:
+        JavaScript code as string, or empty string if analytics disabled
+    """
+    if not is_analytics_enabled() or not POSTHOG_API_KEY:
+        return ""
+
+    user_id = get_or_create_user_id()
+
+    # PostHog JavaScript snippet with session recording enabled
+    return f"""
+    <script>
+        !function(t,e){{var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){{function g(t,e){{var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){{t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){{var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}},u.people.toString=function(){{return u.toString(1)+".people (stub)"}},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])}},e.__SV=1)}}(document,window.posthog||[]);
+
+        posthog.init('{POSTHOG_API_KEY}', {{
+            api_host: '{POSTHOG_HOST}',
+            person_profiles: 'identified_only',
+            session_recording: {{
+                enabled: true,
+                maskAllInputs: true,
+                maskTextSelector: '[data-private]',
+                recordCrossOriginIframes: false
+            }},
+            autocapture: false,  // Disable autocapture, use manual tracking
+            capture_pageview: false  // We manually track page views
+        }});
+
+        // Identify the user with their anonymous ID
+        posthog.identify('{user_id}');
+
+        console.log('[PostHog] Session recording initialized for user: {user_id}');
+    </script>
+    """
+
+
+# ==========================================
 # SESSION MANAGEMENT
 # ==========================================
 
@@ -343,6 +394,28 @@ def opt_out() -> None:
 def opt_in() -> None:
     """Opt user in to analytics."""
     set_analytics_consent(True)
+
+
+def reset_analytics_session() -> None:
+    """
+    Reset analytics session state.
+
+    This clears:
+    - Analytics consent
+    - User ID
+    - Session started flag
+
+    Useful for testing or when user wants to start fresh.
+    """
+    if 'analytics_consent' in st.session_state:
+        del st.session_state.analytics_consent
+    if 'analytics_user_id' in st.session_state:
+        del st.session_state.analytics_user_id
+    if 'session_started' in st.session_state:
+        del st.session_state.session_started
+
+    if DEBUG_MODE:
+        print("[Analytics] Session reset - all analytics state cleared")
 
 
 # ==========================================

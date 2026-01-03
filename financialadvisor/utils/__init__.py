@@ -15,6 +15,8 @@ from .analytics import (
     track_pdf_generation,
     track_monte_carlo_run,
     track_statement_upload,
+    get_session_replay_script,
+    reset_analytics_session,
 )
 
 __all__ = [
@@ -32,4 +34,6 @@ __all__ = [
     'track_pdf_generation',
     'track_monte_carlo_run',
     'track_statement_upload',
+    'get_session_replay_script',
+    'reset_analytics_session',
 ]

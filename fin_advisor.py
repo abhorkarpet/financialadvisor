@@ -73,6 +73,8 @@ try:
         opt_in,
         get_age_range,
         get_goal_range,
+        get_session_replay_script,
+        reset_analytics_session,
     )
     ANALYTICS_AVAILABLE = True
 except ImportError:
@@ -94,6 +96,8 @@ except ImportError:
     def opt_in(): pass
     def get_age_range(x): return "unknown"
     def get_goal_range(x): return "unknown"
+    def get_session_replay_script(): return ""
+    def reset_analytics_session(): pass
 
 # n8n integration for financial statement upload
 try:
@@ -750,6 +754,13 @@ st.set_page_config(
 # Initialize analytics
 initialize_analytics()
 
+# Inject PostHog session replay script (only if analytics enabled)
+if is_analytics_enabled():
+    replay_script = get_session_replay_script()
+    if replay_script:
+        import streamlit.components.v1 as components
+        components.html(replay_script, height=0)
+
 # Initialize session state for splash screen
 if 'splash_dismissed' not in st.session_state:
     st.session_state.splash_dismissed = False
@@ -887,6 +898,15 @@ with st.sidebar:
             if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
                 opt_in()
                 st.success("✅ Analytics enabled")
+                st.rerun()
+
+        # Reset analytics session (for testing)
+        with st.expander("🔧 Advanced: Reset Analytics Session"):
+            st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
+            if st.button("🔄 Reset Analytics Session", use_container_width=True, key="reset_analytics"):
+                reset_analytics_session()
+                st.success("✅ Analytics session reset")
+                st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
                 st.rerun()
 
         st.markdown("---")
