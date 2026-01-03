@@ -54,6 +54,47 @@ from datetime import datetime
 
 import pandas as pd
 
+# Analytics module
+try:
+    from financialadvisor.utils.analytics import (
+        initialize_analytics,
+        set_analytics_consent,
+        track_event,
+        track_page_view,
+        track_onboarding_step_started,
+        track_onboarding_step_completed,
+        track_feature_usage,
+        track_pdf_generation,
+        track_monte_carlo_run,
+        track_statement_upload,
+        track_error,
+        is_analytics_enabled,
+        opt_out,
+        opt_in,
+        get_age_range,
+        get_goal_range,
+    )
+    ANALYTICS_AVAILABLE = True
+except ImportError:
+    ANALYTICS_AVAILABLE = False
+    # Define no-op functions if analytics not available
+    def initialize_analytics(): pass
+    def set_analytics_consent(x): pass
+    def track_event(*args, **kwargs): pass
+    def track_page_view(x): pass
+    def track_onboarding_step_started(x): pass
+    def track_onboarding_step_completed(*args, **kwargs): pass
+    def track_feature_usage(*args, **kwargs): pass
+    def track_pdf_generation(x): pass
+    def track_monte_carlo_run(*args, **kwargs): pass
+    def track_statement_upload(*args, **kwargs): pass
+    def track_error(*args, **kwargs): pass
+    def is_analytics_enabled(): return False
+    def opt_out(): pass
+    def opt_in(): pass
+    def get_age_range(x): return "unknown"
+    def get_goal_range(x): return "unknown"
+
 # n8n integration for financial statement upload
 try:
     from integrations.n8n_client import N8NClient, N8NError
@@ -699,6 +740,9 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
+# Initialize analytics
+initialize_analytics()
+
 # Initialize session state for splash screen
 if 'splash_dismissed' not in st.session_state:
     st.session_state.splash_dismissed = False
@@ -1250,6 +1294,75 @@ if not st.session_state.splash_dismissed:
     )
 
     # Stop rendering the rest of the page
+    st.stop()
+
+# ==========================================
+# ANALYTICS CONSENT SCREEN
+# ==========================================
+if st.session_state.get('analytics_consent') is None:
+    st.markdown(
+        """
+        <div style='text-align: center; padding: 40px 20px 20px 20px;'>
+            <h1 style='color: #1f77b4;'>📊 Help Us Improve Smart Retire AI</h1>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+
+    with col2:
+        st.markdown("""
+        ### We'd like to collect anonymous usage data to improve your experience
+
+        **What we collect (if you opt-in):**
+        - ✅ Anonymous usage patterns (e.g., which features you use)
+        - ✅ Error logs (to fix bugs faster)
+        - ✅ Browser/device info (for compatibility)
+        - ✅ Session recordings (to improve UI/UX)
+
+        **What we NEVER collect:**
+        - ❌ Your financial data (account balances, numbers)
+        - ❌ Personal information (name, email, address)
+        - ❌ PDF file contents
+        - ❌ Exact ages or retirement goals
+
+        **Your data:**
+        - Anonymous ID only (not tied to you)
+        - Encrypted and stored securely
+        - Automatically deleted after 90 days
+        - You can opt-out anytime
+
+        ---
+        """)
+
+        # Privacy policy link
+        if st.button("📄 Read Full Privacy Policy", use_container_width=True):
+            show_privacy_policy()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Consent buttons
+        consent_col1, consent_col2 = st.columns(2)
+
+        with consent_col1:
+            if st.button("✅ I Accept", type="primary", use_container_width=True):
+                set_analytics_consent(True)
+                track_event('analytics_consent_shown')
+                st.success("✅ Thank you! Analytics enabled.")
+                st.rerun()
+
+        with consent_col2:
+            if st.button("❌ No Thanks", use_container_width=True):
+                set_analytics_consent(False)
+                st.info("ℹ️ You can enable analytics later in Settings.")
+                st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.caption("**Your choice is saved for this session.** You can change it anytime in Advanced Settings.")
+
+    # Stop rendering until user makes choice
     st.stop()
 
 # ==========================================
