@@ -42,7 +42,7 @@ except Exception:
     # Fall back to environment variable (for local development with .env)
     POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
 
-POSTHOG_HOST = "https://app.posthog.com"  # or self-hosted URL
+POSTHOG_HOST = "https://us.i.posthog.com"  # or self-hosted URL
 
 # Debug mode (set ANALYTICS_DEBUG=true in .env to enable logging)
 DEBUG_MODE = os.getenv("ANALYTICS_DEBUG", "").lower() in ("true", "1", "yes")
