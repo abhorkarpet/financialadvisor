@@ -754,12 +754,9 @@ st.set_page_config(
 # Initialize analytics
 initialize_analytics()
 
-# Inject PostHog session replay script (only if analytics enabled)
-if is_analytics_enabled():
-    replay_script = get_session_replay_script()
-    if replay_script:
-        import streamlit.components.v1 as components
-        components.html(replay_script, height=0)
+# Note: PostHog session replay requires browser JavaScript which doesn't work
+# reliably in Streamlit's server-side architecture. Session analytics (based on
+# events) will still work and show session duration, events per session, etc.
 
 # Initialize session state for splash screen
 if 'splash_dismissed' not in st.session_state:

@@ -79,6 +79,38 @@ def get_or_create_user_id() -> str:
     return st.session_state.analytics_user_id
 
 
+def get_or_create_session_id() -> str:
+    """
+    Get or create session ID for session analytics.
+
+    Session ID persists for the lifetime of the Streamlit session.
+
+    Returns:
+        Session UUID string
+    """
+    if 'analytics_session_id' not in st.session_state:
+        import time
+        st.session_state.analytics_session_id = str(uuid.uuid4())
+        st.session_state.analytics_session_start_time = int(time.time() * 1000)  # milliseconds
+    return st.session_state.analytics_session_id
+
+
+def get_session_properties() -> Dict[str, Any]:
+    """
+    Get session properties to attach to all events.
+
+    Returns:
+        Dict with session ID and timestamp
+    """
+    session_id = get_or_create_session_id()
+    start_time = st.session_state.get('analytics_session_start_time', 0)
+
+    return {
+        '$session_id': session_id,
+        '$session_start_timestamp': start_time
+    }
+
+
 def is_analytics_enabled() -> bool:
     """
     Check if user has opted-in to analytics.
@@ -118,17 +150,22 @@ def track_event(
 
     try:
         user_id = get_or_create_user_id()
+        session_props = get_session_properties()
+
+        # Merge session properties with event properties
+        event_properties = {**(properties or {}), **session_props}
 
         if DEBUG_MODE:
             print(f"[Analytics] Tracking event: {event_name}")
             print(f"[Analytics]   User ID: {user_id}")
-            print(f"[Analytics]   Properties: {properties}")
+            print(f"[Analytics]   Session ID: {session_props['$session_id']}")
+            print(f"[Analytics]   Properties: {event_properties}")
 
         # Capture event
         posthog.capture(
             distinct_id=user_id,
             event=event_name,
-            properties=properties or {}
+            properties=event_properties
         )
 
         # Update user properties if provided
@@ -403,6 +440,7 @@ def reset_analytics_session() -> None:
     This clears:
     - Analytics consent
     - User ID
+    - Session ID and timestamp
     - Session started flag
 
     Useful for testing or when user wants to start fresh.
@@ -411,6 +449,10 @@ def reset_analytics_session() -> None:
         del st.session_state.analytics_consent
     if 'analytics_user_id' in st.session_state:
         del st.session_state.analytics_user_id
+    if 'analytics_session_id' in st.session_state:
+        del st.session_state.analytics_session_id
+    if 'analytics_session_start_time' in st.session_state:
+        del st.session_state.analytics_session_start_time
     if 'session_started' in st.session_state:
         del st.session_state.session_started
 
