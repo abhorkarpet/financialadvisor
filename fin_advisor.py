@@ -1196,8 +1196,6 @@ if st.session_state.current_page == 'onboarding':
             years_in_retirement = life_expectancy - retirement_age
             st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
 
-            st.markdown("")  # Add spacing
-
             # Retirement income goal with tooltip help
             retirement_income_goal = st.number_input(
                 "Annual Income Needed in Retirement ($) - Optional",
