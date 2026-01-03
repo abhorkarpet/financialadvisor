@@ -22,7 +22,7 @@ USAGE:
   streamlit run fin_advisor.py
 
 Author: AI Assistant
-Version: 5.6.0
+Version: 5.7.0
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "5.6.0"
+VERSION = "5.7.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -552,6 +552,145 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     return buffer.getvalue()
 
 
+# ==========================================
+# DIALOG FUNCTIONS FOR NEXT STEPS
+# ==========================================
+
+@st.dialog("📄 Generate PDF Report")
+def generate_report_dialog():
+    """Dialog for generating and downloading PDF report."""
+    st.markdown("""
+    Create a comprehensive PDF report with:
+    - Executive summary of your retirement plan
+    - Detailed portfolio breakdown
+    - Individual asset projections
+    - Tax analysis and optimization strategies
+    - Personalized recommendations
+    """)
+
+    st.markdown("---")
+
+    # Name input
+    report_name = st.text_input(
+        "Your Name (Optional)",
+        value=st.session_state.get('client_name', ''),
+        placeholder="Enter your name for the report",
+        help="This will appear on the PDF report"
+    )
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+    with col2:
+        if st.button("📥 Generate PDF", type="primary", use_container_width=True):
+            if not _REPORTLAB_AVAILABLE:
+                st.error("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
+                st.code("pip install reportlab", language="bash")
+                return
+
+            try:
+                # Get the result and assets from session state
+                if 'last_result' not in st.session_state or 'assets' not in st.session_state:
+                    st.error("❌ No analysis results found. Please run the analysis first.")
+                    return
+
+                result = st.session_state.last_result
+                assets = st.session_state.assets
+
+                # Prepare user inputs for PDF
+                user_inputs = {
+                    'client_name': report_name if report_name else 'Client',
+                    'current_marginal_tax_rate_pct': st.session_state.get('whatif_current_tax_rate', 22),
+                    'retirement_marginal_tax_rate_pct': st.session_state.get('whatif_retirement_tax_rate', 25),
+                    'inflation_rate_pct': st.session_state.get('whatif_inflation_rate', 3),
+                    'age': datetime.now().year - st.session_state.birth_year,
+                    'retirement_age': int(st.session_state.get('whatif_retirement_age', 65)),
+                    'life_expectancy': int(st.session_state.get('whatif_life_expectancy', 85)),
+                    'birth_year': st.session_state.birth_year,
+                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0)
+                }
+
+                # Generate PDF
+                with st.spinner("Generating PDF report..."):
+                    pdf_bytes = generate_pdf_report(result, assets, user_inputs)
+
+                # Create filename
+                client_name_clean = report_name.replace(" ", "_").replace(",", "").replace(".", "") if report_name else "Client"
+                filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+                # Show download button
+                st.success("✅ PDF report generated successfully!")
+                st.download_button(
+                    label="📥 Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error generating PDF: {str(e)}")
+                st.info("💡 Try refreshing the page and running the analysis again.")
+
+
+@st.dialog("🎲 Run Scenario Analysis")
+def monte_carlo_dialog():
+    """Dialog for configuring and running Monte Carlo simulation."""
+    st.markdown("""
+    Explore thousands of possible retirement scenarios to understand:
+    - Range of potential retirement income
+    - Best-case and worst-case outcomes
+    - Probability of meeting your goals
+    - Impact of market volatility
+    """)
+
+    st.markdown("---")
+
+    # Configuration options
+    col1, col2 = st.columns(2)
+
+    with col1:
+        num_simulations = st.select_slider(
+            "Number of Scenarios",
+            options=[100, 500, 1000, 5000, 10000],
+            value=1000,
+            help="More scenarios = more accurate results but slower processing"
+        )
+
+    with col2:
+        volatility = st.slider(
+            "Market Volatility (%)",
+            min_value=5.0,
+            max_value=30.0,
+            value=15.0,
+            step=1.0,
+            help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
+        )
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+    with col2:
+        if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+            # Store configuration in session state and navigate to Monte Carlo page
+            st.session_state.monte_carlo_config = {
+                'num_simulations': num_simulations,
+                'volatility': volatility
+            }
+            st.session_state.current_page = 'monte_carlo'
+            st.rerun()
+
+
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 st.set_page_config(
     page_title="Smart Retire AI",
@@ -818,6 +957,10 @@ if not st.session_state.splash_dismissed:
         st.caption("Easily adjust assumptions and see instant results")
         st.markdown("")
 
+        st.markdown("**🎲 Scenario Analysis**")
+        st.caption("Run Monte Carlo simulations to explore thousands of possible outcomes")
+        st.markdown("")
+
     st.markdown("---")
 
     # Getting Started section with green background
@@ -893,19 +1036,6 @@ with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
 
     **By using this application, you acknowledge and agree to these terms.**
     """)
-
-# Collapsible description to reduce above-the-fold content
-with st.expander("ℹ️ About This Application", expanded=False):
-    st.markdown(
-        """
-        ### Stage 2: Asset Classification & Advanced Tax Logic
-        This enhanced version includes:
-        - **Asset Classification**: Pre-tax, Post-tax, and Tax-deferred accounts
-        - **Per-Asset Growth Simulation**: Individual tracking of each account
-        - **Sophisticated Tax Logic**: IRS tax brackets and capital gains calculations
-        - **Tax Efficiency Analysis**: Optimize your retirement strategy
-        """
-    )
 
 # Share & Feedback section - Simple and clean
 with st.expander("💬 Share & Feedback", expanded=False):
@@ -1014,7 +1144,7 @@ if st.session_state.current_page == 'onboarding':
     # ==========================================
     if current_step == 1:
         col1, col2 = st.columns(2)
-    
+
         with col1:
             # Birth year input instead of age
             current_year = datetime.now().year
@@ -1029,7 +1159,7 @@ if st.session_state.current_page == 'onboarding':
             st.session_state.birth_year = birth_year
             age = current_year - birth_year
             st.info(f"📅 **Current Age**: {age} years old")
-    
+
             retirement_age = st.number_input(
                 "Target Retirement Age",
                 min_value=40,
@@ -1040,87 +1170,62 @@ if st.session_state.current_page == 'onboarding':
             )
             st.session_state.retirement_age = retirement_age
             st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
-    
-            # Life expectancy input with guidance
-            with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
-                st.markdown("""
-                ### 🎯 **How to Estimate Your Life Expectancy**
-    
-                **Average Life Expectancy by Age:**
-                - **At birth**: ~79 years (US average)
-                - **At age 30**: ~80 years
-                - **At age 50**: ~82 years
-                - **At age 65**: ~85 years
-    
-                **Factors to Consider:**
-                - **Family history**: Long-lived parents/grandparents
-                - **Health status**: Current health conditions
-                - **Lifestyle**: Exercise, diet, smoking, stress
-                - **Gender**: Women typically live 3-5 years longer
-                - **Education/Income**: Higher education/income correlates with longer life
-    
-                **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
-                """)
-    
+
+        with col2:
+            # Life expectancy input with tooltip help
             life_expectancy = st.number_input(
                 "Life Expectancy (Age)",
                 min_value=retirement_age+1,
                 max_value=120,
                 value=st.session_state.life_expectancy,
-                help="Expected age at death - use guidance above to estimate",
+                help="""**Average Life Expectancy:**
+• At birth: ~79 years (US avg)
+• At age 30: ~80 years
+• At age 50: ~82 years
+• At age 65: ~85 years
+
+**Factors to Consider:**
+• Family history & health status
+• Lifestyle (exercise, diet, smoking)
+• Gender (women live 3-5 yrs longer)
+
+💡 **Tip:** Add 5-10 years for safety.""",
                 key="life_expectancy_input"
             )
             st.session_state.life_expectancy = life_expectancy
             years_in_retirement = life_expectancy - retirement_age
             st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
-    
-        with col2:
-            # Retirement income goal
-            st.subheader("🎯 Desired Annual Retirement Income")
-            with st.expander("💡 How much do you need in retirement?", expanded=False):
-                st.markdown("""
-                **Typical annual retirement income needs:**
-                - **$40,000 - $60,000**: Modest lifestyle
-                - **$60,000 - $80,000**: Comfortable lifestyle
-                - **$80,000 - $100,000**: Enhanced lifestyle
-                - **$100,000+**: Premium lifestyle
-    
-                **Consider:**
-                - **Housing costs**: Rent/mortgage, property taxes, maintenance
-                - **Healthcare**: Insurance premiums, out-of-pocket costs
-                - **Daily living**: Food, utilities, transportation
-                - **Lifestyle**: Travel, hobbies, entertainment
-                - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
-    
-                **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
-                """)
-    
+
+            # Retirement income goal with tooltip help
             retirement_income_goal = st.number_input(
                 "Annual Income Needed in Retirement ($) - Optional",
                 min_value=0,
                 max_value=500000,
                 value=st.session_state.retirement_income_goal,
                 step=5000,
-                help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
+                help="""**Typical Annual Needs:**
+• $40K-$60K: Modest lifestyle
+• $60K-$80K: Comfortable lifestyle
+• $80K-$100K: Enhanced lifestyle
+• $100K+: Premium lifestyle
+
+**Consider:**
+• Housing costs (rent/mortgage, taxes)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, hobbies)
+• Social Security (~$20-40K/yr)
+
+💡 **Rule of thumb:** 70-80% of pre-retirement income""",
                 key="retirement_income_goal_input"
             )
             st.session_state.retirement_income_goal = retirement_income_goal
-    
+
             if retirement_income_goal > 0:
                 st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
             else:
                 st.info("💡 **No target set** - Analysis will show your projected portfolio value")
-    
-            # Client name for personalization
-            client_name = st.text_input(
-                "Client Name (for report personalization)",
-                value=st.session_state.client_name,
-                placeholder="Enter your name for the PDF report",
-                help="Optional: Your name will appear on the PDF report",
-                key="client_name_input"
-            )
-            st.session_state.client_name = client_name
-    
+
         # Navigation button for Step 1
         st.markdown("---")
         col1, col2, col3 = st.columns([1, 1, 1])
@@ -1133,45 +1238,6 @@ if st.session_state.current_page == 'onboarding':
     # STEP 2: Asset Configuration
     # ==========================================
     elif current_step == 2:
-        # Tax Rate Explanation
-        with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
-            st.markdown("""
-            ### 🎯 Tax Rate Column Explained
-            
-            The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
-            
-            #### **Pre-Tax Accounts (401k, Traditional IRA)**
-            - **Tax Rate**: `0%` (not applicable here)
-            - **Why**: The entire balance is taxed as ordinary income at withdrawal
-            - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
-            
-            #### **Post-Tax Accounts**
-            **Roth IRA:**
-            - **Tax Rate**: `0%` 
-            - **Why**: No tax on withdrawals (contributions already taxed)
-            - **Example**: Withdraw $100,000 tax-free
-            
-            **Brokerage Account:**
-            - **Tax Rate**: `15%` (default capital gains rate)
-            - **Why**: Only the **gains** are taxed, not original contributions
-            - **Example**: 
-              - Contributed $50,000, grew to $100,000
-              - Only $50,000 gain taxed at 15% = $7,500 tax
-              - You keep $92,500
-            
-            #### **Tax-Deferred Accounts (HSA, Annuities)**
-            - **Tax Rate**: Varies by account type
-            - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
-            - **Annuities**: Retirement tax rate on full amount
-            
-            💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
-            """)
-    
-        # Reference to Advanced Settings for default growth rate
-        st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
-    
-        st.markdown("---")
-    
         # Simplified setup options (removed Default Portfolio and Legacy Mode)
         setup_option = st.radio(
             "Choose how to configure your accounts:",
@@ -2280,12 +2346,54 @@ if st.session_state.current_page == 'onboarding':
                         growth_rate_pct=growth_rate,
                         tax_rate_pct=tax_rate
                     ))
+
+        st.markdown("---")
+    
+
+        # Tax Rate Explanation
+        with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
+            st.markdown("""
+            ### 🎯 Tax Rate Column Explained
+            
+            The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
+            
+            #### **Pre-Tax Accounts (401k, Traditional IRA)**
+            - **Tax Rate**: `0%` (not applicable here)
+            - **Why**: The entire balance is taxed as ordinary income at withdrawal
+            - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
+            
+            #### **Post-Tax Accounts**
+            **Roth IRA:**
+            - **Tax Rate**: `0%` 
+            - **Why**: No tax on withdrawals (contributions already taxed)
+            - **Example**: Withdraw $100,000 tax-free
+            
+            **Brokerage Account:**
+            - **Tax Rate**: `15%` (default capital gains rate)
+            - **Why**: Only the **gains** are taxed, not original contributions
+            - **Example**: 
+              - Contributed $50,000, grew to $100,000
+              - Only $50,000 gain taxed at 15% = $7,500 tax
+              - You keep $92,500
+            
+            #### **Tax-Deferred Accounts (HSA, Annuities)**
+            - **Tax Rate**: Varies by account type
+            - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
+            - **Annuities**: Retirement tax rate on full amount
+            
+            💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
+            """)
+    
+        # Reference to Advanced Settings for default growth rate
+        st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
+    
     
         # Save assets to session state
         st.session_state.assets = assets
     
         # Navigation buttons for Step 2
         st.markdown("---")
+
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             if st.button("← Previous: Personal Info", use_container_width=True):
@@ -2448,7 +2556,6 @@ elif st.session_state.current_page == 'results':
     current_tax_rate = st.session_state.whatif_current_tax_rate
     retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
     inflation_rate = st.session_state.whatif_inflation_rate
-    client_name = st.session_state.client_name
     assets = st.session_state.assets
     
     try:
@@ -2466,7 +2573,10 @@ elif st.session_state.current_page == 'results':
         )
     
         result = project(inputs)
-    
+
+        # Save result to session state for Next Steps dialogs
+        st.session_state.last_result = result
+
         # Key metrics in a prominent container
         with st.container():
             st.subheader("🎯 Key Metrics")
@@ -2688,7 +2798,7 @@ elif st.session_state.current_page == 'results':
                     st.download_button(
                         label="📥 Download Explanation",
                         data=explanation,
-                        file_name=f"retirement_calculation_explanation_{client_name.replace(' ', '_')}.txt",
+                        file_name=f"retirement_calculation_explanation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                         mime="text/plain",
                         key="download_explanation_btn"
                     )
@@ -2775,66 +2885,31 @@ elif st.session_state.current_page == 'results':
                     }
                     
                     st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
-                    
-                    # PDF Report Download
-                    st.markdown("---")
-                    st.subheader("📄 Download Report")
-                    
-                    if _REPORTLAB_AVAILABLE:
-                        try:
-                            # Prepare user inputs for PDF
-                            # Note: sidebar variables (current_tax_rate, retirement_tax_rate, inflation_rate)
-                            # are defined in the sidebar section above and should always be accessible
-                            user_inputs = {
-                                'client_name': client_name if client_name else 'Client',
-                                'current_marginal_tax_rate_pct': current_tax_rate if 'current_tax_rate' in locals() else 22,
-                                'retirement_marginal_tax_rate_pct': retirement_tax_rate if 'retirement_tax_rate' in locals() else 25,
-                                'inflation_rate_pct': inflation_rate if 'inflation_rate' in locals() else 3,
-                                'age': age,
-                                'retirement_age': retirement_age,
-                                'life_expectancy': life_expectancy,
-                                'birth_year': st.session_state.birth_year,
-                                'retirement_income_goal': retirement_income_goal
-                            }
-                            
-                            # Generate PDF
-                            pdf_bytes = generate_pdf_report(result, assets, user_inputs)
-                            
-                            # Download button with personalized filename
-                            client_name_clean = client_name.replace(" ", "_").replace(",", "").replace(".", "") if client_name else "Client"
-                            filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                            
-                            st.download_button(
-                                label="📥 Download PDF Report",
-                                data=pdf_bytes,
-                                file_name=filename,
-                                mime="application/pdf",
-                                help="Download a comprehensive PDF report with all your retirement analysis details"
-                            )
-                            
-                            st.info("💡 **PDF Report includes:** Executive summary, portfolio breakdown, individual asset projections, tax analysis, and personalized recommendations.")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error generating PDF: {str(e)}")
-                            st.info("💡 Try refreshing the page and running the analysis again.")
-                    else:
-                        st.warning("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
-                        st.code("pip install reportlab", language="bash")
 
-        # What Next Section - Monte Carlo Simulation
+        # Next Steps Section
         st.markdown("---")
-        st.subheader("🎯 What Next?")
-        st.markdown("""
-        Want to see how market uncertainty affects your retirement plan? Run a **Monte Carlo Simulation** to:
-        - See thousands of possible retirement scenarios
-        - Understand best-case and worst-case outcomes
-        - View projected annual income ranges (not just final balance)
-        - Calculate probability of meeting your retirement goals
-        """)
+        st.subheader("🎯 Next Steps")
+        st.markdown("Take your retirement planning to the next level:")
 
-        if st.button("🎲 Explore Monte Carlo Simulation →", type="primary", use_container_width=True):
-            st.session_state.current_page = 'monte_carlo'
-            st.rerun()
+        # Create three columns for the Next Steps buttons
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### 📄 Generate Report")
+            st.markdown("Create a comprehensive PDF report with your complete retirement analysis.")
+            if st.button("📥 Create PDF Report", use_container_width=True, type="primary", key="next_steps_report"):
+                generate_report_dialog()
+
+        with col2:
+            st.markdown("### 🎲 Scenario Analysis")
+            st.markdown("Explore thousands of possible retirement scenarios and see how market volatility affects your plan.")
+            if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
+                monte_carlo_dialog()
+
+        with col3:
+            st.markdown("### 📊 Cash Flow Projection")
+            st.markdown("Visualize year-by-year income and expenses throughout retirement.")
+            st.button("🔜 Coming Soon", use_container_width=True, disabled=True, key="next_steps_cashflow")
 
     except Exception as e:
         st.error(f"❌ **Error in calculation**: {e}")
@@ -2888,13 +2963,22 @@ elif st.session_state.current_page == 'monte_carlo':
     # Configuration Section
     st.subheader("⚙️ Simulation Settings")
 
+    # Get default values from session state if coming from dialog
+    default_num_sims = 1000
+    default_volatility = 15.0
+    if 'monte_carlo_config' in st.session_state:
+        default_num_sims = st.session_state.monte_carlo_config.get('num_simulations', 1000)
+        default_volatility = st.session_state.monte_carlo_config.get('volatility', 15.0)
+        # Clear the config after using it
+        del st.session_state.monte_carlo_config
+
     col1, col2 = st.columns(2)
 
     with col1:
         num_simulations = st.select_slider(
             "Number of Simulations",
             options=[100, 500, 1000, 5000, 10000],
-            value=1000,
+            value=default_num_sims,
             help="More simulations = more accurate results (but slower)"
         )
 
@@ -2903,7 +2987,7 @@ elif st.session_state.current_page == 'monte_carlo':
             "Market Volatility (Standard Deviation %)",
             min_value=5.0,
             max_value=30.0,
-            value=15.0,
+            value=default_volatility,
             step=1.0,
             help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
         )
@@ -3174,7 +3258,7 @@ st.markdown(
             Advanced Retirement Planning with Asset Classification & Tax Optimization
         </div>
         <div style='margin-bottom: 8px;'>
-            <span style='color: #555;'>© 2024-2025 Smart Retire AI. All rights reserved.</span>
+            <span style='color: #555;'>© 2025-2026 Smart Retire AI. All rights reserved.</span>
         </div>
         <div>
             <span style='color: #555;'>Questions? Contact us: </span>
