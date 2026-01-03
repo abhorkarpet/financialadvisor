@@ -957,6 +957,10 @@ if not st.session_state.splash_dismissed:
         st.caption("Easily adjust assumptions and see instant results")
         st.markdown("")
 
+        st.markdown("**🎲 Scenario Analysis**")
+        st.caption("Run Monte Carlo simulations to explore thousands of possible outcomes")
+        st.markdown("")
+
     st.markdown("---")
 
     # Getting Started section with green background
