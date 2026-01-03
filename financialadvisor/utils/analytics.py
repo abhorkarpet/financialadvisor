@@ -237,11 +237,19 @@ def track_monte_carlo_run(num_simulations: int, volatility: float) -> None:
     })
 
 
-def track_statement_upload(success: bool, num_accounts: int = 0) -> None:
-    """Track AI statement upload attempt."""
+def track_statement_upload(success: bool, num_statements: int = 0, num_accounts: int = 0) -> None:
+    """
+    Track AI statement upload attempt.
+
+    Args:
+        success: Whether the upload succeeded
+        num_statements: Number of PDF statements uploaded
+        num_accounts: Number of accounts extracted from statements
+    """
     event = 'statement_upload_success' if success else 'statement_upload_failed'
     track_event(event, {
         'success': success,
+        'num_statements': num_statements,
         'num_accounts': num_accounts if success else 0
     })
 

@@ -2051,7 +2051,14 @@ if st.session_state.current_page == 'onboarding':
                                     st.session_state.ai_extracted_accounts = df_extracted
                                     st.session_state.ai_tax_buckets = tax_buckets_by_account
                                     st.session_state.ai_warnings = result.get('warnings', [])
-    
+
+                                    # Track successful statement upload
+                                    track_statement_upload(
+                                        success=True,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=len(df_extracted)
+                                    )
+
                                     st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
                                     st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
     
@@ -2550,17 +2557,35 @@ if st.session_state.current_page == 'onboarding':
                                                 st.info("💡 Please check the values in the table.")
     
                                 else:
+                                    # Track failed statement upload
+                                    track_statement_upload(
+                                        success=False,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=0
+                                    )
+                                    track_error('statement_upload_failed', result.get('error', 'Unknown error'), {
+                                        'num_files': len(uploaded_files)
+                                    })
+
                                     progress_bar.progress(100)
                                     status_text.text("✗ Extraction failed")
                                     st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
     
                             except N8NError as e:
+                                # Track N8N configuration error
+                                track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                track_error('statement_upload_n8n_error', str(e), {'num_files': len(uploaded_files)})
+
                                 progress_bar.progress(100)
                                 status_text.text("✗ Configuration error")
                                 st.error(f"Configuration Error: {str(e)}")
                                 st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
-    
+
                             except Exception as e:
+                                # Track unexpected error
+                                track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                track_error('statement_upload_error', str(e), {'num_files': len(uploaded_files)})
+
                                 progress_bar.progress(100)
                                 status_text.text("✗ Unexpected error")
                                 st.error(f"Error: {str(e)}")
