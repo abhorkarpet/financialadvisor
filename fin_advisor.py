@@ -2841,7 +2841,7 @@ if st.session_state.current_page == 'onboarding':
                     2,
                     num_accounts=len(assets),
                     setup_method=setup_option,
-                    total_balance=sum(asset.get('current_balance', 0) for asset in assets)
+                    total_balance=sum(asset.current_balance for asset in assets)
                 )
 
                 # Save baseline values from onboarding
