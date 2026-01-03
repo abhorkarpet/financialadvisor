@@ -71,7 +71,7 @@ st.subheader("3️⃣ PostHog Initialization")
 
 try:
     posthog.api_key = POSTHOG_API_KEY
-    posthog.host = "https://app.posthog.com"
+    posthog.host = "https://us.i.posthog.com"
     st.success("✅ PostHog initialized successfully")
     st.code(f"Host: {posthog.host}")
 except Exception as e:

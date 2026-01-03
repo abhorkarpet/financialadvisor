@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "5.7.0"
+VERSION = "6.0.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -3350,7 +3350,7 @@ elif st.session_state.current_page == 'results':
 
         with col2:
             st.markdown("### 🎲 Scenario Analysis")
-            st.markdown("Explore thousands of possible retirement scenarios and see how market volatility affects your plan.")
+            st.markdown("Explore thousands scenarios and see how market volatility affects your plan.")
             if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
                 monte_carlo_dialog()
 
@@ -3389,7 +3389,7 @@ elif st.session_state.current_page == 'monte_carlo':
     st.markdown("---")
 
     # Educational explanation
-    with st.expander("📚 What is Monte Carlo Simulation?", expanded=True):
+    with st.expander("📚 What is Monte Carlo Simulation?", expanded=False):
         st.markdown("""
         ### What is Monte Carlo Simulation?
 
