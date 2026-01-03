@@ -1270,14 +1270,10 @@ if not st.session_state.splash_dismissed:
     # Button with privacy policy link
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Privacy policy link button
-        if st.button("📄 View Privacy Policy", use_container_width=True):
-            show_privacy_policy()
-
         st.markdown("<br>", unsafe_allow_html=True)
 
         # Main action button
-        if st.button("✅ I Understand (Privacy Policy)", type="primary", use_container_width=True):
+        if st.button("✅ Continue", type="primary", use_container_width=True):
             st.session_state.splash_dismissed = True
             st.rerun()
 
