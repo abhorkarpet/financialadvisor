@@ -1037,19 +1037,6 @@ with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
     **By using this application, you acknowledge and agree to these terms.**
     """)
 
-# Collapsible description to reduce above-the-fold content
-with st.expander("ℹ️ About This Application", expanded=False):
-    st.markdown(
-        """
-        ### Stage 2: Asset Classification & Advanced Tax Logic
-        This enhanced version includes:
-        - **Asset Classification**: Pre-tax, Post-tax, and Tax-deferred accounts
-        - **Per-Asset Growth Simulation**: Individual tracking of each account
-        - **Sophisticated Tax Logic**: IRS tax brackets and capital gains calculations
-        - **Tax Efficiency Analysis**: Optimize your retirement strategy
-        """
-    )
-
 # Share & Feedback section - Simple and clean
 with st.expander("💬 Share & Feedback", expanded=False):
     # Create tabs for better organization
@@ -1185,7 +1172,20 @@ if st.session_state.current_page == 'onboarding':
             st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
 
         with col2:
-            # Life expectancy input with guidance
+            # Life expectancy input
+            life_expectancy = st.number_input(
+                "Life Expectancy (Age)",
+                min_value=retirement_age+1,
+                max_value=120,
+                value=st.session_state.life_expectancy,
+                help="Expected age at death - use guidance below to estimate",
+                key="life_expectancy_input"
+            )
+            st.session_state.life_expectancy = life_expectancy
+            years_in_retirement = life_expectancy - retirement_age
+            st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
+
+            # Life expectancy guidance below the input
             with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
                 st.markdown("""
                 ### 🎯 **How to Estimate Your Life Expectancy**
@@ -1206,54 +1206,43 @@ if st.session_state.current_page == 'onboarding':
                 **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
                 """)
 
-            life_expectancy = st.number_input(
-                "Life Expectancy (Age)",
-                min_value=retirement_age+1,
-                max_value=120,
-                value=st.session_state.life_expectancy,
-                help="Expected age at death - use guidance above to estimate",
-                key="life_expectancy_input"
+            st.markdown("")  # Add spacing
+
+            # Retirement income goal
+            retirement_income_goal = st.number_input(
+                "Annual Income Needed in Retirement ($) - Optional",
+                min_value=0,
+                max_value=500000,
+                value=st.session_state.retirement_income_goal,
+                step=5000,
+                help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
+                key="retirement_income_goal_input"
             )
-            st.session_state.life_expectancy = life_expectancy
-            years_in_retirement = life_expectancy - retirement_age
-            st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
+            st.session_state.retirement_income_goal = retirement_income_goal
 
-        st.markdown("---")
+            if retirement_income_goal > 0:
+                st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
+            else:
+                st.info("💡 **No target set** - Analysis will show your projected portfolio value")
 
-        # Retirement income goal (full width)
-        with st.expander("💡 How much do you need in retirement?", expanded=False):
-            st.markdown("""
-            **Typical annual retirement income needs:**
-            - **$40,000 - $60,000**: Modest lifestyle
-            - **$60,000 - $80,000**: Comfortable lifestyle
-            - **$80,000 - $100,000**: Enhanced lifestyle
-            - **$100,000+**: Premium lifestyle
+            # Retirement income guidance below the input
+            with st.expander("💡 How much do you need in retirement?", expanded=False):
+                st.markdown("""
+                **Typical annual retirement income needs:**
+                - **$40,000 - $60,000**: Modest lifestyle
+                - **$60,000 - $80,000**: Comfortable lifestyle
+                - **$80,000 - $100,000**: Enhanced lifestyle
+                - **$100,000+**: Premium lifestyle
 
-            **Consider:**
-            - **Housing costs**: Rent/mortgage, property taxes, maintenance
-            - **Healthcare**: Insurance premiums, out-of-pocket costs
-            - **Daily living**: Food, utilities, transportation
-            - **Lifestyle**: Travel, hobbies, entertainment
-            - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
+                **Consider:**
+                - **Housing costs**: Rent/mortgage, property taxes, maintenance
+                - **Healthcare**: Insurance premiums, out-of-pocket costs
+                - **Daily living**: Food, utilities, transportation
+                - **Lifestyle**: Travel, hobbies, entertainment
+                - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
 
-            **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
-            """)
-
-        retirement_income_goal = st.number_input(
-            "Annual Income Needed in Retirement ($) - Optional",
-            min_value=0,
-            max_value=500000,
-            value=st.session_state.retirement_income_goal,
-            step=5000,
-            help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
-            key="retirement_income_goal_input"
-        )
-        st.session_state.retirement_income_goal = retirement_income_goal
-
-        if retirement_income_goal > 0:
-            st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
-        else:
-            st.info("💡 **No target set** - Analysis will show your projected portfolio value")
+                **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
+                """)
 
         # Navigation button for Step 1
         st.markdown("---")
