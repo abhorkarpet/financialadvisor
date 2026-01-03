@@ -758,191 +758,6 @@ initialize_analytics()
 # reliably in Streamlit's server-side architecture. Session analytics (based on
 # events) will still work and show session duration, events per session, etc.
 
-# Initialize session state for splash screen
-if 'splash_dismissed' not in st.session_state:
-    st.session_state.splash_dismissed = False
-
-# Initialize session state for onboarding flow
-if 'onboarding_step' not in st.session_state:
-    st.session_state.onboarding_step = 1
-if 'onboarding_complete' not in st.session_state:
-    st.session_state.onboarding_complete = False
-
-# Initialize session state for page navigation
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
-
-# Initialize session state for baseline values (from onboarding)
-if 'birth_year' not in st.session_state:
-    st.session_state.birth_year = datetime.now().year - 30
-if 'baseline_retirement_age' not in st.session_state:
-    st.session_state.baseline_retirement_age = 65
-if 'baseline_life_expectancy' not in st.session_state:
-    st.session_state.baseline_life_expectancy = 85
-if 'baseline_retirement_income_goal' not in st.session_state:
-    st.session_state.baseline_retirement_income_goal = 0  # Optional field
-if 'client_name' not in st.session_state:
-    st.session_state.client_name = ""
-if 'assets' not in st.session_state:
-    st.session_state.assets = []
-
-# ==========================================
-# SIDEBAR - Advanced Settings (Collapsed by Default)
-# ==========================================
-with st.sidebar:
-    with st.expander("⚙️ Advanced Settings", expanded=False):
-        st.markdown("### Tax Settings")
-
-        # Current tax rate with helpful guidance
-        with st.expander("💡 How to find your current tax rate", expanded=False):
-            st.markdown("""
-            **To find your current marginal tax rate:**
-            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
-            2. **Use IRS tax brackets**: Find which bracket your income falls into
-
-            **2024 Tax Brackets (Single):**
-            - 10%: $0 - $11,600
-            - 12%: $11,601 - $47,150
-            - 22%: $47,151 - $100,525
-            - 24%: $100,526 - $191,950
-            - 32%: $191,951 - $243,725
-            - 35%: $243,726 - $609,350
-            - 37%: $609,351+
-            """)
-
-        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
-
-        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
-            st.markdown("""
-            **Consider these factors:**
-            1. **Lower income**: Most people have lower income in retirement
-            2. **Social Security**: Only 85% is taxable for most people
-            3. **Roth withdrawals**: Tax-free if qualified
-            4. **Required Minimum Distributions**: Start at age 73 (2024)
-
-            **Common scenarios:**
-            - **Conservative**: Same as current rate
-            - **Optimistic**: 10-15% lower than current
-            - **Pessimistic**: 5-10% higher (if tax rates increase)
-            """)
-
-        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
-
-        st.markdown("---")
-        st.markdown("### Growth Rate Assumptions")
-
-        with st.expander("💡 Inflation guidance", expanded=False):
-            st.markdown("""
-            **Historical context:**
-            - **Long-term average**: 3.0-3.5% annually
-            - **Recent years**: 2-4% (2020-2024)
-            - **Federal Reserve target**: 2% annually
-
-            **Consider:**
-            - **Conservative**: 2-3% (Fed target)
-            - **Moderate**: 3-4% (historical average)
-            - **Aggressive**: 4-5% (higher inflation)
-            """)
-
-        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
-
-        st.markdown("---")
-        st.markdown("### Investment Growth Rate")
-
-        with st.expander("💡 Growth rate guidance", expanded=False):
-            st.markdown("""
-            **Typical annual growth rates:**
-            - **Stocks/Equity funds**: 7-10%
-            - **Bonds/Fixed income**: 4-5%
-            - **Savings accounts**: 2-4%
-            - **Conservative portfolio**: 5-6%
-            - **Aggressive portfolio**: 8-10%
-
-            **Note:** This is used as the default when adding investment accounts.
-            """)
-
-        default_growth_rate = st.slider(
-            "Default Growth Rate for Investments (%)",
-            min_value=0.0,
-            max_value=20.0,
-            value=7.0,
-            step=0.5,
-            help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
-        )
-
-        st.markdown("---")
-        st.markdown("### 📊 Analytics & Privacy")
-
-        # Show current analytics status
-        analytics_enabled = is_analytics_enabled()
-        if analytics_enabled:
-            st.success("✅ **Analytics Enabled** - Helping us improve Smart Retire AI")
-        else:
-            st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
-
-        # Privacy policy link
-        if st.button("📄 View Privacy Policy", use_container_width=True, key="sidebar_privacy_policy"):
-            show_privacy_policy()
-
-        # Opt-out/Opt-in toggle
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("❌ Disable Analytics", use_container_width=True, disabled=not analytics_enabled):
-                opt_out()
-                st.success("✅ Analytics disabled")
-                st.rerun()
-        with col2:
-            if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
-                opt_in()
-                st.success("✅ Analytics enabled")
-                st.rerun()
-
-        # Reset analytics session (for testing)
-        with st.expander("🔧 Advanced: Reset Analytics Session"):
-            st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
-            if st.button("🔄 Reset Analytics Session", use_container_width=True, key="reset_analytics"):
-                reset_analytics_session()
-                st.success("✅ Analytics session reset")
-                st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
-                st.rerun()
-
-        st.markdown("---")
-        st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
-
-# Reset button (only show if onboarding is complete)
-if st.session_state.onboarding_complete:
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🔄 Reset Onboarding", use_container_width=True):
-        st.session_state.onboarding_step = 1
-        st.session_state.onboarding_complete = False
-        st.rerun()
-
-# Initialize session state for what-if scenario values (used on results page)
-if 'whatif_retirement_age' not in st.session_state:
-    st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
-if 'whatif_life_expectancy' not in st.session_state:
-    st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
-if 'whatif_retirement_income_goal' not in st.session_state:
-    st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
-if 'whatif_current_tax_rate' not in st.session_state:
-    st.session_state.whatif_current_tax_rate = 22
-if 'whatif_retirement_tax_rate' not in st.session_state:
-    st.session_state.whatif_retirement_tax_rate = 25
-if 'whatif_inflation_rate' not in st.session_state:
-    st.session_state.whatif_inflation_rate = 3
-
-# Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
-if 'retirement_age' not in st.session_state:
-    st.session_state.retirement_age = st.session_state.baseline_retirement_age
-if 'life_expectancy' not in st.session_state:
-    st.session_state.life_expectancy = st.session_state.baseline_life_expectancy
-if 'retirement_income_goal' not in st.session_state:
-    st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
-
-# ==========================================
-# PRIVACY POLICY DIALOG
-# ==========================================
-
 @st.dialog("Privacy Policy")
 def show_privacy_policy():
     """Display comprehensive privacy policy in a dialog."""
@@ -1179,6 +994,194 @@ def show_privacy_policy():
 
     if st.button("Close", use_container_width=True, type="primary"):
         st.rerun()
+
+
+
+# Initialize session state for splash screen
+if 'splash_dismissed' not in st.session_state:
+    st.session_state.splash_dismissed = False
+
+# Initialize session state for onboarding flow
+if 'onboarding_step' not in st.session_state:
+    st.session_state.onboarding_step = 1
+if 'onboarding_complete' not in st.session_state:
+    st.session_state.onboarding_complete = False
+
+# Initialize session state for page navigation
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
+
+# Initialize session state for baseline values (from onboarding)
+if 'birth_year' not in st.session_state:
+    st.session_state.birth_year = datetime.now().year - 30
+if 'baseline_retirement_age' not in st.session_state:
+    st.session_state.baseline_retirement_age = 65
+if 'baseline_life_expectancy' not in st.session_state:
+    st.session_state.baseline_life_expectancy = 85
+if 'baseline_retirement_income_goal' not in st.session_state:
+    st.session_state.baseline_retirement_income_goal = 0  # Optional field
+if 'client_name' not in st.session_state:
+    st.session_state.client_name = ""
+if 'assets' not in st.session_state:
+    st.session_state.assets = []
+
+# ==========================================
+# SIDEBAR - Advanced Settings (Collapsed by Default)
+# ==========================================
+with st.sidebar:
+    with st.expander("⚙️ Advanced Settings", expanded=False):
+        st.markdown("### Tax Settings")
+
+        # Current tax rate with helpful guidance
+        with st.expander("💡 How to find your current tax rate", expanded=False):
+            st.markdown("""
+            **To find your current marginal tax rate:**
+            1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+            2. **Use IRS tax brackets**: Find which bracket your income falls into
+
+            **2024 Tax Brackets (Single):**
+            - 10%: $0 - $11,600
+            - 12%: $11,601 - $47,150
+            - 22%: $47,151 - $100,525
+            - 24%: $100,526 - $191,950
+            - 32%: $191,951 - $243,725
+            - 35%: $243,726 - $609,350
+            - 37%: $609,351+
+            """)
+
+        current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+
+        with st.expander("💡 How to estimate retirement tax rate", expanded=False):
+            st.markdown("""
+            **Consider these factors:**
+            1. **Lower income**: Most people have lower income in retirement
+            2. **Social Security**: Only 85% is taxable for most people
+            3. **Roth withdrawals**: Tax-free if qualified
+            4. **Required Minimum Distributions**: Start at age 73 (2024)
+
+            **Common scenarios:**
+            - **Conservative**: Same as current rate
+            - **Optimistic**: 10-15% lower than current
+            - **Pessimistic**: 5-10% higher (if tax rates increase)
+            """)
+
+        retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+
+        st.markdown("---")
+        st.markdown("### Growth Rate Assumptions")
+
+        with st.expander("💡 Inflation guidance", expanded=False):
+            st.markdown("""
+            **Historical context:**
+            - **Long-term average**: 3.0-3.5% annually
+            - **Recent years**: 2-4% (2020-2024)
+            - **Federal Reserve target**: 2% annually
+
+            **Consider:**
+            - **Conservative**: 2-3% (Fed target)
+            - **Moderate**: 3-4% (historical average)
+            - **Aggressive**: 4-5% (higher inflation)
+            """)
+
+        inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+
+        st.markdown("---")
+        st.markdown("### Investment Growth Rate")
+
+        with st.expander("💡 Growth rate guidance", expanded=False):
+            st.markdown("""
+            **Typical annual growth rates:**
+            - **Stocks/Equity funds**: 7-10%
+            - **Bonds/Fixed income**: 4-5%
+            - **Savings accounts**: 2-4%
+            - **Conservative portfolio**: 5-6%
+            - **Aggressive portfolio**: 8-10%
+
+            **Note:** This is used as the default when adding investment accounts.
+            """)
+
+        default_growth_rate = st.slider(
+            "Default Growth Rate for Investments (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=7.0,
+            step=0.5,
+            help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
+        )
+
+        st.markdown("---")
+        st.markdown("### 📊 Analytics & Privacy")
+
+        # Show current analytics status
+        analytics_enabled = is_analytics_enabled()
+        if analytics_enabled:
+            st.success("✅ **Analytics Enabled** - Helping us improve Smart Retire AI")
+        else:
+            st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
+
+        # Privacy policy link
+        if st.button("📄 View Privacy Policy", use_container_width=True, key="sidebar_privacy_policy"):
+            show_privacy_policy()
+
+        # Opt-out/Opt-in toggle
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("❌ Disable Analytics", use_container_width=True, disabled=not analytics_enabled):
+                opt_out()
+                st.success("✅ Analytics disabled")
+                st.rerun()
+        with col2:
+            if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
+                opt_in()
+                st.success("✅ Analytics enabled")
+                st.rerun()
+
+        # Reset analytics session (for testing)
+        with st.expander("🔧 Advanced: Reset Analytics Session"):
+            st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
+            if st.button("🔄 Reset Analytics Session", use_container_width=True, key="reset_analytics"):
+                reset_analytics_session()
+                st.success("✅ Analytics session reset")
+                st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
+                st.rerun()
+
+        st.markdown("---")
+        st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
+
+# Reset button (only show if onboarding is complete)
+if st.session_state.onboarding_complete:
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔄 Reset Onboarding", use_container_width=True):
+        st.session_state.onboarding_step = 1
+        st.session_state.onboarding_complete = False
+        st.rerun()
+
+# Initialize session state for what-if scenario values (used on results page)
+if 'whatif_retirement_age' not in st.session_state:
+    st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
+if 'whatif_life_expectancy' not in st.session_state:
+    st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
+if 'whatif_retirement_income_goal' not in st.session_state:
+    st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
+if 'whatif_current_tax_rate' not in st.session_state:
+    st.session_state.whatif_current_tax_rate = 22
+if 'whatif_retirement_tax_rate' not in st.session_state:
+    st.session_state.whatif_retirement_tax_rate = 25
+if 'whatif_inflation_rate' not in st.session_state:
+    st.session_state.whatif_inflation_rate = 3
+
+# Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
+if 'retirement_age' not in st.session_state:
+    st.session_state.retirement_age = st.session_state.baseline_retirement_age
+if 'life_expectancy' not in st.session_state:
+    st.session_state.life_expectancy = st.session_state.baseline_life_expectancy
+if 'retirement_income_goal' not in st.session_state:
+    st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
+
+# ==========================================
+# PRIVACY POLICY DIALOG
+# ==========================================
+
 
 
 # ==========================================
