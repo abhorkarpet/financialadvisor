@@ -1157,7 +1157,7 @@ if st.session_state.current_page == 'onboarding':
     # ==========================================
     if current_step == 1:
         col1, col2 = st.columns(2)
-    
+
         with col1:
             # Birth year input instead of age
             current_year = datetime.now().year
@@ -1172,7 +1172,7 @@ if st.session_state.current_page == 'onboarding':
             st.session_state.birth_year = birth_year
             age = current_year - birth_year
             st.info(f"📅 **Current Age**: {age} years old")
-    
+
             retirement_age = st.number_input(
                 "Target Retirement Age",
                 min_value=40,
@@ -1183,28 +1183,29 @@ if st.session_state.current_page == 'onboarding':
             )
             st.session_state.retirement_age = retirement_age
             st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
-    
+
+        with col2:
             # Life expectancy input with guidance
             with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
                 st.markdown("""
                 ### 🎯 **How to Estimate Your Life Expectancy**
-    
+
                 **Average Life Expectancy by Age:**
                 - **At birth**: ~79 years (US average)
                 - **At age 30**: ~80 years
                 - **At age 50**: ~82 years
                 - **At age 65**: ~85 years
-    
+
                 **Factors to Consider:**
                 - **Family history**: Long-lived parents/grandparents
                 - **Health status**: Current health conditions
                 - **Lifestyle**: Exercise, diet, smoking, stress
                 - **Gender**: Women typically live 3-5 years longer
                 - **Education/Income**: Higher education/income correlates with longer life
-    
+
                 **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
                 """)
-    
+
             life_expectancy = st.number_input(
                 "Life Expectancy (Age)",
                 min_value=retirement_age+1,
@@ -1216,43 +1217,43 @@ if st.session_state.current_page == 'onboarding':
             st.session_state.life_expectancy = life_expectancy
             years_in_retirement = life_expectancy - retirement_age
             st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
-    
-        with col2:
-            # Retirement income goal
-            st.subheader("🎯 Desired Annual Retirement Income")
-            with st.expander("💡 How much do you need in retirement?", expanded=False):
-                st.markdown("""
-                **Typical annual retirement income needs:**
-                - **$40,000 - $60,000**: Modest lifestyle
-                - **$60,000 - $80,000**: Comfortable lifestyle
-                - **$80,000 - $100,000**: Enhanced lifestyle
-                - **$100,000+**: Premium lifestyle
-    
-                **Consider:**
-                - **Housing costs**: Rent/mortgage, property taxes, maintenance
-                - **Healthcare**: Insurance premiums, out-of-pocket costs
-                - **Daily living**: Food, utilities, transportation
-                - **Lifestyle**: Travel, hobbies, entertainment
-                - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
-    
-                **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
-                """)
-    
-            retirement_income_goal = st.number_input(
-                "Annual Income Needed in Retirement ($) - Optional",
-                min_value=0,
-                max_value=500000,
-                value=st.session_state.retirement_income_goal,
-                step=5000,
-                help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
-                key="retirement_income_goal_input"
-            )
-            st.session_state.retirement_income_goal = retirement_income_goal
-    
-            if retirement_income_goal > 0:
-                st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
-            else:
-                st.info("💡 **No target set** - Analysis will show your projected portfolio value")
+
+        st.markdown("---")
+
+        # Retirement income goal (full width)
+        with st.expander("💡 How much do you need in retirement?", expanded=False):
+            st.markdown("""
+            **Typical annual retirement income needs:**
+            - **$40,000 - $60,000**: Modest lifestyle
+            - **$60,000 - $80,000**: Comfortable lifestyle
+            - **$80,000 - $100,000**: Enhanced lifestyle
+            - **$100,000+**: Premium lifestyle
+
+            **Consider:**
+            - **Housing costs**: Rent/mortgage, property taxes, maintenance
+            - **Healthcare**: Insurance premiums, out-of-pocket costs
+            - **Daily living**: Food, utilities, transportation
+            - **Lifestyle**: Travel, hobbies, entertainment
+            - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
+
+            **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
+            """)
+
+        retirement_income_goal = st.number_input(
+            "Annual Income Needed in Retirement ($) - Optional",
+            min_value=0,
+            max_value=500000,
+            value=st.session_state.retirement_income_goal,
+            step=5000,
+            help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
+            key="retirement_income_goal_input"
+        )
+        st.session_state.retirement_income_goal = retirement_income_goal
+
+        if retirement_income_goal > 0:
+            st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
+        else:
+            st.info("💡 **No target set** - Analysis will show your projected portfolio value")
 
         # Navigation button for Step 1
         st.markdown("---")
