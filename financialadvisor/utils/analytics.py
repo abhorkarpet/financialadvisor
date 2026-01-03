@@ -12,6 +12,14 @@ This module provides privacy-first analytics tracking with:
 import streamlit as st
 from typing import Dict, Any, Optional
 import uuid
+import os
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required, can use system env vars
 
 # Only import PostHog if user has consented
 try:
@@ -25,9 +33,15 @@ except ImportError:
 # CONFIGURATION
 # ==========================================
 
-# PostHog API key - should be set via environment variable or Streamlit secrets
-# For now, using a placeholder - replace with actual key
-POSTHOG_API_KEY = st.secrets.get("POSTHOG_API_KEY", "") if hasattr(st, 'secrets') else ""
+# PostHog API key - try Streamlit secrets first, then fall back to .env
+POSTHOG_API_KEY = ""
+try:
+    # Try Streamlit secrets first (for cloud deployment)
+    POSTHOG_API_KEY = st.secrets.get("POSTHOG_API_KEY", "")
+except Exception:
+    # Fall back to environment variable (for local development with .env)
+    POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
+
 POSTHOG_HOST = "https://app.posthog.com"  # or self-hosted URL
 
 # Initialize PostHog once
