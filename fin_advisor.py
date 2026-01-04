@@ -2389,16 +2389,25 @@ if st.session_state.current_page == 'onboarding':
                                             )
                                         }
     
+                                        # Use edited table from session state if it exists, otherwise use fresh data
+                                        # This prevents losing user edits on rerun
+                                        if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
+                                            # Preserve user edits across reruns
+                                            initial_data = st.session_state.ai_edited_table
+                                        else:
+                                            # First time showing the table
+                                            initial_data = df_table
+
                                         # Display editable table with unique key for fresh extraction view
                                         edited_df = st.data_editor(
-                                            df_table,
+                                            initial_data,
                                             column_config=column_config,
                                             use_container_width=True,
                                             hide_index=True,
                                             num_rows="dynamic",
                                             key="ai_table_fresh_extraction"  # Unique key for this table
                                         )
-    
+
                                         # Save edited table to session state for persistence across reruns
                                         st.session_state.ai_edited_table = edited_df
     
