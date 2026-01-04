@@ -3302,12 +3302,16 @@ elif st.session_state.current_page == 'results':
 
                     if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
                         # Simple multiplication when growth = inflation
-                        required_after_tax_balance = retirement_income_goal * n
+                        required_balance_for_income = retirement_income_goal * n
                     else:
                         # Inverse annuity formula
                         numerator = 1 - ((1 + i) / (1 + r)) ** n
                         denominator = r - i
-                        required_after_tax_balance = retirement_income_goal * (numerator / denominator)
+                        required_balance_for_income = retirement_income_goal * (numerator / denominator)
+
+                    # Add life expenses back since they're deducted at retirement
+                    # We need: (balance to generate income) + (one-time life expenses)
+                    required_after_tax_balance = required_balance_for_income + life_expenses
 
                     additional_balance_needed = required_after_tax_balance - total_after_tax
 
@@ -3353,7 +3357,7 @@ elif st.session_state.current_page == 'results':
                         return total_additional_contribution, weighted_avg_rate * 100
 
                     # Helper function to calculate additional years needed
-                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate):
+                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses):
                         """Calculate additional years needed to work.
 
                         Key insight: Working longer has TWO benefits:
@@ -3364,7 +3368,9 @@ elif st.session_state.current_page == 'results':
                         where FV is calculated using INVERSE annuity formula to account for
                         portfolio growth and inflation-adjusted withdrawals during retirement.
 
-                        Must account for taxes by converting pre-tax FV to after-tax FV.
+                        Must account for:
+                        - Taxes by converting pre-tax FV to after-tax FV
+                        - One-time life expenses deducted at retirement
                         """
                         # Calculate weighted average growth rate and total current contributions
                         weighted_avg_rate = 0
@@ -3411,22 +3417,29 @@ elif st.session_state.current_page == 'results':
                             # Convert to AFTER-TAX using tax efficiency ratio
                             test_fv_aftertax = test_fv_pretax * (tax_efficiency_pct / 100.0)
 
+                            # Subtract life expenses - this is the actual available balance for generating income
+                            available_balance_aftertax = test_fv_aftertax - life_expenses
+
                             # Calculate what we'd need for this shorter retirement period (AFTER-TAX)
+                            # This is just the amount needed to generate income via annuity
                             # Use INVERSE annuity formula to account for growth during retirement
                             r_ret = retirement_growth_rate / 100.0
                             i_ret = inflation_rate / 100.0
 
                             if abs(r_ret - i_ret) < 0.0001:
                                 # Simple multiplication when growth = inflation
-                                required_balance_aftertax = income_goal * test_years_in_retirement
+                                required_balance_for_income = income_goal * test_years_in_retirement
                             else:
                                 # Inverse annuity formula
                                 numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** test_years_in_retirement
                                 denominator = r_ret - i_ret
-                                required_balance_aftertax = income_goal * (numerator / denominator)
+                                required_balance_for_income = income_goal * (numerator / denominator)
 
-                            # Found solution?
-                            if test_fv_aftertax >= required_balance_aftertax:
+                            # Total required = income-generating balance + life expenses
+                            required_balance_aftertax = required_balance_for_income + life_expenses
+
+                            # Found solution? Compare available balance (after life expenses) to required balance for income
+                            if available_balance_aftertax >= required_balance_for_income:
                                 return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
 
                         # If no solution found in 50 years, return 50
@@ -3434,13 +3447,15 @@ elif st.session_state.current_page == 'results':
                         final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
                         if final_years_in_retirement > 0:
                             if abs(r_ret - i_ret) < 0.0001:
-                                final_required_balance = income_goal * final_years_in_retirement
+                                final_required_balance_for_income = income_goal * final_years_in_retirement
                             else:
                                 numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
                                 denominator = r_ret - i_ret
-                                final_required_balance = income_goal * (numerator / denominator)
+                                final_required_balance_for_income = income_goal * (numerator / denominator)
+                            # Add life expenses to get total required balance
+                            final_required_balance = final_required_balance_for_income + life_expenses
                         else:
-                            final_required_balance = 0
+                            final_required_balance = life_expenses  # Still need life expenses even with 0 years in retirement
 
                         return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
 
@@ -3452,7 +3467,7 @@ elif st.session_state.current_page == 'results':
                         inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
                     )
                     additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
-                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate
+                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses
                     )
 
                     # Calculate new years in retirement for option 2
