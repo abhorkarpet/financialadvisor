@@ -3160,32 +3160,25 @@ elif st.session_state.current_page == 'results':
                     additional_balance_needed = required_after_tax_balance - total_after_tax
 
                     # Helper function to calculate required contribution increase (NPV-based)
-                    def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed):
+                    def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed_aftertax, tax_efficiency_pct):
                         """Calculate additional annual contribution needed using NPV formula.
 
+                        Key insight: We need additional_balance_needed in AFTER-TAX dollars, but
+                        contributions grow PRE-TAX and then get taxed. So we must:
+                        1. Convert after-tax target to pre-tax target
+                        2. Calculate contributions needed for pre-tax target
+                        3. Return the contribution amount
+
                         For each asset, we need to solve for additional contribution C:
-                        FV_needed = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
+                        FV_needed_pretax = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
 
-                        Rearranging: C_additional = [FV_needed - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
+                        Rearranging: C_additional = [FV_needed_pretax - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
                         """
-                        total_additional_contribution = 0
+                        # Convert after-tax target to pre-tax target
+                        # If tax efficiency is 85%, and we need $100k after-tax, we need $117.6k pre-tax
+                        additional_balance_needed_pretax = additional_balance_needed_aftertax / (tax_efficiency_pct / 100.0)
 
-                        for asset in assets:
-                            r = asset.growth_rate_pct / 100.0
-                            years = years_to_retirement
-
-                            if r == 0 or years == 0:
-                                continue
-
-                            # Current asset projection
-                            growth_factor = (1.0 + r) ** years
-                            current_fv = asset.current_balance * growth_factor + asset.annual_contribution * ((growth_factor - 1.0) / r)
-
-                            # We need to distribute additional_balance_needed proportionally
-                            # For simplicity, calculate what total contribution would be needed
-                            # This is a simplified approach - more complex would consider tax efficiency
-
-                        # Simplified calculation: assume additional balance grows at weighted avg rate
+                        # Calculate weighted average growth rate
                         weighted_avg_rate = 0
                         total_balance = sum(a.current_balance for a in assets)
                         if total_balance > 0:
@@ -3201,9 +3194,9 @@ elif st.session_state.current_page == 'results':
                         if weighted_avg_rate > 0 and years_to_retirement > 0:
                             growth_factor = (1.0 + weighted_avg_rate) ** years_to_retirement
                             annuity_factor = (growth_factor - 1.0) / weighted_avg_rate
-                            total_additional_contribution = additional_balance_needed / annuity_factor
+                            total_additional_contribution = additional_balance_needed_pretax / annuity_factor
                         else:
-                            total_additional_contribution = additional_balance_needed / max(years_to_retirement, 1)
+                            total_additional_contribution = additional_balance_needed_pretax / max(years_to_retirement, 1)
 
                         return total_additional_contribution, weighted_avg_rate * 100
 
@@ -3280,7 +3273,7 @@ elif st.session_state.current_page == 'results':
                     tax_efficiency = result['Tax Efficiency (%)']
 
                     additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
-                        inputs.assets, years_to_retirement, additional_balance_needed
+                        inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
                     )
                     additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
                         inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency
