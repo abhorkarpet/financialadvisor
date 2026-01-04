@@ -2989,23 +2989,15 @@ elif st.session_state.current_page == 'results':
             help="Target annual income in retirement (0 = no goal set)"
         )
 
-        whatif_current_tax_rate = st.slider(
-            "Current Tax Rate (%)",
-            min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_current_tax_rate,
-            help="Your current marginal tax rate"
-        )
-
-    with col3:
         whatif_retirement_tax_rate = st.slider(
             "Retirement Tax Rate (%)",
             min_value=0,
             max_value=50,
             value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement"
+            help="Expected tax rate in retirement (used to calculate after-tax balance)"
         )
 
+    with col3:
         whatif_inflation_rate = st.slider(
             "Inflation Rate (%)",
             min_value=0,
@@ -3018,7 +3010,6 @@ elif st.session_state.current_page == 'results':
     st.session_state.whatif_retirement_age = whatif_retirement_age
     st.session_state.whatif_life_expectancy = whatif_life_expectancy
     st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
-    st.session_state.whatif_current_tax_rate = whatif_current_tax_rate
     st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
     st.session_state.whatif_inflation_rate = whatif_inflation_rate
 
