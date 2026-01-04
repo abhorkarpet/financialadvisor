@@ -2963,62 +2963,64 @@ elif st.session_state.current_page == 'results':
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.session_state.whatif_retirement_age = st.number_input(
+        whatif_retirement_age = st.number_input(
             "Retirement Age",
             min_value=40,
             max_value=80,
             value=st.session_state.whatif_retirement_age,
-            help="Adjust retirement age to see impact on projections",
-            key="whatif_retirement_age_input"
+            help="Adjust retirement age to see impact on projections"
         )
 
-        st.session_state.whatif_life_expectancy = st.number_input(
+        whatif_life_expectancy = st.number_input(
             "Life Expectancy",
-            min_value=st.session_state.whatif_retirement_age + 1,
+            min_value=whatif_retirement_age + 1,
             max_value=120,
             value=st.session_state.whatif_life_expectancy,
-            help="Adjust life expectancy to see impact on retirement duration",
-            key="whatif_life_expectancy_input"
+            help="Adjust life expectancy to see impact on retirement duration"
         )
 
     with col2:
-        st.session_state.whatif_retirement_income_goal = st.number_input(
+        whatif_retirement_income_goal = st.number_input(
             "Annual Retirement Income Goal ($)",
             min_value=0,
             max_value=1000000,
             value=st.session_state.whatif_retirement_income_goal,
             step=5000,
-            help="Target annual income in retirement (0 = no goal set)",
-            key="whatif_income_goal_input"
+            help="Target annual income in retirement (0 = no goal set)"
         )
 
-        st.session_state.whatif_current_tax_rate = st.slider(
+        whatif_current_tax_rate = st.slider(
             "Current Tax Rate (%)",
             min_value=0,
             max_value=50,
             value=st.session_state.whatif_current_tax_rate,
-            help="Your current marginal tax rate",
-            key="whatif_current_tax_input"
+            help="Your current marginal tax rate"
         )
 
     with col3:
-        st.session_state.whatif_retirement_tax_rate = st.slider(
+        whatif_retirement_tax_rate = st.slider(
             "Retirement Tax Rate (%)",
             min_value=0,
             max_value=50,
             value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement",
-            key="whatif_retirement_tax_input"
+            help="Expected tax rate in retirement"
         )
 
-        st.session_state.whatif_inflation_rate = st.slider(
+        whatif_inflation_rate = st.slider(
             "Inflation Rate (%)",
             min_value=0,
             max_value=10,
             value=st.session_state.whatif_inflation_rate,
-            help="Expected long-term inflation rate",
-            key="whatif_inflation_input"
+            help="Expected long-term inflation rate"
         )
+
+    # Update session state with current widget values
+    st.session_state.whatif_retirement_age = whatif_retirement_age
+    st.session_state.whatif_life_expectancy = whatif_life_expectancy
+    st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
+    st.session_state.whatif_current_tax_rate = whatif_current_tax_rate
+    st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
+    st.session_state.whatif_inflation_rate = whatif_inflation_rate
 
     # Reset button
     if st.button("🔄 Reset to Baseline Values"):
