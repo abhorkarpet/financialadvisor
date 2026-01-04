@@ -1183,6 +1183,8 @@ if 'whatif_inflation_rate' not in st.session_state:
     st.session_state.whatif_inflation_rate = 3
 if 'whatif_life_expenses' not in st.session_state:
     st.session_state.whatif_life_expenses = 0
+if 'whatif_retirement_growth_rate' not in st.session_state:
+    st.session_state.whatif_retirement_growth_rate = 4.0
 
 # Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
 if 'retirement_age' not in st.session_state:
@@ -3009,6 +3011,15 @@ elif st.session_state.current_page == 'results':
             help="Expected long-term inflation rate"
         )
 
+        whatif_retirement_growth_rate = st.slider(
+            "Portfolio Growth in Retirement (%)",
+            min_value=0.0,
+            max_value=10.0,
+            value=st.session_state.whatif_retirement_growth_rate,
+            step=0.5,
+            help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
+        )
+
         whatif_life_expenses = st.number_input(
             "One-Time Life Expenses at Retirement ($)",
             min_value=0,
@@ -3024,6 +3035,7 @@ elif st.session_state.current_page == 'results':
     st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
     st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
     st.session_state.whatif_inflation_rate = whatif_inflation_rate
+    st.session_state.whatif_retirement_growth_rate = whatif_retirement_growth_rate
     st.session_state.whatif_life_expenses = whatif_life_expenses
 
     # Reset button
@@ -3037,6 +3049,7 @@ elif st.session_state.current_page == 'results':
         st.session_state.whatif_current_tax_rate = 22
         st.session_state.whatif_retirement_tax_rate = 25
         st.session_state.whatif_inflation_rate = 3
+        st.session_state.whatif_retirement_growth_rate = 4.0
         st.session_state.whatif_life_expenses = 0
         st.rerun()
 
@@ -3051,6 +3064,7 @@ elif st.session_state.current_page == 'results':
     current_tax_rate = st.session_state.whatif_current_tax_rate
     retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
     inflation_rate = st.session_state.whatif_inflation_rate
+    retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
     life_expenses = st.session_state.whatif_life_expenses
     assets = st.session_state.assets
     
@@ -3104,7 +3118,29 @@ elif st.session_state.current_page == 'results':
 
         # Calculate retirement income from portfolio (using adjusted balance)
         years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
-        annual_retirement_income = total_after_tax / years_in_retirement
+
+        # Calculate inflation-adjusted annual withdrawal with portfolio growth
+        # This uses the inflation-adjusted annuity formula:
+        # PMT = PV × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+        # where portfolio grows at r% and withdrawals increase with i% inflation
+
+        r = retirement_growth_rate / 100.0  # Convert to decimal
+        i = inflation_rate / 100.0  # Convert to decimal
+        n = years_in_retirement
+
+        if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+            # Simple division when growth = inflation
+            annual_retirement_income = total_after_tax / n
+        elif r > i:  # Normal case: growth exceeds inflation
+            # Inflation-adjusted annuity formula
+            numerator = r - i
+            denominator = 1 - ((1 + i) / (1 + r)) ** n
+            annual_retirement_income = total_after_tax * (numerator / denominator)
+        else:  # r < i: inflation exceeds growth (portfolio losing real value)
+            # Still use the formula but result will be lower
+            numerator = r - i  # This will be negative
+            denominator = 1 - ((1 + i) / (1 + r)) ** n
+            annual_retirement_income = total_after_tax * (numerator / denominator)
     
         # Only show income goal comparison if user set a goal
         if retirement_income_goal > 0:
@@ -3117,7 +3153,7 @@ elif st.session_state.current_page == 'results':
                 st.metric(
                     "Projected Annual Income",
                     f"${annual_retirement_income:,.0f}",
-                    help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+                    help=f"First year withdrawal from portfolio. Assumes {retirement_growth_rate:.1f}% growth during retirement with {inflation_rate}% inflation-adjusted increases annually. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})"
                 )
             with col2:
                 st.metric(
