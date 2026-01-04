@@ -3294,6 +3294,13 @@ elif st.session_state.current_page == 'results':
 
                     5. **Consider part-time work**: Supplement retirement income
                     """)
+
+                    # Add button to go back to setup to edit contributions
+                    st.markdown("")  # spacing
+                    if st.button("📝 Edit Portfolio Contributions", type="secondary", use_container_width=True):
+                        track_event('edit_contributions_from_recommendations')
+                        st.session_state.current_page = 'onboarding'
+                        st.rerun()
                 else:
                     st.markdown("""
                     **You're on track! Consider these optimizations:**
