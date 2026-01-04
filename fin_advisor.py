@@ -3281,7 +3281,15 @@ elif st.session_state.current_page == 'results':
                     1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
                        - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
                        - Required total after-tax balance: ${required_after_tax_balance:,.0f}
+                    """)
 
+                    # Add button to go back to setup to edit contributions
+                    if st.button("📝 Edit Portfolio Contributions", type="secondary", use_container_width=True):
+                        track_event('edit_contributions_from_recommendations')
+                        st.session_state.current_page = 'onboarding'
+                        st.rerun()
+
+                    st.markdown(f"""
                     2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {new_retirement_age:.0f})
                        - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
                        - Reduces retirement period to {new_years_in_retirement:.0f} years
@@ -3289,18 +3297,11 @@ elif st.session_state.current_page == 'results':
 
                     3. **Optimize asset allocation**: Consider higher-growth investments
 
-                    4. **Reduce retirement expenses**: Lower your income goal by **${income_shortfall:,.0f}** to **${retirement_income_goal - income_shortfall:,.0f}/year**
+                    4. **Reduce retirement expenses**: Lower your income goal to **${retirement_income_goal - income_shortfall:,.0f}/year** (reduce by ${income_shortfall:,.0f})
                        - This would completely eliminate your income gap
 
                     5. **Consider part-time work**: Supplement retirement income
                     """)
-
-                    # Add button to go back to setup to edit contributions
-                    st.markdown("")  # spacing
-                    if st.button("📝 Edit Portfolio Contributions", type="secondary", use_container_width=True):
-                        track_event('edit_contributions_from_recommendations')
-                        st.session_state.current_page = 'onboarding'
-                        st.rerun()
                 else:
                     st.markdown("""
                     **You're on track! Consider these optimizations:**
