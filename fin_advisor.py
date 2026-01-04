@@ -3207,15 +3207,17 @@ elif st.session_state.current_page == 'results':
 
                         return total_additional_contribution, weighted_avg_rate * 100
 
-                    # Helper function to calculate additional years needed (NPV-based)
-                    def calculate_additional_years(assets, current_age, retirement_age, additional_balance_needed):
-                        """Calculate additional years needed to work using NPV formula.
+                    # Helper function to calculate additional years needed
+                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal):
+                        """Calculate additional years needed to work.
+
+                        Key insight: Working longer has TWO benefits:
+                        1. Portfolio grows longer (more years of contributions + growth)
+                        2. Retirement period is shorter (need less total balance)
 
                         Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
-                        This requires numerical solution (binary search or Newton's method)
+                        where FV = income_goal × (life_expectancy - new_retirement_age)
                         """
-                        import math
-
                         # Calculate weighted average growth rate and total current contributions
                         weighted_avg_rate = 0
                         total_current_contribution = 0
@@ -3232,44 +3234,52 @@ elif st.session_state.current_page == 'results':
 
                         # Current projection data
                         total_current_balance = total_balance
-                        current_years_to_retirement = retirement_age - current_age
 
-                        # We need to find additional years such that the new FV meets the requirement
-                        # Use binary search to solve for years
+                        # Helper to calculate future value
                         def calculate_fv(years, principal, contribution, rate):
                             if rate == 0:
                                 return principal + contribution * years
                             growth = (1.0 + rate) ** years
                             return principal * growth + contribution * ((growth - 1.0) / rate)
 
-                        # Current FV (what we have with current retirement age)
-                        current_fv = calculate_fv(current_years_to_retirement, total_current_balance,
-                                                  total_current_contribution, weighted_avg_rate)
-
-                        # Target FV (what we need)
-                        target_fv = current_fv + additional_balance_needed
-
-                        # Binary search for years needed
-                        years_needed = current_years_to_retirement
+                        # Iteratively test additional years
+                        # For each additional year, recalculate BOTH:
+                        # 1. Higher FV (more growth time)
+                        # 2. Lower required balance (fewer retirement years)
                         for additional_years in range(0, 50):  # max 50 additional years
-                            test_years = current_years_to_retirement + additional_years
-                            test_fv = calculate_fv(test_years, total_current_balance,
-                                                  total_current_contribution, weighted_avg_rate)
-                            if test_fv >= target_fv:
-                                years_needed = test_years
-                                break
+                            test_retirement_age = retirement_age + additional_years
+                            test_years_to_retirement = test_retirement_age - current_age
+                            test_years_in_retirement = life_expectancy - test_retirement_age
 
-                        additional_years_needed = years_needed - current_years_to_retirement
-                        return additional_years_needed, weighted_avg_rate * 100
+                            # Skip if retirement age exceeds life expectancy
+                            if test_years_in_retirement <= 0:
+                                continue
+
+                            # Calculate what we'd have at this retirement age
+                            test_fv = calculate_fv(test_years_to_retirement, total_current_balance,
+                                                  total_current_contribution, weighted_avg_rate)
+
+                            # Calculate what we'd need for this shorter retirement period
+                            required_balance = income_goal * test_years_in_retirement
+
+                            # Found solution?
+                            if test_fv >= required_balance:
+                                return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance
+
+                        # If no solution found in 50 years, return 50
+                        return 50, weighted_avg_rate * 100, retirement_age + 50, income_goal * max(0, life_expectancy - retirement_age - 50)
 
                     # Calculate recommendations
                     years_to_retirement = retirement_age - age
                     additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
                         inputs.assets, years_to_retirement, additional_balance_needed
                     )
-                    additional_years, avg_growth_rate_2 = calculate_additional_years(
-                        inputs.assets, age, retirement_age, additional_balance_needed
+                    additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
+                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal
                     )
+
+                    # Calculate new years in retirement for option 2
+                    new_years_in_retirement = life_expectancy - new_retirement_age
 
                     st.markdown(f"""
                     **To close the ${income_shortfall:,.0f} annual shortfall:**
@@ -3277,12 +3287,11 @@ elif st.session_state.current_page == 'results':
                     1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
                        - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
                        - Required total after-tax balance: ${required_after_tax_balance:,.0f}
-                       - Uses NPV formula with present value (current balances) and future value (required balance)
 
-                    2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {retirement_age + additional_years:.0f})
+                    2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {new_retirement_age:.0f})
                        - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
-                       - Required total after-tax balance: ${required_after_tax_balance:,.0f}
-                       - Uses NPV formula solving for number of periods with current contributions
+                       - Reduces retirement period to {new_years_in_retirement:.0f} years
+                       - Required total after-tax balance: ${required_balance_for_option2:,.0f}
 
                     3. **Optimize asset allocation**: Consider higher-growth investments
 
