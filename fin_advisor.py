@@ -485,12 +485,34 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     
     # Retirement Income Analysis
     story.append(Paragraph("Retirement Income Analysis", heading_style))
-    
+
     total_after_tax = result.get("Total After-Tax Balance", 0)
     life_expectancy = user_inputs.get('life_expectancy', 85)
     retirement_age = user_inputs.get('retirement_age', 65)
     years_in_retirement = life_expectancy - retirement_age
-    annual_retirement_income = total_after_tax / years_in_retirement
+
+    # Validate years in retirement
+    if years_in_retirement <= 0:
+        raise ValueError(f"Life expectancy ({life_expectancy}) must be greater than retirement age ({retirement_age})")
+
+    # Use inflation-adjusted annuity formula (same as What-If section)
+    retirement_growth_rate = user_inputs.get('retirement_growth_rate', 4.0)
+    inflation_rate = user_inputs.get('inflation_rate', 3)
+    r = retirement_growth_rate / 100.0
+    i = inflation_rate / 100.0
+    n = years_in_retirement
+
+    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+        annual_retirement_income = total_after_tax / n
+    elif r > i:  # Normal case: growth exceeds inflation
+        numerator = r - i
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+    else:  # r < i: inflation exceeds growth
+        numerator = r - i  # This will be negative
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+
     retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
     income_shortfall = retirement_income_goal - annual_retirement_income
     income_ratio = (annual_retirement_income / retirement_income_goal * 100) if retirement_income_goal > 0 else 0
@@ -654,10 +676,9 @@ def generate_report_dialog():
                     'current_marginal_tax_rate_pct': st.session_state.get('whatif_current_tax_rate', 22),
                     'retirement_marginal_tax_rate_pct': st.session_state.get('whatif_retirement_tax_rate', 25),
                     'inflation_rate_pct': st.session_state.get('whatif_inflation_rate', 3),
-                    'age': datetime.now().year - st.session_state.birth_year,
+                    'age': st.session_state.age,
                     'retirement_age': int(st.session_state.get('whatif_retirement_age', 65)),
                     'life_expectancy': int(st.session_state.get('whatif_life_expectancy', 85)),
-                    'birth_year': st.session_state.birth_year,
                     'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0)
                 }
 
@@ -1024,8 +1045,8 @@ if 'current_page' not in st.session_state:
     st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
 
 # Initialize session state for baseline values (from onboarding)
-if 'birth_year' not in st.session_state:
-    st.session_state.birth_year = datetime.now().year - 30
+if 'age' not in st.session_state:
+    st.session_state.age = 30
 if 'baseline_retirement_age' not in st.session_state:
     st.session_state.baseline_retirement_age = 65
 if 'baseline_life_expectancy' not in st.session_state:
@@ -1568,19 +1589,16 @@ if st.session_state.current_page == 'onboarding':
         col1, col2 = st.columns(2)
 
         with col1:
-            # Birth year input instead of age
-            current_year = datetime.now().year
-            birth_year = st.number_input(
-                "Birth Year",
-                min_value=current_year-90,
-                max_value=current_year-18,
-                value=st.session_state.birth_year,
-                help="Your birth year (age will be calculated automatically)",
-                key="birth_year_input"
+            # Direct age input
+            age = st.number_input(
+                "Current Age",
+                min_value=18,
+                max_value=90,
+                value=st.session_state.age,
+                help="Your current age in years",
+                key="age_input"
             )
-            st.session_state.birth_year = birth_year
-            age = current_year - birth_year
-            st.info(f"📅 **Current Age**: {age} years old")
+            st.session_state.age = age
 
             retirement_age = st.number_input(
                 "Target Retirement Age",
@@ -1656,9 +1674,9 @@ if st.session_state.current_page == 'onboarding':
                 # Track step 1 completed
                 track_onboarding_step_completed(
                     1,
-                    age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
+                    age_range=get_age_range(st.session_state.age),
                     retirement_age=st.session_state.retirement_age,
-                    years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
+                    years_to_retirement=st.session_state.retirement_age - st.session_state.age,
                     goal_range=get_goal_range(st.session_state.retirement_income_goal)
                 )
                 st.session_state.onboarding_step = 2
@@ -2941,12 +2959,9 @@ elif st.session_state.current_page == 'results':
     # Fixed Facts Section (non-editable baseline data)
     with st.expander("📋 Your Baseline Information (from setup)", expanded=False):
         col1, col2, col3 = st.columns(3)
-        current_year = datetime.now().year
-        baseline_age = current_year - st.session_state.birth_year
 
         with col1:
-            st.metric("Birth Year", st.session_state.birth_year)
-            st.metric("Current Age", f"{baseline_age} years")
+            st.metric("Current Age", f"{st.session_state.age} years")
         with col2:
             st.metric("Retirement Age (Baseline)", st.session_state.baseline_retirement_age)
             st.metric("Life Expectancy (Baseline)", st.session_state.baseline_life_expectancy)
@@ -3056,8 +3071,7 @@ elif st.session_state.current_page == 'results':
     st.markdown("---")
 
     # Calculate values from what-if session state for results
-    current_year = datetime.now().year
-    age = current_year - st.session_state.birth_year
+    age = st.session_state.age
     retirement_age = st.session_state.whatif_retirement_age
     life_expectancy = st.session_state.whatif_life_expectancy
     retirement_income_goal = st.session_state.whatif_retirement_income_goal
@@ -3089,6 +3103,21 @@ elif st.session_state.current_page == 'results':
 
         # Adjust after-tax balance for life expenses
         total_after_tax_original = result['Total After-Tax Balance']
+
+        # Validate life expenses don't exceed portfolio balance
+        if life_expenses > total_after_tax_original:
+            st.error(f"""
+            ⚠️ **Life Expenses Exceed Portfolio Balance**
+
+            Your one-time life expenses at retirement (**${life_expenses:,.0f}**) exceed
+            your projected after-tax portfolio balance (**${total_after_tax_original:,.0f}**).
+
+            Please either:
+            - Reduce life expenses, or
+            - Adjust your portfolio contributions/retirement age to build a larger balance
+            """)
+            st.stop()
+
         total_after_tax = total_after_tax_original - life_expenses
 
         # Key metrics in a prominent container
@@ -3118,6 +3147,18 @@ elif st.session_state.current_page == 'results':
 
         # Calculate retirement income from portfolio (using adjusted balance)
         years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
+
+        # Validate years in retirement
+        if years_in_retirement <= 0:
+            st.error(f"""
+            ⚠️ **Invalid Retirement Period**
+
+            Your life expectancy (**{life_expectancy}**) must be greater than
+            your retirement age (**{retirement_age}**).
+
+            Please adjust these values in the sliders above.
+            """)
+            st.stop()
 
         # Calculate inflation-adjusted annual withdrawal with portfolio growth
         # This uses the inflation-adjusted annuity formula:
@@ -3861,10 +3902,8 @@ elif st.session_state.current_page == 'monte_carlo':
             )
 
             # Prepare inputs for simulation
-            current_year_mc = datetime.now().year
-
             simulation_inputs = UserInputs(
-                age=current_year_mc - st.session_state.birth_year,
+                age=st.session_state.age,
                 retirement_age=int(st.session_state.whatif_retirement_age),
                 life_expectancy=int(st.session_state.whatif_life_expectancy),
                 annual_income=0.0,
