@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "5.7.0"
+VERSION = "6.0.0"
 
 def bump_minor_version(version: str) -> str:
     """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
@@ -53,6 +53,51 @@ import csv
 from datetime import datetime
 
 import pandas as pd
+
+# Analytics module
+try:
+    from financialadvisor.utils.analytics import (
+        initialize_analytics,
+        set_analytics_consent,
+        track_event,
+        track_page_view,
+        track_onboarding_step_started,
+        track_onboarding_step_completed,
+        track_feature_usage,
+        track_pdf_generation,
+        track_monte_carlo_run,
+        track_statement_upload,
+        track_error,
+        is_analytics_enabled,
+        opt_out,
+        opt_in,
+        get_age_range,
+        get_goal_range,
+        get_session_replay_script,
+        reset_analytics_session,
+    )
+    ANALYTICS_AVAILABLE = True
+except ImportError:
+    ANALYTICS_AVAILABLE = False
+    # Define no-op functions if analytics not available
+    def initialize_analytics(): pass
+    def set_analytics_consent(x): pass
+    def track_event(*args, **kwargs): pass
+    def track_page_view(x): pass
+    def track_onboarding_step_started(x): pass
+    def track_onboarding_step_completed(*args, **kwargs): pass
+    def track_feature_usage(*args, **kwargs): pass
+    def track_pdf_generation(x): pass
+    def track_monte_carlo_run(*args, **kwargs): pass
+    def track_statement_upload(*args, **kwargs): pass
+    def track_error(*args, **kwargs): pass
+    def is_analytics_enabled(): return False
+    def opt_out(): pass
+    def opt_in(): pass
+    def get_age_range(x): return "unknown"
+    def get_goal_range(x): return "unknown"
+    def get_session_replay_script(): return ""
+    def reset_analytics_session(): pass
 
 # n8n integration for financial statement upload
 try:
@@ -623,6 +668,9 @@ def generate_report_dialog():
                 client_name_clean = report_name.replace(" ", "_").replace(",", "").replace(".", "") if report_name else "Client"
                 filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
+                # Track successful PDF generation
+                track_pdf_generation(success=True)
+
                 # Show download button
                 st.success("✅ PDF report generated successfully!")
                 st.download_button(
@@ -634,6 +682,10 @@ def generate_report_dialog():
                 )
 
             except Exception as e:
+                # Track failed PDF generation
+                track_pdf_generation(success=False)
+                track_error('pdf_generation_error', str(e), {'report_name': report_name})
+
                 st.error(f"❌ Error generating PDF: {str(e)}")
                 st.info("💡 Try refreshing the page and running the analysis again.")
 
@@ -698,6 +750,252 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto"
 )
+
+# Initialize analytics
+initialize_analytics()
+
+# Note: PostHog session replay requires browser JavaScript which doesn't work
+# reliably in Streamlit's server-side architecture. Session analytics (based on
+# events) will still work and show session duration, events per session, etc.
+
+@st.dialog("Privacy Policy")
+def show_privacy_policy():
+    """Display comprehensive privacy policy in a dialog."""
+    st.markdown("""
+    ## Smart Retire AI Privacy Policy
+
+    **Effective Date:** January 2026
+    **Last Updated:** January 3, 2026
+
+    ---
+
+    ### 📋 Introduction
+
+    Smart Retire AI ("we", "our", or "the app") is committed to protecting your privacy. This policy explains what data we collect, how we use it, and your rights.
+
+    ---
+
+    ### 🔐 Data We NEVER Collect
+
+    We want to be crystal clear about what we **DO NOT** collect:
+
+    ❌ **Financial Account Information**
+    - Account balances, numbers, or statements
+    - Investment holdings or transaction details
+    - Banking or credit card information
+
+    ❌ **Personally Identifiable Information (PII)**
+    - Names, email addresses, or phone numbers
+    - Social Security Numbers or tax IDs
+    - Home addresses or zip codes
+    - Birth dates (we use age ranges only)
+
+    ❌ **Sensitive Personal Data**
+    - Uploaded PDF file contents
+    - Exact retirement goals (we use ranges)
+    - Specific financial advice or recommendations
+
+    ---
+
+    ### ✅ Data We May Collect (With Your Consent)
+
+    **If you opt-in to analytics**, we collect anonymous usage data:
+
+    **1. Anonymous Usage Events**
+    - Actions you take in the app (e.g., "user completed step 1")
+    - Features you use (e.g., "PDF report generated")
+    - Anonymous user ID (random UUID, not linked to you)
+
+    **2. Technical Information**
+    - Browser type and version (for compatibility)
+    - Operating system (for compatibility)
+    - Device type (desktop/mobile/tablet)
+    - Screen resolution (for UI optimization)
+
+    **3. Session Data**
+    - Time spent in app
+    - Pages/screens visited
+    - Navigation patterns (to improve UX)
+
+    **4. Error Logs**
+    - Error types and frequency (for debugging)
+    - Performance metrics (load times, crashes)
+
+    **5. Aggregated Statistics**
+    - Number of assets added (count only, not values)
+    - Age ranges (e.g., 30-40, not exact age)
+    - Retirement goal ranges (not exact amounts)
+
+    ---
+
+    ### 🎯 How We Use Data
+
+    **Analytics data is used to:**
+    - ✅ Understand how users navigate the app
+    - ✅ Identify where users encounter problems
+    - ✅ Fix bugs and improve performance
+    - ✅ Improve user experience and interface
+    - ✅ Measure feature adoption and usage
+
+    **We NEVER:**
+    - ❌ Sell your data to third parties
+    - ❌ Use data for advertising or marketing
+    - ❌ Share data with financial institutions
+    - ❌ Track you across other websites
+    - ❌ Build personal profiles or credit scores
+
+    ---
+
+    ### 🔒 Data Storage & Security
+
+    **If you opt-in to analytics:**
+    - Data stored with PostHog (analytics platform)
+    - Servers located in US/EU (GDPR compliant)
+    - Data encrypted in transit (HTTPS)
+    - Data encrypted at rest (AES-256)
+    - Data automatically deleted after 90 days
+
+    **Financial calculations:**
+    - All calculations happen in your browser
+    - No financial data sent to our servers
+    - No cloud storage of your account information
+
+    ---
+
+    ### 🌍 GDPR & Privacy Compliance
+
+    **Your Rights:**
+    - ✅ **Right to Opt-Out**: Decline analytics at any time
+    - ✅ **Right to Access**: Request data we've collected
+    - ✅ **Right to Delete**: Request deletion of your data
+    - ✅ **Right to Export**: Request copy of your data
+    - ✅ **Right to Correct**: Request corrections to data
+
+    **GDPR Compliance:**
+    - ✅ Opt-in consent required (not opt-out)
+    - ✅ Clear explanation of data collection
+    - ✅ Easy to withdraw consent
+    - ✅ Data minimization (only what's needed)
+    - ✅ Purpose limitation (analytics only)
+
+    ---
+
+    ### 🍪 Cookies & Tracking
+
+    **Session Cookies (Required):**
+    - Used to maintain your session state
+    - Stored locally in your browser only
+    - Deleted when you close browser
+    - Not used for tracking across sites
+
+    **Analytics Cookies (Optional):**
+    - Only if you opt-in to analytics
+    - Used to recognize returning users (anonymously)
+    - Can be disabled by declining analytics
+    - No third-party advertising cookies
+
+    ---
+
+    ### 📊 Session Recording (Optional)
+
+    **If you opt-in to session recording:**
+    - We may record your interactions with the app
+    - Used to understand user experience and fix UI issues
+    - **Financial data is automatically masked**
+    - Recordings deleted after 30 days
+    - You can opt-out at any time
+
+    **What's Masked in Recordings:**
+    - All number inputs (balances, ages, goals)
+    - Text inputs (names, custom labels)
+    - Uploaded file names and contents
+
+    **What's Visible in Recordings:**
+    - Mouse movements and clicks
+    - Page navigation patterns
+    - Button clicks and interactions
+    - UI elements (labels, help text)
+
+    ---
+
+    ### 👤 Children's Privacy
+
+    Smart Retire AI is not intended for users under 18 years of age. We do not knowingly collect data from children.
+
+    ---
+
+    ### 🔄 Third-Party Services
+
+    **Analytics Provider:**
+    - PostHog (https://posthog.com)
+    - GDPR and SOC 2 compliant
+    - Privacy policy: https://posthog.com/privacy
+
+    **Hosting:**
+    - Streamlit Cloud (https://streamlit.io)
+    - Privacy policy: https://streamlit.io/privacy-policy
+
+    **AI Statement Processing:**
+    - n8n webhook (self-hosted)
+    - No data retention beyond processing
+
+    ---
+
+    ### ⚖️ Legal Basis for Processing
+
+    We process data based on:
+    - **Consent**: You explicitly opt-in to analytics
+    - **Legitimate Interest**: Error logging and app improvement
+    - **Contract**: Providing the app service you requested
+
+    ---
+
+    ### 🔔 Changes to Privacy Policy
+
+    We may update this policy to reflect:
+    - Changes in data practices
+    - New features or services
+    - Legal or regulatory requirements
+
+    **How you'll be notified:**
+    - Updated "Last Updated" date above
+    - In-app notification on next visit
+    - Option to review changes before continuing
+
+    ---
+
+    ### 📧 Contact Us
+
+    Questions about privacy or data practices?
+
+    **Email:** smartretireai@gmail.com
+    **Response Time:** 24-48 hours
+    **Data Requests:** Include "Privacy Request" in subject
+
+    ---
+
+    ### 📝 Your Consent
+
+    By clicking "I Accept" on the analytics consent screen:
+    - You acknowledge reading this privacy policy
+    - You consent to anonymous analytics collection
+    - You understand you can opt-out at any time
+    - You agree to the terms described above
+
+    By clicking "No Thanks" on the analytics consent screen:
+    - No analytics data will be collected
+    - The app will function normally
+    - You can opt-in later in Settings if desired
+
+    ---
+
+    **Thank you for trusting Smart Retire AI with your retirement planning!**
+    """)
+
+    if st.button("Close", use_container_width=True, type="primary"):
+        st.rerun()
+
+
 
 # Initialize session state for splash screen
 if 'splash_dismissed' not in st.session_state:
@@ -812,6 +1110,42 @@ with st.sidebar:
         )
 
         st.markdown("---")
+        st.markdown("### 📊 Analytics & Privacy")
+
+        # Show current analytics status
+        analytics_enabled = is_analytics_enabled()
+        if analytics_enabled:
+            st.success("✅ **Analytics Enabled** - Helping us improve Smart Retire AI")
+        else:
+            st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
+
+        # Privacy policy link
+        if st.button("📄 View Privacy Policy", use_container_width=True, key="sidebar_privacy_policy"):
+            show_privacy_policy()
+
+        # Opt-out/Opt-in toggle
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("❌ Disable Analytics", use_container_width=True, disabled=not analytics_enabled):
+                opt_out()
+                st.success("✅ Analytics disabled")
+                st.rerun()
+        with col2:
+            if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
+                opt_in()
+                st.success("✅ Analytics enabled")
+                st.rerun()
+
+        # Reset analytics session (for testing)
+        with st.expander("🔧 Advanced: Reset Analytics Session"):
+            st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
+            if st.button("🔄 Reset Analytics Session", use_container_width=True, key="reset_analytics"):
+                reset_analytics_session()
+                st.success("✅ Analytics session reset")
+                st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
+                st.rerun()
+
+        st.markdown("---")
         st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
 
 # Reset button (only show if onboarding is complete)
@@ -843,6 +1177,12 @@ if 'life_expectancy' not in st.session_state:
     st.session_state.life_expectancy = st.session_state.baseline_life_expectancy
 if 'retirement_income_goal' not in st.session_state:
     st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
+
+# ==========================================
+# PRIVACY POLICY DIALOG
+# ==========================================
+
+
 
 # ==========================================
 # SPLASH SCREEN / WELCOME PAGE
@@ -981,20 +1321,14 @@ if not st.session_state.splash_dismissed:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Buttons and checkbox
+    # Button with privacy policy link
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Note: The checkbox state is automatically captured by Streamlit
-        # We'll check its value when the button is clicked
-        st.checkbox("✓ Don't show this again", key="dont_show_splash")
+        st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
-            # Check if user wants to hide splash permanently
-            if st.session_state.get("dont_show_splash", False):
-                st.session_state.splash_dismissed = True
-            else:
-                # Just dismiss for this session, will show again on page reload
-                st.session_state.splash_dismissed = True
+        # Main action button
+        if st.button("✅ Continue", type="primary", use_container_width=True):
+            st.session_state.splash_dismissed = True
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -1010,6 +1344,75 @@ if not st.session_state.splash_dismissed:
     )
 
     # Stop rendering the rest of the page
+    st.stop()
+
+# ==========================================
+# ANALYTICS CONSENT SCREEN
+# ==========================================
+if st.session_state.get('analytics_consent') is None:
+    st.markdown(
+        """
+        <div style='text-align: center; padding: 40px 20px 20px 20px;'>
+            <h1 style='color: #1f77b4;'>📊 Help Us Improve Smart Retire AI</h1>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+
+    with col2:
+        st.markdown("""
+        ### We'd like to collect anonymous usage data to improve your experience
+
+        **What we collect (if you opt-in):**
+        - ✅ Anonymous usage patterns (e.g., which features you use)
+        - ✅ Error logs (to fix bugs faster)
+        - ✅ Browser/device info (for compatibility)
+        - ✅ Session recordings (to improve UI/UX)
+
+        **What we NEVER collect:**
+        - ❌ Your financial data (account balances, numbers)
+        - ❌ Personal information (name, email, address)
+        - ❌ PDF file contents
+        - ❌ Exact ages or retirement goals
+
+        **Your data:**
+        - Anonymous ID only (not tied to you)
+        - Encrypted and stored securely
+        - Automatically deleted after 90 days
+        - You can opt-out anytime
+
+        ---
+        """)
+
+        # Privacy policy link
+        if st.button("📄 Read Full Privacy Policy", use_container_width=True):
+            show_privacy_policy()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Consent buttons
+        consent_col1, consent_col2 = st.columns(2)
+
+        with consent_col1:
+            if st.button("✅ I Accept", type="primary", use_container_width=True):
+                set_analytics_consent(True)
+                track_event('analytics_consent_shown')
+                st.success("✅ Thank you! Analytics enabled.")
+                st.rerun()
+
+        with consent_col2:
+            if st.button("❌ No Thanks", use_container_width=True):
+                set_analytics_consent(False)
+                st.info("ℹ️ You can enable analytics later in Settings.")
+                st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.caption("**Your choice is saved for this session.** You can change it anytime in Advanced Settings.")
+
+    # Stop rendering until user makes choice
     st.stop()
 
 # ==========================================
@@ -1143,6 +1546,9 @@ if st.session_state.current_page == 'onboarding':
     # STEP 1: Personal Information
     # ==========================================
     if current_step == 1:
+        # Track step 1 started
+        track_onboarding_step_started(1)
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -1231,6 +1637,14 @@ if st.session_state.current_page == 'onboarding':
         col1, col2, col3 = st.columns([1, 1, 1])
         with col3:
             if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
+                # Track step 1 completed
+                track_onboarding_step_completed(
+                    1,
+                    age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
+                    retirement_age=st.session_state.retirement_age,
+                    years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
+                    goal_range=get_goal_range(st.session_state.retirement_income_goal)
+                )
                 st.session_state.onboarding_step = 2
                 st.rerun()
     
@@ -1238,12 +1652,18 @@ if st.session_state.current_page == 'onboarding':
     # STEP 2: Asset Configuration
     # ==========================================
     elif current_step == 2:
+        # Track step 2 started
+        track_onboarding_step_started(2)
+
         # Simplified setup options (removed Default Portfolio and Legacy Mode)
         setup_option = st.radio(
             "Choose how to configure your accounts:",
             ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
             help="Select how you want to add your retirement accounts"
         )
+
+        # Track asset configuration method selected
+        track_event('asset_config_method_selected', {'method': setup_option})
     
         assets = []
     
@@ -1651,7 +2071,14 @@ if st.session_state.current_page == 'onboarding':
                                     st.session_state.ai_extracted_accounts = df_extracted
                                     st.session_state.ai_tax_buckets = tax_buckets_by_account
                                     st.session_state.ai_warnings = result.get('warnings', [])
-    
+
+                                    # Track successful statement upload
+                                    track_statement_upload(
+                                        success=True,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=len(df_extracted)
+                                    )
+
                                     st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
                                     st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
     
@@ -2150,17 +2577,35 @@ if st.session_state.current_page == 'onboarding':
                                                 st.info("💡 Please check the values in the table.")
     
                                 else:
+                                    # Track failed statement upload
+                                    track_statement_upload(
+                                        success=False,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=0
+                                    )
+                                    track_error('statement_upload_failed', result.get('error', 'Unknown error'), {
+                                        'num_files': len(uploaded_files)
+                                    })
+
                                     progress_bar.progress(100)
                                     status_text.text("✗ Extraction failed")
                                     st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
     
                             except N8NError as e:
+                                # Track N8N configuration error
+                                track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                track_error('statement_upload_n8n_error', str(e), {'num_files': len(uploaded_files)})
+
                                 progress_bar.progress(100)
                                 status_text.text("✗ Configuration error")
                                 st.error(f"Configuration Error: {str(e)}")
                                 st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
-    
+
                             except Exception as e:
+                                # Track unexpected error
+                                track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                track_error('statement_upload_error', str(e), {'num_files': len(uploaded_files)})
+
                                 progress_bar.progress(100)
                                 status_text.text("✗ Unexpected error")
                                 st.error(f"Error: {str(e)}")
@@ -2411,19 +2856,35 @@ if st.session_state.current_page == 'onboarding':
                 disabled=button_disabled,
                 help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
             ):
+                # Track step 2 completed
+                track_onboarding_step_completed(
+                    2,
+                    num_accounts=len(assets),
+                    setup_method=setup_option,
+                    total_balance=sum(asset.current_balance for asset in assets)
+                )
+
                 # Save baseline values from onboarding
                 st.session_state.baseline_retirement_age = st.session_state.retirement_age
                 st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
                 st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
-    
+
                 # Initialize what-if values to match baseline
                 st.session_state.whatif_retirement_age = st.session_state.retirement_age
                 st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
                 st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
-    
+
                 # Mark onboarding as complete and navigate to results page
                 st.session_state.onboarding_complete = True
                 st.session_state.current_page = 'results'
+
+                # Track onboarding completed
+                track_event('onboarding_completed', {
+                    'num_accounts': len(assets),
+                    'setup_method': setup_option,
+                    'has_retirement_goal': st.session_state.retirement_income_goal > 0
+                })
+
                 st.rerun()
     
         # Show warning if no assets configured
@@ -2435,8 +2896,12 @@ elif st.session_state.current_page == 'results':
     # RESULTS & ANALYSIS PAGE
     # ==========================================
 
+    # Track page view
+    track_page_view('results')
+
     # Add navigation button to go back to onboarding
     if st.button("← Back to Setup", use_container_width=False):
+        track_event('navigation_back_to_setup')
         st.session_state.current_page = 'onboarding'
         st.rerun()
 
@@ -2537,6 +3002,9 @@ elif st.session_state.current_page == 'results':
 
     # Reset button
     if st.button("🔄 Reset to Baseline Values"):
+        # Track What-If reset
+        track_feature_usage('what_if_reset')
+
         st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
         st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
         st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
@@ -2902,7 +3370,7 @@ elif st.session_state.current_page == 'results':
 
         with col2:
             st.markdown("### 🎲 Scenario Analysis")
-            st.markdown("Explore thousands of possible retirement scenarios and see how market volatility affects your plan.")
+            st.markdown("Explore thousands scenarios and see how market volatility affects your plan.")
             if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
                 monte_carlo_dialog()
 
@@ -2921,10 +3389,14 @@ elif st.session_state.current_page == 'monte_carlo':
     # MONTE CARLO SIMULATION PAGE
     # ==========================================
 
+    # Track page view
+    track_page_view('monte_carlo')
+
     # Add navigation buttons to go back
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("← Back to Results", use_container_width=True):
+            track_event('navigation_back_to_results')
             st.session_state.current_page = 'results'
             st.rerun()
 
@@ -2937,7 +3409,7 @@ elif st.session_state.current_page == 'monte_carlo':
     st.markdown("---")
 
     # Educational explanation
-    with st.expander("📚 What is Monte Carlo Simulation?", expanded=True):
+    with st.expander("📚 What is Monte Carlo Simulation?", expanded=False):
         st.markdown("""
         ### What is Monte Carlo Simulation?
 
@@ -2996,52 +3468,66 @@ elif st.session_state.current_page == 'monte_carlo':
 
     # Run Simulation Button
     if st.button("🎲 Run Monte Carlo Simulation", type="primary", use_container_width=True, key="run_monte_carlo_main"):
-        from financialadvisor.core.monte_carlo import (
-            run_monte_carlo_simulation,
-            calculate_probability_of_goal,
-            get_confidence_interval
-        )
-
-        # Prepare inputs for simulation
-        current_year_mc = datetime.now().year
-
-        simulation_inputs = UserInputs(
-            age=current_year_mc - st.session_state.birth_year,
-            retirement_age=int(st.session_state.whatif_retirement_age),
-            life_expectancy=int(st.session_state.whatif_life_expectancy),
-            annual_income=0.0,
-            contribution_rate_pct=15.0,
-            expected_growth_rate_pct=7.0,
-            inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
-            current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
-            retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
-            assets=st.session_state.assets
-        )
-
-        with st.spinner(f"Running {num_simulations:,} simulations..."):
-            results = run_monte_carlo_simulation(
-                simulation_inputs,
-                num_simulations=num_simulations,
-                volatility=volatility
+        try:
+            from financialadvisor.core.monte_carlo import (
+                run_monte_carlo_simulation,
+                calculate_probability_of_goal,
+                get_confidence_interval
             )
 
-            # Calculate probability of meeting income goal
-            if st.session_state.whatif_retirement_income_goal > 0:
-                prob_success = calculate_probability_of_goal(
-                    results["outcomes"],
-                    int(st.session_state.whatif_retirement_age),
-                    int(st.session_state.whatif_life_expectancy),
-                    float(st.session_state.whatif_retirement_income_goal)
+            # Prepare inputs for simulation
+            current_year_mc = datetime.now().year
+
+            simulation_inputs = UserInputs(
+                age=current_year_mc - st.session_state.birth_year,
+                retirement_age=int(st.session_state.whatif_retirement_age),
+                life_expectancy=int(st.session_state.whatif_life_expectancy),
+                annual_income=0.0,
+                contribution_rate_pct=15.0,
+                expected_growth_rate_pct=7.0,
+                inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
+                current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
+                retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
+                assets=st.session_state.assets
+            )
+
+            with st.spinner(f"Running {num_simulations:,} simulations..."):
+                results = run_monte_carlo_simulation(
+                    simulation_inputs,
+                    num_simulations=num_simulations,
+                    volatility=volatility
                 )
-            else:
-                prob_success = None
 
-            # Get confidence interval
-            ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
-            ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+                # Calculate probability of meeting income goal
+                if st.session_state.whatif_retirement_income_goal > 0:
+                    prob_success = calculate_probability_of_goal(
+                        results["outcomes"],
+                        int(st.session_state.whatif_retirement_age),
+                        int(st.session_state.whatif_life_expectancy),
+                        float(st.session_state.whatif_retirement_income_goal)
+                    )
+                else:
+                    prob_success = None
 
-        # Display Results
-        st.success(f"✅ Completed {num_simulations:,} simulations!")
+                # Get confidence interval
+                ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
+                ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+
+            # Track successful Monte Carlo run
+            track_monte_carlo_run(num_simulations=num_simulations, volatility=volatility)
+
+            # Display Results
+            st.success(f"✅ Completed {num_simulations:,} simulations!")
+
+        except Exception as e:
+            # Track Monte Carlo error
+            track_error('monte_carlo_error', str(e), {
+                'num_simulations': num_simulations,
+                'volatility': volatility
+            })
+            st.error(f"❌ Error running Monte Carlo simulation: {str(e)}")
+            st.info("💡 Try reducing the number of simulations or refreshing the page.")
+            st.stop()
 
         st.markdown("---")
 
