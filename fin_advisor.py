@@ -3152,16 +3152,143 @@ elif st.session_state.current_page == 'results':
                 expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
             else:
                 expander_title = "💡 Income Optimization Recommendations"
-    
+
             with st.expander(expander_title, expanded=False):
                 if income_shortfall > 0:
+                    # Calculate required after-tax balance to meet income goal
+                    required_after_tax_balance = retirement_income_goal * years_in_retirement
+                    additional_balance_needed = required_after_tax_balance - total_after_tax
+
+                    # Helper function to calculate required contribution increase (NPV-based)
+                    def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed):
+                        """Calculate additional annual contribution needed using NPV formula.
+
+                        For each asset, we need to solve for additional contribution C:
+                        FV_needed = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
+
+                        Rearranging: C_additional = [FV_needed - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
+                        """
+                        total_additional_contribution = 0
+
+                        for asset in assets:
+                            r = asset.growth_rate_pct / 100.0
+                            years = years_to_retirement
+
+                            if r == 0 or years == 0:
+                                continue
+
+                            # Current asset projection
+                            growth_factor = (1.0 + r) ** years
+                            current_fv = asset.current_balance * growth_factor + asset.annual_contribution * ((growth_factor - 1.0) / r)
+
+                            # We need to distribute additional_balance_needed proportionally
+                            # For simplicity, calculate what total contribution would be needed
+                            # This is a simplified approach - more complex would consider tax efficiency
+
+                        # Simplified calculation: assume additional balance grows at weighted avg rate
+                        weighted_avg_rate = 0
+                        total_balance = sum(a.current_balance for a in assets)
+                        if total_balance > 0:
+                            for asset in assets:
+                                weight = asset.current_balance / total_balance
+                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                        else:
+                            weighted_avg_rate = 0.07  # default 7%
+
+                        # Solve for additional contribution using future value of annuity formula
+                        # FV = C * [((1+r)^t - 1)/r]
+                        # C = FV / [((1+r)^t - 1)/r]
+                        if weighted_avg_rate > 0 and years_to_retirement > 0:
+                            growth_factor = (1.0 + weighted_avg_rate) ** years_to_retirement
+                            annuity_factor = (growth_factor - 1.0) / weighted_avg_rate
+                            total_additional_contribution = additional_balance_needed / annuity_factor
+                        else:
+                            total_additional_contribution = additional_balance_needed / max(years_to_retirement, 1)
+
+                        return total_additional_contribution, weighted_avg_rate * 100
+
+                    # Helper function to calculate additional years needed (NPV-based)
+                    def calculate_additional_years(assets, current_age, retirement_age, additional_balance_needed):
+                        """Calculate additional years needed to work using NPV formula.
+
+                        Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
+                        This requires numerical solution (binary search or Newton's method)
+                        """
+                        import math
+
+                        # Calculate weighted average growth rate and total current contributions
+                        weighted_avg_rate = 0
+                        total_current_contribution = 0
+                        total_balance = sum(a.current_balance for a in assets)
+
+                        if total_balance > 0:
+                            for asset in assets:
+                                weight = asset.current_balance / total_balance
+                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                                total_current_contribution += asset.annual_contribution
+                        else:
+                            weighted_avg_rate = 0.07
+                            total_current_contribution = sum(a.annual_contribution for a in assets)
+
+                        # Current projection data
+                        total_current_balance = total_balance
+                        current_years_to_retirement = retirement_age - current_age
+
+                        # We need to find additional years such that the new FV meets the requirement
+                        # Use binary search to solve for years
+                        def calculate_fv(years, principal, contribution, rate):
+                            if rate == 0:
+                                return principal + contribution * years
+                            growth = (1.0 + rate) ** years
+                            return principal * growth + contribution * ((growth - 1.0) / rate)
+
+                        # Current FV (what we have with current retirement age)
+                        current_fv = calculate_fv(current_years_to_retirement, total_current_balance,
+                                                  total_current_contribution, weighted_avg_rate)
+
+                        # Target FV (what we need)
+                        target_fv = current_fv + additional_balance_needed
+
+                        # Binary search for years needed
+                        years_needed = current_years_to_retirement
+                        for additional_years in range(0, 50):  # max 50 additional years
+                            test_years = current_years_to_retirement + additional_years
+                            test_fv = calculate_fv(test_years, total_current_balance,
+                                                  total_current_contribution, weighted_avg_rate)
+                            if test_fv >= target_fv:
+                                years_needed = test_years
+                                break
+
+                        additional_years_needed = years_needed - current_years_to_retirement
+                        return additional_years_needed, weighted_avg_rate * 100
+
+                    # Calculate recommendations
+                    years_to_retirement = retirement_age - age
+                    additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
+                        inputs.assets, years_to_retirement, additional_balance_needed
+                    )
+                    additional_years, avg_growth_rate_2 = calculate_additional_years(
+                        inputs.assets, age, retirement_age, additional_balance_needed
+                    )
+
                     st.markdown(f"""
                     **To close the ${income_shortfall:,.0f} annual shortfall:**
-    
-                    1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
-                    2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
+
+                    1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
+                       - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
+                       - Required total after-tax balance: ${required_after_tax_balance:,.0f}
+                       - Uses NPV formula with present value (current balances) and future value (required balance)
+
+                    2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {retirement_age + additional_years:.0f})
+                       - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
+                       - Required total after-tax balance: ${required_after_tax_balance:,.0f}
+                       - Uses NPV formula solving for number of periods with current contributions
+
                     3. **Optimize asset allocation**: Consider higher-growth investments
-                    4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
+
+                    4. **Reduce retirement expenses**: Lower your income goal by **${income_shortfall:,.0f}** to ${retirement_income_goal - income_shortfall:,.0f}/year
+                       - This would completely eliminate your income gap
+
                     5. **Consider part-time work**: Supplement retirement income
                     """)
                 else:
