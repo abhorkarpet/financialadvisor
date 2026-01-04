@@ -2993,22 +2993,17 @@ elif st.session_state.current_page == 'results':
             help="Target annual income in retirement (0 = no goal set)"
         )
 
-        whatif_retirement_tax_rate = st.slider(
-            "Retirement Tax Rate (%)",
+        whatif_life_expenses = st.number_input(
+            "One-Time Life Expenses at Retirement ($)",
             min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement (used to calculate after-tax balance)"
+            max_value=10000000,
+            value=st.session_state.whatif_life_expenses,
+            step=10000,
+            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
         )
 
     with col3:
-        whatif_inflation_rate = st.slider(
-            "Inflation Rate (%)",
-            min_value=0,
-            max_value=10,
-            value=st.session_state.whatif_inflation_rate,
-            help="Expected long-term inflation rate"
-        )
+        whatif_inflation_rate = 3
 
         whatif_retirement_growth_rate = st.slider(
             "Portfolio Growth in Retirement (%)",
@@ -3019,14 +3014,14 @@ elif st.session_state.current_page == 'results':
             help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
         )
 
-        whatif_life_expenses = st.number_input(
-            "One-Time Life Expenses at Retirement ($)",
+        whatif_retirement_tax_rate = st.slider(
+            "Retirement Tax Rate (%)",
             min_value=0,
-            max_value=10000000,
-            value=st.session_state.whatif_life_expenses,
-            step=10000,
-            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
+            max_value=50,
+            value=st.session_state.whatif_retirement_tax_rate,
+            help="Expected tax rate in retirement (used to calculate after-tax balance)"
         )
+
 
     # Update session state with current widget values
     st.session_state.whatif_retirement_age = whatif_retirement_age
