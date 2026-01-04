@@ -3273,28 +3273,6 @@ elif st.session_state.current_page == 'results':
             - Purchasing power stays constant (adjusts for inflation)
 
             ---
-
-            ### Comparison to Simple Division Method:
-
-            **Old Method (overly conservative):**
-            ```
-            Annual Income = ${total_after_tax:,.0f} / {n} years = ${total_after_tax / n:,.0f}/year
-            ```
-            - Assumes 0% growth during retirement
-            - Ignores inflation adjustments
-            - Significantly understates sustainable income
-
-            **New Method (realistic):**
-            ```
-            Annual Income = ${annual_retirement_income:,.0f}/year (first year)
-            ```
-            - Accounts for {retirement_growth_rate:.1f}% portfolio growth
-            - Increases {inflation_rate}% annually with inflation
-            - More accurate representation of sustainable withdrawals
-            - **Difference: {((annual_retirement_income / (total_after_tax / n)) - 1) * 100:+.1f}%**
-
-            ---
-
             ### Why This Matters:
 
             Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
