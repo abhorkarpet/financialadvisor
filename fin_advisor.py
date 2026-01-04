@@ -3198,7 +3198,122 @@ elif st.session_state.current_page == 'results':
                 )
             with col2:
                 st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
-    
+
+        # Explanation of retirement income calculation
+        with st.expander("📊 How Is Retirement Income Calculated?", expanded=False):
+            st.markdown(f"""
+            ### Inflation-Adjusted Annuity Calculation
+
+            Your projected retirement income accounts for:
+            1. **Portfolio continuing to grow** during retirement ({retirement_growth_rate:.1f}% annually)
+            2. **Withdrawals increasing** with inflation ({inflation_rate}% annually)
+            3. Portfolio depleting to approximately $0 at end of retirement period
+
+            **Formula Used:**
+            ```
+            Annual Income = Portfolio Balance × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+            ```
+
+            Where:
+            - **Portfolio Balance** = ${total_after_tax:,.0f} (after-tax, after life expenses)
+            - **r** (growth rate) = {retirement_growth_rate:.1f}% = {r:.4f}
+            - **i** (inflation rate) = {inflation_rate}% = {i:.4f}
+            - **n** (years) = {n} years (age {retirement_age} to {life_expectancy})
+
+            ---
+
+            ### Calculation Breakdown:
+
+            **Step 1:** Calculate the real growth rate (growth minus inflation)
+            ```
+            Real Growth Rate = {retirement_growth_rate:.1f}% - {inflation_rate}% = {(r-i)*100:.2f}%
+            ```
+
+            **Step 2:** Calculate the annuity factor
+            ```
+            Annuity Factor = [{r:.4f} - {i:.4f}] / [1 - ((1+{i:.4f})/(1+{r:.4f}))^{n}]
+                          = {r - i:.6f} / {1 - ((1+i)/(1+r))**n:.6f}
+                          = {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+            ```
+
+            **Step 3:** Calculate first year withdrawal
+            ```
+            Annual Income = ${total_after_tax:,.0f} × {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+                         = ${annual_retirement_income:,.0f}
+            ```
+
+            ---
+
+            ### What This Means:
+
+            **First 10 Years of Withdrawals** (inflation-adjusted):
+            """)
+
+            # Generate year-by-year withdrawal table
+            withdrawal_data = []
+            balance = total_after_tax
+            first_year_withdrawal = annual_retirement_income
+
+            for year in range(1, min(11, n+1)):
+                withdrawal = first_year_withdrawal * ((1 + i) ** (year - 1))
+                balance_before = balance
+                balance = balance * (1 + r) - withdrawal
+
+                withdrawal_data.append({
+                    "Year": year,
+                    "Age": retirement_age + year - 1,
+                    "Withdrawal": f"${withdrawal:,.0f}",
+                    "Start Balance": f"${balance_before:,.0f}",
+                    "End Balance": f"${max(0, balance):,.0f}"
+                })
+
+            import pandas as pd
+            df_withdrawals = pd.DataFrame(withdrawal_data)
+            st.dataframe(df_withdrawals, use_container_width=True, hide_index=True)
+
+            st.markdown(f"""
+            **Key Points:**
+            - Year 1 withdrawal: **${first_year_withdrawal:,.0f}**
+            - Year 10 withdrawal: **${first_year_withdrawal * ((1 + i) ** 9):,.0f}**
+            - Total over {n} years: **${first_year_withdrawal * sum([(1+i)**j for j in range(n)]):,.0f}**
+            - Purchasing power stays constant (adjusts for inflation)
+
+            ---
+
+            ### Comparison to Simple Division Method:
+
+            **Old Method (overly conservative):**
+            ```
+            Annual Income = ${total_after_tax:,.0f} / {n} years = ${total_after_tax / n:,.0f}/year
+            ```
+            - Assumes 0% growth during retirement
+            - Ignores inflation adjustments
+            - Significantly understates sustainable income
+
+            **New Method (realistic):**
+            ```
+            Annual Income = ${annual_retirement_income:,.0f}/year (first year)
+            ```
+            - Accounts for {retirement_growth_rate:.1f}% portfolio growth
+            - Increases {inflation_rate}% annually with inflation
+            - More accurate representation of sustainable withdrawals
+            - **Difference: {((annual_retirement_income / (total_after_tax / n)) - 1) * 100:+.1f}%**
+
+            ---
+
+            ### Why This Matters:
+
+            Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
+            diversified portfolios with conservative allocations (bonds, dividend stocks, etc.) that
+            continue growing during retirement. This calculation reflects that reality.
+
+            The {retirement_growth_rate:.1f}% growth rate is conservative for a balanced retirement portfolio,
+            and the inflation adjustments ensure your purchasing power remains constant throughout retirement.
+
+            **Note:** You can adjust the "Portfolio Growth in Retirement" rate in the What-If section above
+            to see how different investment strategies affect your retirement income.
+            """)
+
         # Recommendations based on income analysis (only if goal is set)
         if retirement_income_goal > 0:
             # Use actionable heading when there's a shortfall
