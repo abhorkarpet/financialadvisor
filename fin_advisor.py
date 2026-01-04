@@ -1181,6 +1181,8 @@ if 'whatif_retirement_tax_rate' not in st.session_state:
     st.session_state.whatif_retirement_tax_rate = 25
 if 'whatif_inflation_rate' not in st.session_state:
     st.session_state.whatif_inflation_rate = 3
+if 'whatif_life_expenses' not in st.session_state:
+    st.session_state.whatif_life_expenses = 0
 
 # Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
 if 'retirement_age' not in st.session_state:
@@ -3006,12 +3008,22 @@ elif st.session_state.current_page == 'results':
             help="Expected long-term inflation rate"
         )
 
+        whatif_life_expenses = st.number_input(
+            "One-Time Life Expenses at Retirement ($)",
+            min_value=0,
+            max_value=10000000,
+            value=st.session_state.whatif_life_expenses,
+            step=10000,
+            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
+        )
+
     # Update session state with current widget values
     st.session_state.whatif_retirement_age = whatif_retirement_age
     st.session_state.whatif_life_expectancy = whatif_life_expectancy
     st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
     st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
     st.session_state.whatif_inflation_rate = whatif_inflation_rate
+    st.session_state.whatif_life_expenses = whatif_life_expenses
 
     # Reset button
     if st.button("🔄 Reset to Baseline Values"):
@@ -3024,6 +3036,7 @@ elif st.session_state.current_page == 'results':
         st.session_state.whatif_current_tax_rate = 22
         st.session_state.whatif_retirement_tax_rate = 25
         st.session_state.whatif_inflation_rate = 3
+        st.session_state.whatif_life_expenses = 0
         st.rerun()
 
     st.markdown("---")
@@ -3037,6 +3050,7 @@ elif st.session_state.current_page == 'results':
     current_tax_rate = st.session_state.whatif_current_tax_rate
     retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
     inflation_rate = st.session_state.whatif_inflation_rate
+    life_expenses = st.session_state.whatif_life_expenses
     assets = st.session_state.assets
     
     try:
@@ -3058,6 +3072,10 @@ elif st.session_state.current_page == 'results':
         # Save result to session state for Next Steps dialogs
         st.session_state.last_result = result
 
+        # Adjust after-tax balance for life expenses
+        total_after_tax_original = result['Total After-Tax Balance']
+        total_after_tax = total_after_tax_original - life_expenses
+
         # Key metrics in a prominent container
         with st.container():
             st.subheader("🎯 Key Metrics")
@@ -3067,16 +3085,23 @@ elif st.session_state.current_page == 'results':
             with col2:
                 st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
             with col3:
-                st.metric("Total After-Tax Value", f"${result['Total After-Tax Balance']:,.0f}")
+                if life_expenses > 0:
+                    st.metric(
+                        "Total After-Tax Value",
+                        f"${total_after_tax:,.0f}",
+                        delta=f"-${life_expenses:,.0f} life expenses",
+                        delta_color="normal"
+                    )
+                else:
+                    st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
             with col4:
                 st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
 
         # Income Analysis Section
         st.markdown("---")
         st.subheader("💰 Retirement Income Analysis")
-    
-        # Calculate retirement income from portfolio
-        total_after_tax = result['Total After-Tax Balance']
+
+        # Calculate retirement income from portfolio (using adjusted balance)
         years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
         annual_retirement_income = total_after_tax / years_in_retirement
     
