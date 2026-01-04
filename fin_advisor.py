@@ -48,6 +48,7 @@ def bump_minor_version(version: str) -> str:
 
 # Streamlit import
 import streamlit as st
+import streamlit.components.v1 as components
 import io
 import csv
 from datetime import datetime
@@ -753,6 +754,17 @@ st.set_page_config(
 
 # Initialize analytics
 initialize_analytics()
+
+# Scroll to top on page changes
+# This ensures focus starts at top when navigating between pages
+components.html(
+    """
+    <script>
+        window.parent.document.querySelector('section.main').scrollTo(0, 0);
+    </script>
+    """,
+    height=0,
+)
 
 # Note: PostHog session replay requires browser JavaScript which doesn't work
 # reliably in Streamlit's server-side architecture. Session analytics (based on
