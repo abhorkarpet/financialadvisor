@@ -3325,7 +3325,18 @@ elif st.session_state.current_page == 'results':
             with st.expander(expander_title, expanded=False):
                 if income_shortfall > 0:
                     # Calculate required after-tax balance to meet income goal
-                    required_after_tax_balance = retirement_income_goal * years_in_retirement
+                    # Use INVERSE annuity formula to account for growth during retirement
+                    # PV = PMT × [(1 - ((1+i)/(1+r))^n) / (r - i)]
+
+                    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+                        # Simple multiplication when growth = inflation
+                        required_after_tax_balance = retirement_income_goal * n
+                    else:
+                        # Inverse annuity formula
+                        numerator = 1 - ((1 + i) / (1 + r)) ** n
+                        denominator = r - i
+                        required_after_tax_balance = retirement_income_goal * (numerator / denominator)
+
                     additional_balance_needed = required_after_tax_balance - total_after_tax
 
                     # Helper function to calculate required contribution increase (NPV-based)
@@ -3370,7 +3381,7 @@ elif st.session_state.current_page == 'results':
                         return total_additional_contribution, weighted_avg_rate * 100
 
                     # Helper function to calculate additional years needed
-                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct):
+                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate):
                         """Calculate additional years needed to work.
 
                         Key insight: Working longer has TWO benefits:
@@ -3378,7 +3389,8 @@ elif st.session_state.current_page == 'results':
                         2. Retirement period is shorter (need less total balance)
 
                         Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
-                        where FV = income_goal × (life_expectancy - new_retirement_age)
+                        where FV is calculated using INVERSE annuity formula to account for
+                        portfolio growth and inflation-adjusted withdrawals during retirement.
 
                         Must account for taxes by converting pre-tax FV to after-tax FV.
                         """
@@ -3428,14 +3440,37 @@ elif st.session_state.current_page == 'results':
                             test_fv_aftertax = test_fv_pretax * (tax_efficiency_pct / 100.0)
 
                             # Calculate what we'd need for this shorter retirement period (AFTER-TAX)
-                            required_balance_aftertax = income_goal * test_years_in_retirement
+                            # Use INVERSE annuity formula to account for growth during retirement
+                            r_ret = retirement_growth_rate / 100.0
+                            i_ret = inflation_rate / 100.0
+
+                            if abs(r_ret - i_ret) < 0.0001:
+                                # Simple multiplication when growth = inflation
+                                required_balance_aftertax = income_goal * test_years_in_retirement
+                            else:
+                                # Inverse annuity formula
+                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** test_years_in_retirement
+                                denominator = r_ret - i_ret
+                                required_balance_aftertax = income_goal * (numerator / denominator)
 
                             # Found solution?
                             if test_fv_aftertax >= required_balance_aftertax:
                                 return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
 
                         # If no solution found in 50 years, return 50
-                        return 50.0, weighted_avg_rate * 100, retirement_age + 50, income_goal * max(0, life_expectancy - retirement_age - 50)
+                        # Calculate required balance using inverse annuity formula
+                        final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
+                        if final_years_in_retirement > 0:
+                            if abs(r_ret - i_ret) < 0.0001:
+                                final_required_balance = income_goal * final_years_in_retirement
+                            else:
+                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
+                                denominator = r_ret - i_ret
+                                final_required_balance = income_goal * (numerator / denominator)
+                        else:
+                            final_required_balance = 0
+
+                        return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
 
                     # Calculate recommendations
                     years_to_retirement = retirement_age - age
@@ -3445,7 +3480,7 @@ elif st.session_state.current_page == 'results':
                         inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
                     )
                     additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
-                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency
+                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate
                     )
 
                     # Calculate new years in retirement for option 2
