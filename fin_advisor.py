@@ -1369,7 +1369,6 @@ if st.session_state.get('analytics_consent') is None:
         - ✅ Anonymous usage patterns (e.g., which features you use)
         - ✅ Error logs (to fix bugs faster)
         - ✅ Browser/device info (for compatibility)
-        - ✅ Session recordings (to improve UI/UX)
 
         **What we NEVER collect:**
         - ❌ Your financial data (account balances, numbers)
@@ -1957,7 +1956,7 @@ if st.session_state.current_page == 'onboarding':
                                 progress_bar.progress(25)
     
                                 # Phase 2: Processing (30-90%)
-                                status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...")
+                                status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
                                 progress_bar.progress(40)
     
                                 # Make the actual API call (blocking)
