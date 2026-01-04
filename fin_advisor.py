@@ -3296,7 +3296,7 @@ elif st.session_state.current_page == 'results':
 
                     3. **Optimize asset allocation**: Consider higher-growth investments
 
-                    4. **Reduce retirement expenses**: Lower your income goal to **${retirement_income_goal - income_shortfall:,.0f}/year** (reduce by ${income_shortfall:,.0f})
+                    4. **Reduce retirement expenses**: Lower your income goal to **\${retirement_income_goal - income_shortfall:,.0f}/year** (reduce by ${income_shortfall:,.0f})
 
                        - This would completely eliminate your income gap
 
