@@ -676,10 +676,13 @@ def generate_report_dialog():
                     'current_marginal_tax_rate_pct': st.session_state.get('whatif_current_tax_rate', 22),
                     'retirement_marginal_tax_rate_pct': st.session_state.get('whatif_retirement_tax_rate', 25),
                     'inflation_rate_pct': st.session_state.get('whatif_inflation_rate', 3),
-                    'age': st.session_state.age,
+                    'age': datetime.now().year - st.session_state.birth_year,
                     'retirement_age': int(st.session_state.get('whatif_retirement_age', 65)),
                     'life_expectancy': int(st.session_state.get('whatif_life_expectancy', 85)),
-                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0)
+                    'birth_year': st.session_state.birth_year,
+                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0),
+                    'retirement_growth_rate': st.session_state.get('whatif_retirement_growth_rate', 4.0),
+                    'inflation_rate': st.session_state.get('whatif_inflation_rate', 3)
                 }
 
                 # Generate PDF
@@ -1045,8 +1048,8 @@ if 'current_page' not in st.session_state:
     st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
 
 # Initialize session state for baseline values (from onboarding)
-if 'age' not in st.session_state:
-    st.session_state.age = 30
+if 'birth_year' not in st.session_state:
+    st.session_state.birth_year = datetime.now().year - 30
 if 'baseline_retirement_age' not in st.session_state:
     st.session_state.baseline_retirement_age = 65
 if 'baseline_life_expectancy' not in st.session_state:
@@ -1589,16 +1592,19 @@ if st.session_state.current_page == 'onboarding':
         col1, col2 = st.columns(2)
 
         with col1:
-            # Direct age input
-            age = st.number_input(
-                "Current Age",
-                min_value=18,
-                max_value=90,
-                value=st.session_state.age,
-                help="Your current age in years",
-                key="age_input"
+            # Birth year input instead of age
+            current_year = datetime.now().year
+            birth_year = st.number_input(
+                "Birth Year",
+                min_value=current_year-90,
+                max_value=current_year-18,
+                value=st.session_state.birth_year,
+                help="Your birth year (age will be calculated automatically)",
+                key="birth_year_input"
             )
-            st.session_state.age = age
+            st.session_state.birth_year = birth_year
+            age = current_year - birth_year
+            st.info(f"📅 **Current Age**: {age} years old")
 
             retirement_age = st.number_input(
                 "Target Retirement Age",
@@ -1674,9 +1680,9 @@ if st.session_state.current_page == 'onboarding':
                 # Track step 1 completed
                 track_onboarding_step_completed(
                     1,
-                    age_range=get_age_range(st.session_state.age),
+                    age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
                     retirement_age=st.session_state.retirement_age,
-                    years_to_retirement=st.session_state.retirement_age - st.session_state.age,
+                    years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
                     goal_range=get_goal_range(st.session_state.retirement_income_goal)
                 )
                 st.session_state.onboarding_step = 2
@@ -2959,9 +2965,12 @@ elif st.session_state.current_page == 'results':
     # Fixed Facts Section (non-editable baseline data)
     with st.expander("📋 Your Baseline Information (from setup)", expanded=False):
         col1, col2, col3 = st.columns(3)
+        current_year = datetime.now().year
+        baseline_age = current_year - st.session_state.birth_year
 
         with col1:
-            st.metric("Current Age", f"{st.session_state.age} years")
+            st.metric("Birth Year", st.session_state.birth_year)
+            st.metric("Current Age", f"{baseline_age} years")
         with col2:
             st.metric("Retirement Age (Baseline)", st.session_state.baseline_retirement_age)
             st.metric("Life Expectancy (Baseline)", st.session_state.baseline_life_expectancy)
@@ -3071,7 +3080,8 @@ elif st.session_state.current_page == 'results':
     st.markdown("---")
 
     # Calculate values from what-if session state for results
-    age = st.session_state.age
+    current_year = datetime.now().year
+    age = current_year - st.session_state.birth_year
     retirement_age = st.session_state.whatif_retirement_age
     life_expectancy = st.session_state.whatif_life_expectancy
     retirement_income_goal = st.session_state.whatif_retirement_income_goal
@@ -3902,8 +3912,10 @@ elif st.session_state.current_page == 'monte_carlo':
             )
 
             # Prepare inputs for simulation
+            current_year_mc = datetime.now().year
+
             simulation_inputs = UserInputs(
-                age=st.session_state.age,
+                age=current_year_mc - st.session_state.birth_year,
                 retirement_age=int(st.session_state.whatif_retirement_age),
                 life_expectancy=int(st.session_state.whatif_life_expectancy),
                 annual_income=0.0,
