@@ -48,6 +48,7 @@ def bump_minor_version(version: str) -> str:
 
 # Streamlit import
 import streamlit as st
+import streamlit.components.v1 as components
 import io
 import csv
 from datetime import datetime
@@ -484,12 +485,34 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     
     # Retirement Income Analysis
     story.append(Paragraph("Retirement Income Analysis", heading_style))
-    
+
     total_after_tax = result.get("Total After-Tax Balance", 0)
     life_expectancy = user_inputs.get('life_expectancy', 85)
     retirement_age = user_inputs.get('retirement_age', 65)
     years_in_retirement = life_expectancy - retirement_age
-    annual_retirement_income = total_after_tax / years_in_retirement
+
+    # Validate years in retirement
+    if years_in_retirement <= 0:
+        raise ValueError(f"Life expectancy ({life_expectancy}) must be greater than retirement age ({retirement_age})")
+
+    # Use inflation-adjusted annuity formula (same as What-If section)
+    retirement_growth_rate = user_inputs.get('retirement_growth_rate', 4.0)
+    inflation_rate = user_inputs.get('inflation_rate', 3)
+    r = retirement_growth_rate / 100.0
+    i = inflation_rate / 100.0
+    n = years_in_retirement
+
+    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+        annual_retirement_income = total_after_tax / n
+    elif r > i:  # Normal case: growth exceeds inflation
+        numerator = r - i
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+    else:  # r < i: inflation exceeds growth
+        numerator = r - i  # This will be negative
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+
     retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
     income_shortfall = retirement_income_goal - annual_retirement_income
     income_ratio = (annual_retirement_income / retirement_income_goal * 100) if retirement_income_goal > 0 else 0
@@ -657,7 +680,9 @@ def generate_report_dialog():
                     'retirement_age': int(st.session_state.get('whatif_retirement_age', 65)),
                     'life_expectancy': int(st.session_state.get('whatif_life_expectancy', 85)),
                     'birth_year': st.session_state.birth_year,
-                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0)
+                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0),
+                    'retirement_growth_rate': st.session_state.get('whatif_retirement_growth_rate', 4.0),
+                    'inflation_rate': st.session_state.get('whatif_inflation_rate', 3)
                 }
 
                 # Generate PDF
@@ -753,6 +778,17 @@ st.set_page_config(
 
 # Initialize analytics
 initialize_analytics()
+
+# Scroll to top on page changes
+# This ensures focus starts at top when navigating between pages
+components.html(
+    """
+    <script>
+        window.parent.document.querySelector('section.main').scrollTo(0, 0);
+    </script>
+    """,
+    height=0,
+)
 
 # Note: PostHog session replay requires browser JavaScript which doesn't work
 # reliably in Streamlit's server-side architecture. Session analytics (based on
@@ -1169,6 +1205,10 @@ if 'whatif_retirement_tax_rate' not in st.session_state:
     st.session_state.whatif_retirement_tax_rate = 25
 if 'whatif_inflation_rate' not in st.session_state:
     st.session_state.whatif_inflation_rate = 3
+if 'whatif_life_expenses' not in st.session_state:
+    st.session_state.whatif_life_expenses = 0
+if 'whatif_retirement_growth_rate' not in st.session_state:
+    st.session_state.whatif_retirement_growth_rate = 4.0
 
 # Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
 if 'retirement_age' not in st.session_state:
@@ -2377,16 +2417,25 @@ if st.session_state.current_page == 'onboarding':
                                             )
                                         }
     
+                                        # Use edited table from session state if it exists, otherwise use fresh data
+                                        # This prevents losing user edits on rerun
+                                        if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
+                                            # Preserve user edits across reruns
+                                            initial_data = st.session_state.ai_edited_table
+                                        else:
+                                            # First time showing the table
+                                            initial_data = df_table
+
                                         # Display editable table with unique key for fresh extraction view
                                         edited_df = st.data_editor(
-                                            df_table,
+                                            initial_data,
                                             column_config=column_config,
                                             use_container_width=True,
                                             hide_index=True,
                                             num_rows="dynamic",
                                             key="ai_table_fresh_extraction"  # Unique key for this table
                                         )
-    
+
                                         # Save edited table to session state for persistence across reruns
                                         st.session_state.ai_edited_table = edited_df
     
@@ -2943,62 +2992,75 @@ elif st.session_state.current_page == 'results':
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.session_state.whatif_retirement_age = st.number_input(
+        whatif_retirement_age = st.number_input(
             "Retirement Age",
             min_value=40,
             max_value=80,
             value=st.session_state.whatif_retirement_age,
-            help="Adjust retirement age to see impact on projections",
-            key="whatif_retirement_age_input"
+            help="Adjust retirement age to see impact on projections"
         )
 
-        st.session_state.whatif_life_expectancy = st.number_input(
+        whatif_life_expectancy = st.number_input(
             "Life Expectancy",
-            min_value=st.session_state.whatif_retirement_age + 1,
+            min_value=whatif_retirement_age + 1,
             max_value=120,
             value=st.session_state.whatif_life_expectancy,
-            help="Adjust life expectancy to see impact on retirement duration",
-            key="whatif_life_expectancy_input"
+            help="Adjust life expectancy to see impact on retirement duration"
         )
 
     with col2:
-        st.session_state.whatif_retirement_income_goal = st.number_input(
+        whatif_retirement_income_goal = st.number_input(
             "Annual Retirement Income Goal ($)",
             min_value=0,
             max_value=1000000,
             value=st.session_state.whatif_retirement_income_goal,
             step=5000,
-            help="Target annual income in retirement (0 = no goal set)",
-            key="whatif_income_goal_input"
+            help="Target annual income in retirement (0 = no goal set)"
         )
 
-        st.session_state.whatif_current_tax_rate = st.slider(
-            "Current Tax Rate (%)",
-            min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_current_tax_rate,
-            help="Your current marginal tax rate",
-            key="whatif_current_tax_input"
-        )
-
-    with col3:
-        st.session_state.whatif_retirement_tax_rate = st.slider(
+        whatif_retirement_tax_rate = st.slider(
             "Retirement Tax Rate (%)",
             min_value=0,
             max_value=50,
             value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement",
-            key="whatif_retirement_tax_input"
+            help="Expected tax rate in retirement (used to calculate after-tax balance)"
         )
 
-        st.session_state.whatif_inflation_rate = st.slider(
+    with col3:
+        whatif_inflation_rate = st.slider(
             "Inflation Rate (%)",
             min_value=0,
             max_value=10,
             value=st.session_state.whatif_inflation_rate,
-            help="Expected long-term inflation rate",
-            key="whatif_inflation_input"
+            help="Expected long-term inflation rate"
         )
+
+        whatif_retirement_growth_rate = st.slider(
+            "Portfolio Growth in Retirement (%)",
+            min_value=0.0,
+            max_value=10.0,
+            value=st.session_state.whatif_retirement_growth_rate,
+            step=0.5,
+            help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
+        )
+
+        whatif_life_expenses = st.number_input(
+            "One-Time Life Expenses at Retirement ($)",
+            min_value=0,
+            max_value=10000000,
+            value=st.session_state.whatif_life_expenses,
+            step=10000,
+            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
+        )
+
+    # Update session state with current widget values
+    st.session_state.whatif_retirement_age = whatif_retirement_age
+    st.session_state.whatif_life_expectancy = whatif_life_expectancy
+    st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
+    st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
+    st.session_state.whatif_inflation_rate = whatif_inflation_rate
+    st.session_state.whatif_retirement_growth_rate = whatif_retirement_growth_rate
+    st.session_state.whatif_life_expenses = whatif_life_expenses
 
     # Reset button
     if st.button("🔄 Reset to Baseline Values"):
@@ -3011,6 +3073,8 @@ elif st.session_state.current_page == 'results':
         st.session_state.whatif_current_tax_rate = 22
         st.session_state.whatif_retirement_tax_rate = 25
         st.session_state.whatif_inflation_rate = 3
+        st.session_state.whatif_retirement_growth_rate = 4.0
+        st.session_state.whatif_life_expenses = 0
         st.rerun()
 
     st.markdown("---")
@@ -3024,6 +3088,8 @@ elif st.session_state.current_page == 'results':
     current_tax_rate = st.session_state.whatif_current_tax_rate
     retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
     inflation_rate = st.session_state.whatif_inflation_rate
+    retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
+    life_expenses = st.session_state.whatif_life_expenses
     assets = st.session_state.assets
     
     try:
@@ -3045,6 +3111,25 @@ elif st.session_state.current_page == 'results':
         # Save result to session state for Next Steps dialogs
         st.session_state.last_result = result
 
+        # Adjust after-tax balance for life expenses
+        total_after_tax_original = result['Total After-Tax Balance']
+
+        # Validate life expenses don't exceed portfolio balance
+        if life_expenses > total_after_tax_original:
+            st.error(f"""
+            ⚠️ **Life Expenses Exceed Portfolio Balance**
+
+            Your one-time life expenses at retirement (**${life_expenses:,.0f}**) exceed
+            your projected after-tax portfolio balance (**${total_after_tax_original:,.0f}**).
+
+            Please either:
+            - Reduce life expenses, or
+            - Adjust your portfolio contributions/retirement age to build a larger balance
+            """)
+            st.stop()
+
+        total_after_tax = total_after_tax_original - life_expenses
+
         # Key metrics in a prominent container
         with st.container():
             st.subheader("🎯 Key Metrics")
@@ -3054,18 +3139,59 @@ elif st.session_state.current_page == 'results':
             with col2:
                 st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
             with col3:
-                st.metric("Total After-Tax Value", f"${result['Total After-Tax Balance']:,.0f}")
+                if life_expenses > 0:
+                    st.metric(
+                        "Total After-Tax Value",
+                        f"${total_after_tax:,.0f}",
+                        delta=f"-${life_expenses:,.0f} life expenses",
+                        delta_color="normal"
+                    )
+                else:
+                    st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
             with col4:
                 st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
 
         # Income Analysis Section
         st.markdown("---")
         st.subheader("💰 Retirement Income Analysis")
-    
-        # Calculate retirement income from portfolio
-        total_after_tax = result['Total After-Tax Balance']
+
+        # Calculate retirement income from portfolio (using adjusted balance)
         years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
-        annual_retirement_income = total_after_tax / years_in_retirement
+
+        # Validate years in retirement
+        if years_in_retirement <= 0:
+            st.error(f"""
+            ⚠️ **Invalid Retirement Period**
+
+            Your life expectancy (**{life_expectancy}**) must be greater than
+            your retirement age (**{retirement_age}**).
+
+            Please adjust these values in the sliders above.
+            """)
+            st.stop()
+
+        # Calculate inflation-adjusted annual withdrawal with portfolio growth
+        # This uses the inflation-adjusted annuity formula:
+        # PMT = PV × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+        # where portfolio grows at r% and withdrawals increase with i% inflation
+
+        r = retirement_growth_rate / 100.0  # Convert to decimal
+        i = inflation_rate / 100.0  # Convert to decimal
+        n = years_in_retirement
+
+        if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+            # Simple division when growth = inflation
+            annual_retirement_income = total_after_tax / n
+        elif r > i:  # Normal case: growth exceeds inflation
+            # Inflation-adjusted annuity formula
+            numerator = r - i
+            denominator = 1 - ((1 + i) / (1 + r)) ** n
+            annual_retirement_income = total_after_tax * (numerator / denominator)
+        else:  # r < i: inflation exceeds growth (portfolio losing real value)
+            # Still use the formula but result will be lower
+            numerator = r - i  # This will be negative
+            denominator = 1 - ((1 + i) / (1 + r)) ** n
+            annual_retirement_income = total_after_tax * (numerator / denominator)
     
         # Only show income goal comparison if user set a goal
         if retirement_income_goal > 0:
@@ -3078,7 +3204,7 @@ elif st.session_state.current_page == 'results':
                 st.metric(
                     "Projected Annual Income",
                     f"${annual_retirement_income:,.0f}",
-                    help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+                    help=f"First year withdrawal from portfolio. Assumes {retirement_growth_rate:.1f}% growth during retirement with {inflation_rate}% inflation-adjusted increases annually. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})"
                 )
             with col2:
                 st.metric(
@@ -3123,7 +3249,122 @@ elif st.session_state.current_page == 'results':
                 )
             with col2:
                 st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
-    
+
+        # Explanation of retirement income calculation
+        with st.expander("📊 How Is Retirement Income Calculated?", expanded=False):
+            st.markdown(f"""
+            ### Inflation-Adjusted Annuity Calculation
+
+            Your projected retirement income accounts for:
+            1. **Portfolio continuing to grow** during retirement ({retirement_growth_rate:.1f}% annually)
+            2. **Withdrawals increasing** with inflation ({inflation_rate}% annually)
+            3. Portfolio depleting to approximately $0 at end of retirement period
+
+            **Formula Used:**
+            ```
+            Annual Income = Portfolio Balance × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+            ```
+
+            Where:
+            - **Portfolio Balance** = ${total_after_tax:,.0f} (after-tax, after life expenses)
+            - **r** (growth rate) = {retirement_growth_rate:.1f}% = {r:.4f}
+            - **i** (inflation rate) = {inflation_rate}% = {i:.4f}
+            - **n** (years) = {n} years (age {retirement_age} to {life_expectancy})
+
+            ---
+
+            ### Calculation Breakdown:
+
+            **Step 1:** Calculate the real growth rate (growth minus inflation)
+            ```
+            Real Growth Rate = {retirement_growth_rate:.1f}% - {inflation_rate}% = {(r-i)*100:.2f}%
+            ```
+
+            **Step 2:** Calculate the annuity factor
+            ```
+            Annuity Factor = [{r:.4f} - {i:.4f}] / [1 - ((1+{i:.4f})/(1+{r:.4f}))^{n}]
+                          = {r - i:.6f} / {1 - ((1+i)/(1+r))**n:.6f}
+                          = {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+            ```
+
+            **Step 3:** Calculate first year withdrawal
+            ```
+            Annual Income = ${total_after_tax:,.0f} × {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+                         = ${annual_retirement_income:,.0f}
+            ```
+
+            ---
+
+            ### What This Means:
+
+            **First 10 Years of Withdrawals** (inflation-adjusted):
+            """)
+
+            # Generate year-by-year withdrawal table
+            withdrawal_data = []
+            balance = total_after_tax
+            first_year_withdrawal = annual_retirement_income
+
+            for year in range(1, min(11, n+1)):
+                withdrawal = first_year_withdrawal * ((1 + i) ** (year - 1))
+                balance_before = balance
+                balance = balance * (1 + r) - withdrawal
+
+                withdrawal_data.append({
+                    "Year": year,
+                    "Age": retirement_age + year - 1,
+                    "Withdrawal": f"${withdrawal:,.0f}",
+                    "Start Balance": f"${balance_before:,.0f}",
+                    "End Balance": f"${max(0, balance):,.0f}"
+                })
+
+            import pandas as pd
+            df_withdrawals = pd.DataFrame(withdrawal_data)
+            st.dataframe(df_withdrawals, use_container_width=True, hide_index=True)
+
+            st.markdown(f"""
+            **Key Points:**
+            - Year 1 withdrawal: **${first_year_withdrawal:,.0f}**
+            - Year 10 withdrawal: **${first_year_withdrawal * ((1 + i) ** 9):,.0f}**
+            - Total over {n} years: **${first_year_withdrawal * sum([(1+i)**j for j in range(n)]):,.0f}**
+            - Purchasing power stays constant (adjusts for inflation)
+
+            ---
+
+            ### Comparison to Simple Division Method:
+
+            **Old Method (overly conservative):**
+            ```
+            Annual Income = ${total_after_tax:,.0f} / {n} years = ${total_after_tax / n:,.0f}/year
+            ```
+            - Assumes 0% growth during retirement
+            - Ignores inflation adjustments
+            - Significantly understates sustainable income
+
+            **New Method (realistic):**
+            ```
+            Annual Income = ${annual_retirement_income:,.0f}/year (first year)
+            ```
+            - Accounts for {retirement_growth_rate:.1f}% portfolio growth
+            - Increases {inflation_rate}% annually with inflation
+            - More accurate representation of sustainable withdrawals
+            - **Difference: {((annual_retirement_income / (total_after_tax / n)) - 1) * 100:+.1f}%**
+
+            ---
+
+            ### Why This Matters:
+
+            Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
+            diversified portfolios with conservative allocations (bonds, dividend stocks, etc.) that
+            continue growing during retirement. This calculation reflects that reality.
+
+            The {retirement_growth_rate:.1f}% growth rate is conservative for a balanced retirement portfolio,
+            and the inflation adjustments ensure your purchasing power remains constant throughout retirement.
+
+            **Note:** You can adjust the "Portfolio Growth in Retirement" rate in the What-If section above
+            to see how different investment strategies affect your retirement income.
+            """)
+
         # Recommendations based on income analysis (only if goal is set)
         if retirement_income_goal > 0:
             # Use actionable heading when there's a shortfall
@@ -3131,16 +3372,211 @@ elif st.session_state.current_page == 'results':
                 expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
             else:
                 expander_title = "💡 Income Optimization Recommendations"
-    
+
             with st.expander(expander_title, expanded=False):
                 if income_shortfall > 0:
+                    # Calculate required after-tax balance to meet income goal
+                    # Use INVERSE annuity formula to account for growth during retirement
+                    # PV = PMT × [(1 - ((1+i)/(1+r))^n) / (r - i)]
+
+                    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+                        # Simple multiplication when growth = inflation
+                        required_balance_for_income = retirement_income_goal * n
+                    else:
+                        # Inverse annuity formula
+                        numerator = 1 - ((1 + i) / (1 + r)) ** n
+                        denominator = r - i
+                        required_balance_for_income = retirement_income_goal * (numerator / denominator)
+
+                    # Add life expenses back since they're deducted at retirement
+                    # We need: (balance to generate income) + (one-time life expenses)
+                    required_after_tax_balance = required_balance_for_income + life_expenses
+
+                    additional_balance_needed = required_after_tax_balance - total_after_tax
+
+                    # Helper function to calculate required contribution increase (NPV-based)
+                    def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed_aftertax, tax_efficiency_pct):
+                        """Calculate additional annual contribution needed using NPV formula.
+
+                        Key insight: We need additional_balance_needed in AFTER-TAX dollars, but
+                        contributions grow PRE-TAX and then get taxed. So we must:
+                        1. Convert after-tax target to pre-tax target
+                        2. Calculate contributions needed for pre-tax target
+                        3. Return the contribution amount
+
+                        For each asset, we need to solve for additional contribution C:
+                        FV_needed_pretax = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
+
+                        Rearranging: C_additional = [FV_needed_pretax - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
+                        """
+                        # Convert after-tax target to pre-tax target
+                        # If tax efficiency is 85%, and we need $100k after-tax, we need $117.6k pre-tax
+                        additional_balance_needed_pretax = additional_balance_needed_aftertax / (tax_efficiency_pct / 100.0)
+
+                        # Calculate weighted average growth rate
+                        weighted_avg_rate = 0
+                        total_balance = sum(a.current_balance for a in assets)
+                        if total_balance > 0:
+                            for asset in assets:
+                                weight = asset.current_balance / total_balance
+                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                        else:
+                            weighted_avg_rate = 0.07  # default 7%
+
+                        # Solve for additional contribution using future value of annuity formula
+                        # FV = C * [((1+r)^t - 1)/r]
+                        # C = FV / [((1+r)^t - 1)/r]
+                        if weighted_avg_rate > 0 and years_to_retirement > 0:
+                            growth_factor = (1.0 + weighted_avg_rate) ** years_to_retirement
+                            annuity_factor = (growth_factor - 1.0) / weighted_avg_rate
+                            total_additional_contribution = additional_balance_needed_pretax / annuity_factor
+                        else:
+                            total_additional_contribution = additional_balance_needed_pretax / max(years_to_retirement, 1)
+
+                        return total_additional_contribution, weighted_avg_rate * 100
+
+                    # Helper function to calculate additional years needed
+                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses):
+                        """Calculate additional years needed to work.
+
+                        Key insight: Working longer has TWO benefits:
+                        1. Portfolio grows longer (more years of contributions + growth)
+                        2. Retirement period is shorter (need less total balance)
+
+                        Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
+                        where FV is calculated using INVERSE annuity formula to account for
+                        portfolio growth and inflation-adjusted withdrawals during retirement.
+
+                        Must account for:
+                        - Taxes by converting pre-tax FV to after-tax FV
+                        - One-time life expenses deducted at retirement
+                        """
+                        # Calculate weighted average growth rate and total current contributions
+                        weighted_avg_rate = 0
+                        total_current_contribution = 0
+                        total_balance = sum(a.current_balance for a in assets)
+
+                        if total_balance > 0:
+                            for asset in assets:
+                                weight = asset.current_balance / total_balance
+                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                                total_current_contribution += asset.annual_contribution
+                        else:
+                            weighted_avg_rate = 0.07
+                            total_current_contribution = sum(a.annual_contribution for a in assets)
+
+                        # Current projection data
+                        total_current_balance = total_balance
+
+                        # Helper to calculate future value (pre-tax)
+                        def calculate_fv(years, principal, contribution, rate):
+                            if rate == 0:
+                                return principal + contribution * years
+                            growth = (1.0 + rate) ** years
+                            return principal * growth + contribution * ((growth - 1.0) / rate)
+
+                        # Iteratively test additional years with 0.1 year increments for precision
+                        # For each additional year, recalculate BOTH:
+                        # 1. Higher FV (more growth time)
+                        # 2. Lower required balance (fewer retirement years)
+                        for additional_tenths in range(0, 500):  # 0 to 50 years in 0.1 year increments
+                            additional_years = additional_tenths / 10.0
+                            test_retirement_age = retirement_age + additional_years
+                            test_years_to_retirement = test_retirement_age - current_age
+                            test_years_in_retirement = life_expectancy - test_retirement_age
+
+                            # Skip if retirement age exceeds life expectancy
+                            if test_years_in_retirement <= 0:
+                                continue
+
+                            # Calculate what we'd have at this retirement age (PRE-TAX)
+                            test_fv_pretax = calculate_fv(test_years_to_retirement, total_current_balance,
+                                                  total_current_contribution, weighted_avg_rate)
+
+                            # Convert to AFTER-TAX using tax efficiency ratio
+                            test_fv_aftertax = test_fv_pretax * (tax_efficiency_pct / 100.0)
+
+                            # Subtract life expenses - this is the actual available balance for generating income
+                            available_balance_aftertax = test_fv_aftertax - life_expenses
+
+                            # Calculate what we'd need for this shorter retirement period (AFTER-TAX)
+                            # This is just the amount needed to generate income via annuity
+                            # Use INVERSE annuity formula to account for growth during retirement
+                            r_ret = retirement_growth_rate / 100.0
+                            i_ret = inflation_rate / 100.0
+
+                            if abs(r_ret - i_ret) < 0.0001:
+                                # Simple multiplication when growth = inflation
+                                required_balance_for_income = income_goal * test_years_in_retirement
+                            else:
+                                # Inverse annuity formula
+                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** test_years_in_retirement
+                                denominator = r_ret - i_ret
+                                required_balance_for_income = income_goal * (numerator / denominator)
+
+                            # Total required = income-generating balance + life expenses
+                            required_balance_aftertax = required_balance_for_income + life_expenses
+
+                            # Found solution? Compare available balance (after life expenses) to required balance for income
+                            if available_balance_aftertax >= required_balance_for_income:
+                                return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
+
+                        # If no solution found in 50 years, return 50
+                        # Calculate required balance using inverse annuity formula
+                        final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
+                        if final_years_in_retirement > 0:
+                            if abs(r_ret - i_ret) < 0.0001:
+                                final_required_balance_for_income = income_goal * final_years_in_retirement
+                            else:
+                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
+                                denominator = r_ret - i_ret
+                                final_required_balance_for_income = income_goal * (numerator / denominator)
+                            # Add life expenses to get total required balance
+                            final_required_balance = final_required_balance_for_income + life_expenses
+                        else:
+                            final_required_balance = life_expenses  # Still need life expenses even with 0 years in retirement
+
+                        return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
+
+                    # Calculate recommendations
+                    years_to_retirement = retirement_age - age
+                    tax_efficiency = result['Tax Efficiency (%)']
+
+                    additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
+                        inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
+                    )
+                    additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
+                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses
+                    )
+
+                    # Calculate new years in retirement for option 2
+                    new_years_in_retirement = life_expectancy - new_retirement_age
+
                     st.markdown(f"""
                     **To close the ${income_shortfall:,.0f} annual shortfall:**
-    
-                    1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
-                    2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
+
+                    1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
+                       - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
+                       - Required total after-tax balance: ${required_after_tax_balance:,.0f}
+                    """)
+
+                    # Add button to go back to setup to edit contributions
+                    if st.button("📝 Edit Portfolio Contributions", type="secondary", use_container_width=True):
+                        track_event('edit_contributions_from_recommendations')
+                        st.session_state.current_page = 'onboarding'
+                        st.rerun()
+
+                    st.markdown(f"""
+                    2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {new_retirement_age:.0f})
+                       - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
+                       - Reduces retirement period to {new_years_in_retirement:.0f} years
+                       - Required total after-tax balance: ${required_balance_for_option2:,.0f}
+
                     3. **Optimize asset allocation**: Consider higher-growth investments
-                    4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
+
+                    4. **Reduce retirement expenses**: Lower your income goal to **${retirement_income_goal - income_shortfall:,.0f}/year** (reduce by ${income_shortfall:,.0f})
+                       - This would completely eliminate your income gap
+
                     5. **Consider part-time work**: Supplement retirement income
                     """)
                 else:
