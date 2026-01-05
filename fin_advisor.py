@@ -8,15 +8,15 @@ Enhanced retirement planning tool with:
 - One-time life expenses at retirement support
 - Comprehensive income gap recommendations
 
-USAGE:
-  # Run the Streamlit web application
-  streamlit run fin_advisor.py
+Usage:
+    Run the Streamlit web application:
+        $ streamlit run fin_advisor.py
 
-  # Run unit tests
-  python fin_advisor.py --run-tests
+    Run unit tests:
+        $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.0.1
+Version: 7.0.2
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.0.1"
+VERSION = "7.0.2"
 
 # Streamlit import
 import streamlit as st
