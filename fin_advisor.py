@@ -1,50 +1,33 @@
 """
-Smart Retire AI — Stage 2: Asset Classification & Advanced Tax Logic
+Smart Retire AI — Advanced Retirement Planning Tool
 
 Enhanced retirement planning tool with:
 - Asset classification (pre_tax, post_tax, tax_deferred)
-- Per-asset growth simulation
-- Sophisticated tax logic with IRS projections
-- Capital gains calculations for brokerage accounts
+- Per-asset growth simulation with tax-efficient projections
+- Portfolio growth during retirement with inflation-adjusted withdrawals
+- One-time life expenses at retirement support
+- Comprehensive income gap recommendations
 
-USAGE:
-  # 1) Run tests
-  python fin_advisor.py --run-tests
+Usage:
+    Run the Streamlit web application:
+        $ streamlit run fin_advisor.py
 
-  # 2) CLI with flags (no UI)
-  python fin_advisor.py \
-    --age 30 --retirement-age 65 \
-    --income 85000 --contribution-rate 15 \
-    --current-balance 50000 --growth-rate 7 \
-    --inflation-rate 3 --tax-rate 25
-
-  # 3) Streamlit (if installed)
-  streamlit run fin_advisor.py
+    Run unit tests:
+        $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 5.7.0
+Version: 7.0.2
 """
 
 from __future__ import annotations
 import argparse
 import math
-import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.0.0"
-
-def bump_minor_version(version: str) -> str:
-    """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
-    parts = version.split('.')
-    if len(parts) >= 2:
-        major, minor = parts[0], parts[1]
-        patch = parts[2] if len(parts) > 2 else "0"
-        new_minor = str(int(minor) + 1)
-        return f"{major}.{new_minor}.{patch}"
-    return version
+VERSION = "7.0.2"
 
 # Streamlit import
 import streamlit as st
