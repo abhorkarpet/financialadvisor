@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.0.2
+Version: 7.0.3
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.0.2"
+VERSION = "7.0.3"
 
 # Streamlit import
 import streamlit as st
@@ -179,7 +179,7 @@ def create_asset_template_csv() -> str:
     template_data = [
         {
             "Account Name": "401(k) / Traditional IRA",
-            "Asset Type": "pre_tax",
+            "Tax Treatment": "pre_tax",
             "Current Balance": 50000,
             "Annual Contribution": 12000,
             "Growth Rate (%)": 7.0,
@@ -187,7 +187,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Roth IRA",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "post_tax",
             "Current Balance": 10000,
             "Annual Contribution": 6000,
             "Growth Rate (%)": 7.0,
@@ -195,7 +195,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Brokerage Account",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "post_tax",
             "Current Balance": 15000,
             "Annual Contribution": 3000,
             "Growth Rate (%)": 7.0,
@@ -203,41 +203,52 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "High-Yield Savings Account",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "post_tax",
             "Current Balance": 25000,
             "Annual Contribution": 2000,
             "Growth Rate (%)": 4.5,
             "Tax Rate (%)": 0.0
         }
     ]
-    
+
     # Create CSV string
     output = io.StringIO()
-    fieldnames = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
+    fieldnames = ["Account Name", "Tax Treatment", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(template_data)
-    
+
     return output.getvalue()
 
 
 def parse_uploaded_csv(csv_content: str) -> List[Asset]:
     """Parse uploaded CSV content into Asset objects."""
     assets = []
-    
+
     try:
         # Read CSV content
         csv_reader = csv.DictReader(io.StringIO(csv_content))
-        
+
+        # Determine which column name is used for tax treatment
+        # Support both "Tax Treatment" (new) and "Asset Type" (legacy) for backward compatibility
+        fieldnames = csv_reader.fieldnames or []
+        has_tax_treatment = "Tax Treatment" in fieldnames
+        has_asset_type = "Asset Type" in fieldnames
+
+        if not has_tax_treatment and not has_asset_type:
+            raise ValueError("CSV must contain either 'Tax Treatment' or 'Asset Type' column")
+
+        tax_column = "Tax Treatment" if has_tax_treatment else "Asset Type"
+
         for row in csv_reader:
             # Validate required fields
-            required_fields = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)"]
+            required_fields = ["Account Name", tax_column, "Current Balance", "Annual Contribution", "Growth Rate (%)"]
             for field in required_fields:
                 if field not in row or not row[field].strip():
                     raise ValueError(f"Missing or empty required field: {field}")
-            
-            # Parse asset type
-            asset_type_str = row["Asset Type"].strip().lower()
+
+            # Parse asset type (using the determined column name)
+            asset_type_str = row[tax_column].strip().lower()
             if asset_type_str == "pre_tax":
                 asset_type = AssetType.PRE_TAX
             elif asset_type_str == "post_tax":
@@ -400,9 +411,9 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
 
     # Asset Breakdown
     story.append(Paragraph("Asset Breakdown", heading_style))
-    
-    # Asset details table
-    asset_data = [["Account", "Type", "Current Balance", "Annual Contribution", "Growth Rate", "Tax Rate"]]
+
+    # Asset details table with proper formatting
+    asset_data = [["Account", "Tax\nTreatment", "Current\nBalance", "Annual\nContribution", "Growth\nRate", "Tax\nRate"]]
     for asset in assets:
         asset_data.append([
             asset.name,
@@ -412,15 +423,18 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
             f"{asset.growth_rate_pct}%",
             f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
         ])
-    
-    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1.2*inch, 1.2*inch, 0.8*inch, 0.8*inch])
+
+    # Adjusted column widths for better spacing
+    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 0.8*inch, 0.7*inch])
     asset_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
         ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('FONTSIZE', (0, 1), (-1, -1), 9)
