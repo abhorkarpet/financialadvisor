@@ -26,7 +26,7 @@ def read_requirements():
 
 setup(
     name="financial-advisor",
-    version="7.0.3",
+    version="7.1.0",
     author="Your Name",
     author_email="your.email@example.com",
     description="A comprehensive Python-based financial planning tool for retirement projections",
