@@ -179,7 +179,7 @@ def create_asset_template_csv() -> str:
     template_data = [
         {
             "Account Name": "401(k) / Traditional IRA",
-            "Tax Treatment": "pre_tax",
+            "Tax Treatment": "Tax-Deferred",
             "Current Balance": 50000,
             "Annual Contribution": 12000,
             "Growth Rate (%)": 7.0,
@@ -187,7 +187,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Roth IRA",
-            "Tax Treatment": "post_tax",
+            "Tax Treatment": "Tax-Free",
             "Current Balance": 10000,
             "Annual Contribution": 6000,
             "Growth Rate (%)": 7.0,
@@ -195,7 +195,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Brokerage Account",
-            "Tax Treatment": "post_tax",
+            "Tax Treatment": "Post-Tax",
             "Current Balance": 15000,
             "Annual Contribution": 3000,
             "Growth Rate (%)": 7.0,
@@ -203,7 +203,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "High-Yield Savings Account",
-            "Tax Treatment": "post_tax",
+            "Tax Treatment": "Post-Tax",
             "Current Balance": 25000,
             "Annual Contribution": 2000,
             "Growth Rate (%)": 4.5,
@@ -248,15 +248,23 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
                     raise ValueError(f"Missing or empty required field: {field}")
 
             # Parse asset type (using the determined column name)
-            asset_type_str = row[tax_column].strip().lower()
-            if asset_type_str == "pre_tax":
+            # Support both human-readable format (Tax-Deferred, Tax-Free, Post-Tax)
+            # and legacy format (pre_tax, post_tax, tax_deferred)
+            asset_type_str = row[tax_column].strip()
+            asset_type_lower = asset_type_str.lower()
+
+            # Map to AssetType enum
+            if asset_type_lower in ["pre_tax", "tax-deferred", "tax deferred"]:
                 asset_type = AssetType.PRE_TAX
-            elif asset_type_str == "post_tax":
+            elif asset_type_lower in ["post_tax", "post-tax", "post tax"]:
                 asset_type = AssetType.POST_TAX
-            elif asset_type_str == "tax_deferred":
+            elif asset_type_lower in ["tax_deferred"]:
                 asset_type = AssetType.TAX_DEFERRED
+            elif asset_type_lower in ["tax-free", "tax free", "roth"]:
+                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                asset_type = AssetType.POST_TAX
             else:
-                raise ValueError(f"Invalid asset type: {asset_type_str}. Must be 'pre_tax', 'post_tax', or 'tax_deferred'")
+                raise ValueError(f"Invalid tax treatment: '{asset_type_str}'. Must be 'Tax-Deferred', 'Tax-Free', or 'Post-Tax' (or legacy: 'pre_tax', 'post_tax', 'tax_deferred')")
             
             # Parse numeric values (handle commas in numbers)
             try:
