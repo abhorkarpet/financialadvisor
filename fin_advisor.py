@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.1.5
+Version: 7.2.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.1.5"
+VERSION = "7.2.0"
 
 # Streamlit import
 import streamlit as st
@@ -773,6 +773,46 @@ def monte_carlo_dialog():
             st.rerun()
 
 
+@st.dialog("💡 Reminder: Adjust Annual Contributions")
+def contribution_reminder_dialog():
+    """Dialog to remind users to adjust contributions before finishing onboarding."""
+    st.markdown("""
+    ### 📊 For More Accurate Projections
+
+    We noticed you haven't set any annual contributions yet. Adding your expected annual
+    contributions will significantly improve the accuracy of your retirement projections.
+
+    **Why contributions matter:**
+    - 🎯 More realistic projections of your future retirement balance
+    - 📈 Better understanding of your retirement income potential
+    - 💰 More accurate income gap recommendations
+
+    **You can adjust contributions in the asset table above:**
+    - Click the "Annual Contribution" cells to edit them
+    - Set to $0 if you're no longer contributing to an account
+    - Use your actual planned contribution amounts for the most accurate results
+    """)
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("← Go Back and Adjust", use_container_width=True, type="primary"):
+            # Clear the flag and close dialog
+            if 'show_contribution_reminder' in st.session_state:
+                del st.session_state.show_contribution_reminder
+            st.rerun()
+
+    with col2:
+        if st.button("Continue Anyway →", use_container_width=True):
+            # User chose to proceed without adjusting contributions
+            st.session_state.contribution_reminder_dismissed = True
+            if 'show_contribution_reminder' in st.session_state:
+                del st.session_state.show_contribution_reminder
+            st.rerun()
+
+
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 st.set_page_config(
     page_title="Smart Retire AI",
@@ -1414,7 +1454,6 @@ if st.session_state.get('analytics_consent') is None:
         - ✅ Anonymous usage patterns (e.g., which features you use)
         - ✅ Error logs (to fix bugs faster)
         - ✅ Browser/device info (for compatibility)
-        - ✅ Session recordings (to improve UI/UX)
 
         **What we NEVER collect:**
         - ❌ Your financial data (account balances, numbers)
@@ -1699,6 +1738,10 @@ if st.session_state.current_page == 'onboarding':
     elif current_step == 2:
         # Track step 2 started
         track_onboarding_step_started(2)
+
+        # Show contribution reminder dialog if flagged
+        if st.session_state.get('show_contribution_reminder', False):
+            contribution_reminder_dialog()
 
         # Simplified setup options (removed Default Portfolio and Legacy Mode)
         setup_option = st.radio(
@@ -2002,7 +2045,7 @@ if st.session_state.current_page == 'onboarding':
                                 progress_bar.progress(25)
     
                                 # Phase 2: Processing (30-90%)
-                                status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...")
+                                status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
                                 progress_bar.progress(40)
     
                                 # Make the actual API call (blocking)
@@ -2902,7 +2945,7 @@ if st.session_state.current_page == 'onboarding':
             # Disable complete button if no assets configured
             has_assets = len(assets) > 0
             button_disabled = not has_assets
-    
+
             if st.button(
                 "Complete Setup → View Results",
                 type="primary",
@@ -2910,36 +2953,45 @@ if st.session_state.current_page == 'onboarding':
                 disabled=button_disabled,
                 help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
             ):
-                # Track step 2 completed
-                track_onboarding_step_completed(
-                    2,
-                    num_accounts=len(assets),
-                    setup_method=setup_option,
-                    total_balance=sum(asset.current_balance for asset in assets)
-                )
+                # Check if user has set any meaningful contributions
+                total_contributions = sum(asset.annual_contribution for asset in assets)
+                has_contributions = total_contributions > 0
 
-                # Save baseline values from onboarding
-                st.session_state.baseline_retirement_age = st.session_state.retirement_age
-                st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
-                st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
+                # Show reminder if no contributions and user hasn't dismissed it yet
+                if not has_contributions and not st.session_state.get('contribution_reminder_dismissed', False):
+                    st.session_state.show_contribution_reminder = True
+                    st.rerun()
+                else:
+                    # Track step 2 completed
+                    track_onboarding_step_completed(
+                        2,
+                        num_accounts=len(assets),
+                        setup_method=setup_option,
+                        total_balance=sum(asset.current_balance for asset in assets)
+                    )
 
-                # Initialize what-if values to match baseline
-                st.session_state.whatif_retirement_age = st.session_state.retirement_age
-                st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
-                st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
+                    # Save baseline values from onboarding
+                    st.session_state.baseline_retirement_age = st.session_state.retirement_age
+                    st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
+                    st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
 
-                # Mark onboarding as complete and navigate to results page
-                st.session_state.onboarding_complete = True
-                st.session_state.current_page = 'results'
+                    # Initialize what-if values to match baseline
+                    st.session_state.whatif_retirement_age = st.session_state.retirement_age
+                    st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
+                    st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
 
-                # Track onboarding completed
-                track_event('onboarding_completed', {
-                    'num_accounts': len(assets),
-                    'setup_method': setup_option,
-                    'has_retirement_goal': st.session_state.retirement_income_goal > 0
-                })
+                    # Mark onboarding as complete and navigate to results page
+                    st.session_state.onboarding_complete = True
+                    st.session_state.current_page = 'results'
 
-                st.rerun()
+                    # Track onboarding completed
+                    track_event('onboarding_completed', {
+                        'num_accounts': len(assets),
+                        'setup_method': setup_option,
+                        'has_retirement_goal': st.session_state.retirement_income_goal > 0
+                    })
+
+                    st.rerun()
     
         # Show warning if no assets configured
         if not has_assets:
@@ -3023,22 +3075,17 @@ elif st.session_state.current_page == 'results':
             help="Target annual income in retirement (0 = no goal set)"
         )
 
-        whatif_retirement_tax_rate = st.slider(
-            "Retirement Tax Rate (%)",
+        whatif_life_expenses = st.number_input(
+            "One-Time Life Expenses at Retirement ($)",
             min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement (used to calculate after-tax balance)"
+            max_value=10000000,
+            value=st.session_state.whatif_life_expenses,
+            step=10000,
+            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
         )
 
     with col3:
-        whatif_inflation_rate = st.slider(
-            "Inflation Rate (%)",
-            min_value=0,
-            max_value=10,
-            value=st.session_state.whatif_inflation_rate,
-            help="Expected long-term inflation rate"
-        )
+        whatif_inflation_rate = 3
 
         whatif_retirement_growth_rate = st.slider(
             "Portfolio Growth in Retirement (%)",
@@ -3049,14 +3096,14 @@ elif st.session_state.current_page == 'results':
             help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
         )
 
-        whatif_life_expenses = st.number_input(
-            "One-Time Life Expenses at Retirement ($)",
+        whatif_retirement_tax_rate = st.slider(
+            "Retirement Tax Rate (%)",
             min_value=0,
-            max_value=10000000,
-            value=st.session_state.whatif_life_expenses,
-            step=10000,
-            help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
+            max_value=50,
+            value=st.session_state.whatif_retirement_tax_rate,
+            help="Expected tax rate in retirement (used to calculate after-tax balance)"
         )
+
 
     # Update session state with current widget values
     st.session_state.whatif_retirement_age = whatif_retirement_age
@@ -3335,28 +3382,6 @@ elif st.session_state.current_page == 'results':
             - Purchasing power stays constant (adjusts for inflation)
 
             ---
-
-            ### Comparison to Simple Division Method:
-
-            **Old Method (overly conservative):**
-            ```
-            Annual Income = ${total_after_tax:,.0f} / {n} years = ${total_after_tax / n:,.0f}/year
-            ```
-            - Assumes 0% growth during retirement
-            - Ignores inflation adjustments
-            - Significantly understates sustainable income
-
-            **New Method (realistic):**
-            ```
-            Annual Income = ${annual_retirement_income:,.0f}/year (first year)
-            ```
-            - Accounts for {retirement_growth_rate:.1f}% portfolio growth
-            - Increases {inflation_rate}% annually with inflation
-            - More accurate representation of sustainable withdrawals
-            - **Difference: {((annual_retirement_income / (total_after_tax / n)) - 1) * 100:+.1f}%**
-
-            ---
-
             ### Why This Matters:
 
             Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
@@ -3579,8 +3604,7 @@ elif st.session_state.current_page == 'results':
 
                     3. **Optimize asset allocation**: Consider higher-growth investments
 
-                    4. **Reduce retirement expenses**: Lower your income goal to **${retirement_income_goal - income_shortfall:,.0f}/year** (reduce by ${income_shortfall:,.0f})
-                       - This would completely eliminate your income gap
+                    4. **Reduce retirement expenses**: Lower your income goal to ${retirement_income_goal - income_shortfall:,.0f}/year (reduce by ${income_shortfall:,.0f})
 
                     5. **Consider part-time work**: Supplement retirement income
                     """)
