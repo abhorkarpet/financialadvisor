@@ -3835,7 +3835,7 @@ elif st.session_state.current_page == 'results':
 
         with col2:
             st.markdown("### 🎲 Scenario Analysis")
-            st.markdown("Explore thousands scenarios and see how market volatility affects your plan.")
+            st.markdown("Explore thousands of scenarios and see how market volatility affects your plan.")
             if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
                 monte_carlo_dialog()
 
