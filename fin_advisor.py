@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.2.0
+Version: 7.3.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.2.0"
+VERSION = "7.3.0"
 
 # Streamlit import
 import streamlit as st
@@ -3835,7 +3835,7 @@ elif st.session_state.current_page == 'results':
 
         with col2:
             st.markdown("### 🎲 Scenario Analysis")
-            st.markdown("Explore thousands scenarios and see how market volatility affects your plan.")
+            st.markdown("Explore thousands of scenarios and see how market volatility affects your plan.")
             if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
                 monte_carlo_dialog()
 
