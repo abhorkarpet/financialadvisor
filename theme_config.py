@@ -99,13 +99,30 @@ def get_theme_css(theme_colors: dict) -> str:
 
     /* Global Styles */
     .stApp {{
-        background-color: {theme_colors['background']};
-        color: {theme_colors['text_primary']};
+        background-color: {theme_colors['background']} !important;
+        color: {theme_colors['text_primary']} !important;
     }}
 
-    /* Headers */
+    /* Headers - Force readable color */
     h1, h2, h3, h4, h5, h6 {{
         color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Title */
+    .stTitle {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* All text elements */
+    p, span, div, label {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Form labels */
+    .stTextInput label, .stNumberInput label, .stSelectbox label,
+    .stSlider label, .stRadio label, .stCheckbox label {{
+        color: {theme_colors['text_primary']} !important;
+        font-weight: 500 !important;
     }}
 
     /* Primary Buttons */
@@ -126,7 +143,7 @@ def get_theme_css(theme_colors: dict) -> str:
     /* Secondary Buttons */
     .stButton > button {{
         background-color: {theme_colors['surface']} !important;
-        color: {theme_colors['primary']} !important;
+        color: {theme_colors['text_primary']} !important;
         border: 2px solid {theme_colors['border']} !important;
         font-weight: 500 !important;
         transition: all 0.2s ease !important;
@@ -135,6 +152,7 @@ def get_theme_css(theme_colors: dict) -> str:
     .stButton > button:hover {{
         border-color: {theme_colors['primary']} !important;
         background-color: {theme_colors['hover']} !important;
+        color: {theme_colors['primary']} !important;
     }}
 
     /* Cards & Expanders */
@@ -144,24 +162,36 @@ def get_theme_css(theme_colors: dict) -> str:
         border-radius: 8px !important;
     }}
 
-    /* Metrics */
+    .stExpander summary {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Metrics - Always use consistent colors for financial data */
     [data-testid="stMetricValue"] {{
         color: {theme_colors['primary']} !important;
         font-weight: 700 !important;
     }}
 
+    [data-testid="stMetricLabel"] {{
+        color: {theme_colors['text_secondary']} !important;
+        font-weight: 500 !important;
+    }}
+
+    /* Positive/Negative Metrics - CONSISTENT ACROSS THEMES */
     [data-testid="stMetricDelta"] {{
         font-weight: 600 !important;
     }}
 
-    /* Success Metric */
-    [data-testid="stMetricDelta"][data-test-delta-type="positive"] {{
-        color: {theme_colors['success']} !important;
+    /* Positive = GREEN (always) */
+    [data-testid="stMetricDelta"][data-test-delta-type="positive"],
+    [data-testid="stMetricDelta"] > div:has(svg[fill="currentColor"]) {{
+        color: #10B981 !important;  /* Always green for positive */
     }}
 
-    /* Negative Metric */
-    [data-testid="stMetricDelta"][data-test-delta-type="negative"] {{
-        color: {theme_colors['danger']} !important;
+    /* Negative = RED (always) */
+    [data-testid="stMetricDelta"][data-test-delta-type="negative"],
+    [data-testid="stMetricDelta"] > div:has(svg[fill="currentColor"][data-testid*="decrease"]) {{
+        color: #EF4444 !important;  /* Always red for negative */
     }}
 
     /* Input Fields */
@@ -178,6 +208,11 @@ def get_theme_css(theme_colors: dict) -> str:
     .stNumberInput > div > div > input:focus {{
         border-color: {theme_colors['primary']} !important;
         box-shadow: 0 0 0 1px {theme_colors['primary']} !important;
+    }}
+
+    /* Number input +/- buttons */
+    .stNumberInput button {{
+        color: {theme_colors['text_primary']} !important;
     }}
 
     /* Progress Bar */
@@ -205,32 +240,48 @@ def get_theme_css(theme_colors: dict) -> str:
         border-color: {theme_colors['primary']} !important;
     }}
 
-    /* Success Messages */
+    /* Success Messages - Always green */
     .stSuccess {{
         background-color: rgba(16, 185, 129, 0.1) !important;
-        color: {theme_colors['success']} !important;
-        border-left: 4px solid {theme_colors['success']} !important;
+        color: #10B981 !important;
+        border-left: 4px solid #10B981 !important;
+    }}
+
+    .stSuccess p, .stSuccess div {{
+        color: #10B981 !important;
     }}
 
     /* Info Messages */
     .stInfo {{
-        background-color: rgba(0, 102, 204, 0.1) !important;
+        background-color: rgba(59, 130, 246, 0.1) !important;
         color: {theme_colors['primary']} !important;
         border-left: 4px solid {theme_colors['primary']} !important;
+    }}
+
+    .stInfo p, .stInfo div {{
+        color: {theme_colors['text_primary']} !important;
     }}
 
     /* Warning Messages */
     .stWarning {{
         background-color: rgba(245, 158, 11, 0.1) !important;
-        color: {theme_colors['warning']} !important;
-        border-left: 4px solid {theme_colors['warning']} !important;
+        color: #F59E0B !important;
+        border-left: 4px solid #F59E0B !important;
     }}
 
-    /* Error Messages */
+    .stWarning p, .stWarning div {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Error Messages - Always red */
     .stError {{
         background-color: rgba(239, 68, 68, 0.1) !important;
-        color: {theme_colors['danger']} !important;
-        border-left: 4px solid {theme_colors['danger']} !important;
+        color: #EF4444 !important;
+        border-left: 4px solid #EF4444 !important;
+    }}
+
+    .stError p, .stError div {{
+        color: #EF4444 !important;
     }}
 
     /* DataFrames */
@@ -239,10 +290,18 @@ def get_theme_css(theme_colors: dict) -> str:
         border-radius: 8px !important;
     }}
 
+    .stDataFrame table {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
     /* Sidebar */
     [data-testid="stSidebar"] {{
         background-color: {theme_colors['surface']} !important;
         border-right: 1px solid {theme_colors['border']} !important;
+    }}
+
+    [data-testid="stSidebar"] * {{
+        color: {theme_colors['text_primary']} !important;
     }}
 
     /* Links */
@@ -265,6 +324,10 @@ def get_theme_css(theme_colors: dict) -> str:
         border: 1px solid {theme_colors['border']} !important;
     }}
 
+    .stRadio label {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
     /* Checkboxes */
     .stCheckbox > label > div[data-testid="stMarkdownContainer"] > p {{
         color: {theme_colors['text_primary']} !important;
@@ -279,6 +342,13 @@ def get_theme_css(theme_colors: dict) -> str:
         background-color: {theme_colors['primary']} !important;
     }}
 
+    /* Slider values */
+    .stSlider [data-testid="stTickBarMin"],
+    .stSlider [data-testid="stTickBarMax"],
+    .stSlider [data-baseweb="slider"] {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
     /* File Uploader */
     [data-testid="stFileUploader"] {{
         background-color: {theme_colors['surface']} !important;
@@ -286,9 +356,13 @@ def get_theme_css(theme_colors: dict) -> str:
         border-radius: 8px !important;
     }}
 
+    [data-testid="stFileUploader"] label {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
     /* Download Button */
     .stDownloadButton > button {{
-        background: linear-gradient(135deg, {theme_colors['success']} 0%, {theme_colors['primary']} 100%) !important;
+        background: linear-gradient(135deg, #10B981 0%, {theme_colors['primary']} 100%) !important;
         color: white !important;
         border: none !important;
         font-weight: 600 !important;
@@ -313,10 +387,47 @@ def get_theme_css(theme_colors: dict) -> str:
         color: {theme_colors['text_primary']} !important;
     }}
 
+    .stMarkdown p, .stMarkdown li, .stMarkdown span {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
     /* Divider */
     hr {{
         border-color: {theme_colors['divider']} !important;
         opacity: 0.3 !important;
+    }}
+
+    /* Help text / captions */
+    .stCaption, small {{
+        color: {theme_colors['text_secondary']} !important;
+    }}
+
+    /* Table headers */
+    th {{
+        color: {theme_colors['text_primary']} !important;
+        font-weight: 600 !important;
+    }}
+
+    /* Table cells */
+    td {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Financial numbers - positive/negative consistency */
+    .positive-value, .metric-positive {{
+        color: #10B981 !important;  /* Always green */
+        font-weight: 600 !important;
+    }}
+
+    .negative-value, .metric-negative {{
+        color: #EF4444 !important;  /* Always red */
+        font-weight: 600 !important;
+    }}
+
+    /* Ensure all interactive elements have proper contrast */
+    select, input, textarea {{
+        color: {theme_colors['text_primary']} !important;
+        background-color: {theme_colors['surface']} !important;
     }}
     </style>
     """
