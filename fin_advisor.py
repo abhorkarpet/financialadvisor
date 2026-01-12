@@ -64,25 +64,25 @@ try:
     ANALYTICS_AVAILABLE = True
 except ImportError:
     ANALYTICS_AVAILABLE = False
-    # Define no-op functions if analytics not available
-    def initialize_analytics(): pass
-    def set_analytics_consent(x): pass
-    def track_event(*args, **kwargs): pass
-    def track_page_view(x): pass
-    def track_onboarding_step_started(x): pass
-    def track_onboarding_step_completed(*args, **kwargs): pass
-    def track_feature_usage(*args, **kwargs): pass
-    def track_pdf_generation(x): pass
-    def track_monte_carlo_run(*args, **kwargs): pass
-    def track_statement_upload(*args, **kwargs): pass
-    def track_error(*args, **kwargs): pass
-    def is_analytics_enabled(): return False
-    def opt_out(): pass
-    def opt_in(): pass
-    def get_age_range(x): return "unknown"
-    def get_goal_range(x): return "unknown"
-    def get_session_replay_script(): return ""
-    def reset_analytics_session(): pass
+    # Define no-op functions if analytics not available with matching signatures
+    def initialize_analytics() -> None: pass
+    def set_analytics_consent(consented: bool) -> None: pass
+    def track_event(event_name: str, properties: Optional[Dict[str, any]] = None, user_properties: Optional[Dict[str, any]] = None) -> None: pass
+    def track_page_view(page_name: str) -> None: pass
+    def track_onboarding_step_started(step: int) -> None: pass
+    def track_onboarding_step_completed(step: int, **kwargs: any) -> None: pass
+    def track_feature_usage(feature: str, **kwargs: any) -> None: pass
+    def track_pdf_generation(success: bool) -> None: pass
+    def track_monte_carlo_run(num_simulations: int, **kwargs: any) -> None: pass
+    def track_statement_upload(success: bool, num_statements: int, num_accounts: int) -> None: pass
+    def track_error(error_type: str, error_message: str, context: Optional[Dict[str, any]] = None) -> None: pass
+    def is_analytics_enabled() -> bool: return False
+    def opt_out() -> None: pass
+    def opt_in() -> None: pass
+    def get_age_range(age: float) -> str: return "unknown"
+    def get_goal_range(goal: float) -> str: return "unknown"
+    def get_session_replay_script() -> str: return ""
+    def reset_analytics_session() -> None: pass
 
 # n8n integration for financial statement upload
 try:
@@ -1672,9 +1672,9 @@ if st.session_state.current_page == 'onboarding':
 
         # Track asset configuration method selected
         track_event('asset_config_method_selected', {'method': setup_option})
-    
-        assets = []
-    
+
+        assets: List[Asset] = []
+
         if setup_option == "Upload Financial Statements (AI)":
             if not _N8N_AVAILABLE:
                 st.error("❌ **n8n integration not available**")
@@ -2784,7 +2784,7 @@ if st.session_state.current_page == 'onboarding':
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}", help="Name of your account")
-                        asset_type = st.selectbox(
+                        asset_type_selection: Tuple[str, AssetType] = st.selectbox(
                             f"Asset Type {i+1}",
                             options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
                             format_func=lambda x: f"{x[0]} ({x[1].value})",
@@ -2795,14 +2795,14 @@ if st.session_state.current_page == 'onboarding':
                         annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
                     with col3:
                         growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, int(7), help=f"Expected annual return (default: {7}%)")
-                        if asset_type[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
+                        if asset_type_selection[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
                             tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
                         else:
                             tax_rate = 0
-                    
+
                     assets.append(Asset(
                         name=asset_name,
-                        asset_type=asset_type[1],
+                        asset_type=asset_type_selection[1],
                         current_balance=current_balance,
                         annual_contribution=annual_contribution,
                         growth_rate_pct=growth_rate,
@@ -3657,9 +3657,9 @@ elif st.session_state.current_page == 'results':
                     )
 
         with detail_tab2:
-            tax_liability = result.get("Total Tax Liability", 0)
-            total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
-            tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0
+            tax_liability = result.get("Total Tax Liability", 0.0)
+            total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1.0)
+            tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0.0
             
             col1, col2 = st.columns(2)
             with col1:
@@ -3958,6 +3958,7 @@ elif st.session_state.current_page == 'monte_carlo':
                 )
 
                 # Calculate probability of meeting income goal
+                prob_success: Optional[float]
                 if st.session_state.whatif_retirement_income_goal > 0:
                     prob_success = calculate_probability_of_goal(
                         results["outcomes"],
@@ -4068,7 +4069,7 @@ elif st.session_state.current_page == 'monte_carlo':
         bin_width = (max_val - min_val) / num_bins
 
         # Store bins with numeric centers for proper sorting
-        bins_data = {}
+        bins_data: Dict[float, int] = {}
         for outcome in results['annual_income_outcomes']:
             bin_idx = min(int((outcome - min_val) / bin_width), num_bins - 1)
             bin_center = min_val + (bin_idx + 0.5) * bin_width
@@ -4167,7 +4168,7 @@ elif st.session_state.current_page == 'monte_carlo':
         bin_width_balance = (max_val_balance - min_val_balance) / num_bins
 
         # Store bins with numeric centers for proper sorting
-        bins_balance_data = {}
+        bins_balance_data: Dict[float, int] = {}
         for outcome in results['outcomes']:
             bin_idx = min(int((outcome - min_val_balance) / bin_width_balance), num_bins - 1)
             bin_center = min_val_balance + (bin_idx + 0.5) * bin_width_balance
@@ -4378,8 +4379,8 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and "--run-tests" in sys.argv:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestComputation)
-        result = unittest.TextTestRunner(verbosity=2).run(suite)
-        sys.exit(0 if result.wasSuccessful() else 1)
+        test_result = unittest.TextTestRunner(verbosity=2).run(suite)
+        sys.exit(0 if test_result.wasSuccessful() else 1)
     else:
         print("🚀 Smart Retire AI - Advanced Retirement Planning")
         print("=" * 60)
