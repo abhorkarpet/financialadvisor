@@ -918,7 +918,7 @@ def main():
 
         **Powered by:**
         - n8n workflow automation
-        - OpenAI GPT-4.1
+        - OpenAI GPT-4o
         - OCR text extraction
         """)
 
