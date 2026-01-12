@@ -827,6 +827,17 @@ if not _RUNNING_TESTS:
         initial_sidebar_state="auto"
     )
 
+    # Initialize theme system
+    from theme_config import LIGHT_THEME, DARK_THEME, get_theme_css
+
+    # Initialize theme preference in session state
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = False
+
+    # Apply theme CSS
+    current_theme = DARK_THEME if st.session_state.dark_mode else LIGHT_THEME
+    st.markdown(get_theme_css(current_theme), unsafe_allow_html=True)
+
     # Initialize analytics
     initialize_analytics()
 
@@ -1494,8 +1505,20 @@ if not _RUNNING_TESTS:
     # MAIN AREA - Header & Disclaimer
     # ==========================================
     # Note: Sidebar advanced settings removed - now in Results page as What-If controls
-    st.title("💰 Smart Retire AI - Advanced Retirement Planning")
-    
+
+    # Header with theme toggle
+    col1, col2 = st.columns([6, 1])
+    with col1:
+        st.title("💰 Smart Retire AI - Advanced Retirement Planning")
+    with col2:
+        # Theme toggle button
+        theme_icon = "☀️" if st.session_state.dark_mode else "🌙"
+        theme_label = f"{theme_icon}"
+        if st.button(theme_label, help="Toggle Dark/Light Mode", key="theme_toggle_btn"):
+            st.session_state.dark_mode = not st.session_state.dark_mode
+            track_event('theme_toggled', {'dark_mode': st.session_state.dark_mode})
+            st.rerun()
+
     # Legal Disclaimer
     with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
         st.markdown("""
