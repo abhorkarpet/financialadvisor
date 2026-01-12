@@ -449,6 +449,27 @@ def get_theme_css(theme_colors: dict) -> str:
         background-color: {theme_colors['surface']} !important;
     }}
 
+    /* Tooltips and Help text */
+    [data-testid="stTooltipIcon"] {{
+        color: {theme_colors['text_secondary']} !important;
+    }}
+
+    [role="tooltip"], [data-baseweb="tooltip"] {{
+        background-color: {theme_colors['surface']} !important;
+        color: {theme_colors['text_primary']} !important;
+        border: 1px solid {theme_colors['border']} !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+    }}
+
+    [role="tooltip"] span, [data-baseweb="tooltip"] span {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Button help text */
+    .stButton button[title] {{
+        position: relative;
+    }}
+
     /* Footer styling - override inline styles */
     div[style*="text-align: center"][style*="padding: 20px"] {{
         background-color: {theme_colors['surface']} !important;
