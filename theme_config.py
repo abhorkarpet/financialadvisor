@@ -429,6 +429,33 @@ def get_theme_css(theme_colors: dict) -> str:
         color: {theme_colors['text_primary']} !important;
         background-color: {theme_colors['surface']} !important;
     }}
+
+    /* Footer styling - override inline styles */
+    div[style*="text-align: center"][style*="padding: 20px"] {{
+        background-color: {theme_colors['surface']} !important;
+        border: 1px solid {theme_colors['border']} !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    }}
+
+    div[style*="text-align: center"][style*="padding: 20px"] strong {{
+        color: {theme_colors['primary']} !important;
+    }}
+
+    div[style*="text-align: center"][style*="padding: 20px"] span {{
+        color: {theme_colors['text_secondary']} !important;
+    }}
+
+    div[style*="text-align: center"][style*="padding: 20px"] em {{
+        color: {theme_colors['text_tertiary']} !important;
+    }}
+
+    div[style*="text-align: center"][style*="padding: 20px"] a {{
+        color: {theme_colors['primary']} !important;
+    }}
+
+    div[style*="text-align: center"][style*="padding: 20px"] a:hover {{
+        color: {theme_colors['secondary']} !important;
+    }}
     </style>
     """
 
