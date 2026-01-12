@@ -1524,79 +1524,6 @@ with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
     **By using this application, you acknowledge and agree to these terms.**
     """)
 
-# Share & Feedback section - Simple and clean
-with st.expander("💬 Share & Feedback", expanded=False):
-    # Create tabs for better organization
-    feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
-
-    with feedback_tab1:
-        st.markdown("**Share Smart Retire AI with others:**")
-
-        app_url = "https://smartretireai.streamlit.app"
-
-        # Social share buttons - simple button layout
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://smartretireai.streamlit.app"
-            if st.button("🐦 Twitter", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
-
-        with col2:
-            linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-            if st.button("💼 LinkedIn", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
-
-        with col3:
-            facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-            if st.button("📘 Facebook", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
-
-        with col4:
-            if st.button("📧 Email", use_container_width=True):
-                email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://smartretireai.streamlit.app"
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("**Or copy and share the link:**")
-        st.code(app_url, language=None)
-
-    with feedback_tab2:
-        st.markdown("**We'd love to hear from you!**")
-
-        # Quick rating
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("👍 Love it!", use_container_width=True):
-                st.success("Thank you! 💚")
-                st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
-        with col2:
-            if st.button("👎 Could improve", use_container_width=True):
-                st.info("Thanks for the feedback!")
-                st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
-
-        st.markdown("---")
-
-        # Simple feedback form
-        with st.form("simple_feedback"):
-            feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
-            if st.form_submit_button("📧 Send Feedback"):
-                if feedback_msg:
-                    email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
-                    st.success("Ready to send!")
-                    st.markdown(f"[Click to open email →]({email_url})")
-
-    with feedback_tab3:
-        st.markdown("""
-        **Get in touch:**
-
-        📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
-        ⏱️ **Response time:** 24-48 hours
-        🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
-
-        We're here to help with questions, bugs, or feature requests!
-        """)
-
 # ==========================================
 # PAGE ROUTING
 # ==========================================
@@ -3843,6 +3770,80 @@ elif st.session_state.current_page == 'results':
             st.markdown("### 📊 Cash Flow Projection")
             st.markdown("Visualize year-by-year income and expenses throughout retirement.")
             st.button("🔜 Coming Soon", use_container_width=True, disabled=True, key="next_steps_cashflow")
+
+        # Share & Feedback section - Simple and clean
+        st.markdown("---")
+        with st.expander("💬 Share & Feedback", expanded=False):
+            # Create tabs for better organization
+            feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
+
+            with feedback_tab1:
+                st.markdown("**Share Smart Retire AI with others:**")
+
+                app_url = "https://smartretireai.streamlit.app"
+
+                # Social share buttons - simple button layout
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://smartretireai.streamlit.app"
+                    if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
+                        st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
+
+                with col2:
+                    linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
+                    if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
+                        st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
+
+                with col3:
+                    facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
+                    if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
+                        st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
+
+                with col4:
+                    if st.button("📧 Email", use_container_width=True, key="share_email"):
+                        email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://smartretireai.streamlit.app"
+                        st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
+
+                st.markdown("---")
+                st.markdown("**Or copy and share the link:**")
+                st.code(app_url, language=None)
+
+            with feedback_tab2:
+                st.markdown("**We'd love to hear from you!**")
+
+                # Quick rating
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("👍 Love it!", use_container_width=True, key="feedback_love"):
+                        st.success("Thank you! 💚")
+                        st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
+                with col2:
+                    if st.button("👎 Could improve", use_container_width=True, key="feedback_improve"):
+                        st.info("Thanks for the feedback!")
+                        st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
+
+                st.markdown("---")
+
+                # Simple feedback form
+                with st.form("simple_feedback_nextsteps"):
+                    feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
+                    if st.form_submit_button("📧 Send Feedback"):
+                        if feedback_msg:
+                            email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
+                            st.success("Ready to send!")
+                            st.markdown(f"[Click to open email →]({email_url})")
+
+            with feedback_tab3:
+                st.markdown("""
+                **Get in touch:**
+
+                📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
+                ⏱️ **Response time:** 24-48 hours
+                🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
+
+                We're here to help with questions, bugs, or feature requests!
+                """)
 
     except Exception as e:
         st.error(f"❌ **Error in calculation**: {e}")
