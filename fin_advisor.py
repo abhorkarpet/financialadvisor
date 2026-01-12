@@ -1511,18 +1511,14 @@ with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
     """)
 
 # ==========================================
-# ANALYTICS CONSENT DIALOG
-# ==========================================
-# Show analytics consent dialog on first load
-if st.session_state.get('analytics_consent') is None:
-    analytics_consent_dialog()
-
-# ==========================================
 # PAGE ROUTING
 # ==========================================
 # Route to appropriate page based on current_page state
 
 if st.session_state.current_page == 'onboarding':
+    # Show analytics consent dialog on first load (before onboarding)
+    if st.session_state.get('analytics_consent') is None:
+        analytics_consent_dialog()
     # ==========================================
     # ONBOARDING PAGE
     # ==========================================
@@ -2918,6 +2914,10 @@ if st.session_state.current_page == 'onboarding':
             st.warning("⚠️ Please configure at least one asset before completing onboarding.")
 
 elif st.session_state.current_page == 'results':
+    # Show analytics consent dialog on first load
+    if st.session_state.get('analytics_consent') is None:
+        analytics_consent_dialog()
+
     # ==========================================
     # RESULTS & ANALYSIS PAGE
     # ==========================================
@@ -3844,6 +3844,10 @@ elif st.session_state.current_page == 'results':
             st.exception(e)
 
 elif st.session_state.current_page == 'monte_carlo':
+    # Show analytics consent dialog on first load
+    if st.session_state.get('analytics_consent') is None:
+        analytics_consent_dialog()
+
     # ==========================================
     # MONTE CARLO SIMULATION PAGE
     # ==========================================
