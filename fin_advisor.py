@@ -1688,7 +1688,7 @@ if st.session_state.current_page == 'onboarding':
 
             # Retirement income goal with tooltip help
             retirement_income_goal = st.number_input(
-                "Annual Income Needed in Retirement ($) - Optional",
+                "After Tax Annual Income Needed in Retirement ($) - Optional",
                 min_value=0,
                 max_value=500000,
                 value=st.session_state.retirement_income_goal,
