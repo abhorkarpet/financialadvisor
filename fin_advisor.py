@@ -1486,13 +1486,6 @@ if not st.session_state.splash_dismissed:
     st.stop()
 
 # ==========================================
-# ANALYTICS CONSENT DIALOG
-# ==========================================
-# Show analytics consent dialog on first load
-if st.session_state.get('analytics_consent') is None:
-    analytics_consent_dialog()
-
-# ==========================================
 # MAIN AREA - Header & Disclaimer
 # ==========================================
 # Note: Sidebar advanced settings removed - now in Results page as What-If controls
@@ -1516,6 +1509,13 @@ with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
 
     **By using this application, you acknowledge and agree to these terms.**
     """)
+
+# ==========================================
+# ANALYTICS CONSENT DIALOG
+# ==========================================
+# Show analytics consent dialog on first load
+if st.session_state.get('analytics_consent') is None:
+    analytics_consent_dialog()
 
 # ==========================================
 # PAGE ROUTING
