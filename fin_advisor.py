@@ -34,6 +34,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import io
 import csv
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -839,6 +840,59 @@ components.html(
 # reliably in Streamlit's server-side architecture. Session analytics (based on
 # events) will still work and show session duration, events per session, etc.
 
+@st.dialog("📊 Help Us Improve Smart Retire AI")
+def analytics_consent_dialog():
+    """Display analytics consent dialog for user opt-in."""
+    st.markdown("""
+    ### We'd like to collect anonymous usage data to improve your experience
+
+    **What we collect (if you opt-in):**
+    - ✅ Anonymous usage patterns (e.g., which features you use)
+    - ✅ Error logs (to fix bugs faster)
+    - ✅ Browser/device info (for compatibility)
+
+    **What we NEVER collect:**
+    - ❌ Your financial data (account balances, numbers)
+    - ❌ Personal information (name, email, address)
+    - ❌ PDF file contents
+    - ❌ Exact ages or retirement goals
+
+    **Your data:**
+    - Anonymous ID only (not tied to you)
+    - Encrypted and stored securely
+    - Automatically deleted after 90 days
+    - You can opt-out anytime in Advanced Settings
+
+    ---
+    """)
+
+    # Privacy policy link
+    if st.button("📄 Read Full Privacy Policy", use_container_width=True, key="analytics_privacy_link"):
+        show_privacy_policy()
+
+    st.markdown("---")
+
+    # Consent buttons
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("✅ I Accept", type="primary", use_container_width=True, key="analytics_accept"):
+            set_analytics_consent(True)
+            track_event('analytics_consent_shown')
+            st.success("✅ Thank you! Analytics enabled.")
+            time.sleep(0.5)  # Brief pause to show success message
+            st.rerun()
+
+    with col2:
+        if st.button("❌ No Thanks", use_container_width=True, key="analytics_decline"):
+            set_analytics_consent(False)
+            st.info("ℹ️ You can enable analytics later in Advanced Settings.")
+            time.sleep(0.5)  # Brief pause to show info message
+            st.rerun()
+
+    st.caption("**Your choice is saved for this session.** You can change it anytime in Advanced Settings.")
+
+
 @st.dialog("Privacy Policy")
 def show_privacy_policy():
     """Display comprehensive privacy policy in a dialog."""
@@ -1432,72 +1486,11 @@ if not st.session_state.splash_dismissed:
     st.stop()
 
 # ==========================================
-# ANALYTICS CONSENT SCREEN
+# ANALYTICS CONSENT DIALOG
 # ==========================================
+# Show analytics consent dialog on first load
 if st.session_state.get('analytics_consent') is None:
-    st.markdown(
-        """
-        <div style='text-align: center; padding: 40px 20px 20px 20px;'>
-            <h1 style='color: #1f77b4;'>📊 Help Us Improve Smart Retire AI</h1>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    col1, col2, col3 = st.columns([1, 3, 1])
-
-    with col2:
-        st.markdown("""
-        ### We'd like to collect anonymous usage data to improve your experience
-
-        **What we collect (if you opt-in):**
-        - ✅ Anonymous usage patterns (e.g., which features you use)
-        - ✅ Error logs (to fix bugs faster)
-        - ✅ Browser/device info (for compatibility)
-
-        **What we NEVER collect:**
-        - ❌ Your financial data (account balances, numbers)
-        - ❌ Personal information (name, email, address)
-        - ❌ PDF file contents
-        - ❌ Exact ages or retirement goals
-
-        **Your data:**
-        - Anonymous ID only (not tied to you)
-        - Encrypted and stored securely
-        - Automatically deleted after 90 days
-        - You can opt-out anytime
-
-        ---
-        """)
-
-        # Privacy policy link
-        if st.button("📄 Read Full Privacy Policy", use_container_width=True):
-            show_privacy_policy()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Consent buttons
-        consent_col1, consent_col2 = st.columns(2)
-
-        with consent_col1:
-            if st.button("✅ I Accept", type="primary", use_container_width=True):
-                set_analytics_consent(True)
-                track_event('analytics_consent_shown')
-                st.success("✅ Thank you! Analytics enabled.")
-                st.rerun()
-
-        with consent_col2:
-            if st.button("❌ No Thanks", use_container_width=True):
-                set_analytics_consent(False)
-                st.info("ℹ️ You can enable analytics later in Settings.")
-                st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.caption("**Your choice is saved for this session.** You can change it anytime in Advanced Settings.")
-
-    # Stop rendering until user makes choice
-    st.stop()
+    analytics_consent_dialog()
 
 # ==========================================
 # MAIN AREA - Header & Disclaimer
