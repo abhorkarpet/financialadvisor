@@ -103,6 +103,25 @@ def get_theme_css(theme_colors: dict) -> str:
         color: {theme_colors['text_primary']} !important;
     }}
 
+    /* Main content area */
+    .main .block-container {{
+        background-color: {theme_colors['background']} !important;
+    }}
+
+    /* Column containers */
+    [data-testid="column"] {{
+        background-color: {theme_colors['background']} !important;
+    }}
+
+    /* Remove any white backgrounds from stale elements */
+    [data-testid="stVerticalBlock"] {{
+        background-color: transparent !important;
+    }}
+
+    [data-testid="stHorizontalBlock"] {{
+        background-color: transparent !important;
+    }}
+
     /* Headers - Force readable color */
     h1, h2, h3, h4, h5, h6 {{
         color: {theme_colors['text_primary']} !important;
