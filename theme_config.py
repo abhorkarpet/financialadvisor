@@ -174,6 +174,15 @@ def get_theme_css(theme_colors: dict) -> str:
         color: {theme_colors['primary']} !important;
     }}
 
+    /* Button text and content */
+    .stButton > button span, .stButton > button p, .stButton > button div {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    .stButton > button:hover span, .stButton > button:hover p, .stButton > button:hover div {{
+        color: {theme_colors['primary']} !important;
+    }}
+
     /* Cards & Expanders */
     .stExpander {{
         background-color: {theme_colors['surface']} !important;
@@ -461,7 +470,22 @@ def get_theme_css(theme_colors: dict) -> str:
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
     }}
 
-    [role="tooltip"] span, [data-baseweb="tooltip"] span {{
+    [role="tooltip"] *, [data-baseweb="tooltip"] * {{
+        color: {theme_colors['text_primary']} !important;
+    }}
+
+    /* Streamlit's tooltip content */
+    div[data-baseweb="popover"] {{
+        background-color: {theme_colors['surface']} !important;
+    }}
+
+    div[data-baseweb="popover"] > div {{
+        background-color: {theme_colors['surface']} !important;
+        color: {theme_colors['text_primary']} !important;
+        border: 1px solid {theme_colors['border']} !important;
+    }}
+
+    div[data-baseweb="popover"] * {{
         color: {theme_colors['text_primary']} !important;
     }}
 
