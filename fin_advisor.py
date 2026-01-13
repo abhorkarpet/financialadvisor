@@ -841,7 +841,22 @@ if not _RUNNING_TESTS:
         """,
         height=0,
     )
-    
+
+    # Fix tooltip font consistency
+    st.markdown("""
+        <style>
+        /* Ensure tooltips use consistent sans-serif font */
+        [role="tooltip"],
+        [role="tooltip"] *,
+        [data-baseweb="tooltip"],
+        [data-baseweb="tooltip"] *,
+        div[data-baseweb="popover"],
+        div[data-baseweb="popover"] * {
+            font-family: "Source Sans Pro", sans-serif !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # Note: PostHog session replay requires browser JavaScript which doesn't work
     # reliably in Streamlit's server-side architecture. Session analytics (based on
     # events) will still work and show session duration, events per session, etc.
