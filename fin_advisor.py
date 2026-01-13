@@ -1750,8 +1750,9 @@ if not _RUNNING_TESTS:
     
             # Track asset configuration method selected
             track_event('asset_config_method_selected', {'method': setup_option})
-    
-            assets: List[Asset] = []
+
+            # Initialize from session state to preserve user's work when switching modes
+            assets: List[Asset] = list(st.session_state.get('assets', []))
     
             if setup_option == "Upload Financial Statements (AI)":
                 if not _N8N_AVAILABLE:
@@ -2854,31 +2855,75 @@ if not _RUNNING_TESTS:
                 
             elif setup_option == "Configure Individual Assets":
                 st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
-                
-                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
-                
+
+                # Use existing assets count if available, otherwise default to 3
+                default_num_assets = max(len(assets), 3) if len(assets) > 0 else 3
+                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=default_num_assets, help="How many different accounts do you have?")
+
+                # Clear assets list to rebuild from form
+                configured_assets: List[Asset] = []
+
                 for i in range(num_assets):
+                    # Get existing asset data if available
+                    existing_asset = assets[i] if i < len(assets) else None
+
                     with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}", help="Name of your account")
+                            asset_name = st.text_input(
+                                f"Asset Name {i+1}",
+                                value=existing_asset.name if existing_asset else f"Asset {i+1}",
+                                help="Name of your account"
+                            )
+
+                            # Find the index of the existing asset type in the options list
+                            default_type_index = 0
+                            if existing_asset:
+                                for idx, (name, atype) in enumerate(_DEF_ASSET_TYPES):
+                                    if atype == existing_asset.asset_type:
+                                        default_type_index = idx
+                                        break
+
                             asset_type_selection: Tuple[str, AssetType] = st.selectbox(
                                 f"Asset Type {i+1}",
                                 options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
+                                index=default_type_index,
                                 format_func=lambda x: f"{x[0]} ({x[1].value})",
                                 help="Type of account for tax treatment"
                             )
                         with col2:
-                            current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000, help="Current account balance")
-                            annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
+                            current_balance = st.number_input(
+                                f"Current Balance {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.current_balance) if existing_asset else 10000,
+                                step=1000,
+                                help="Current account balance"
+                            )
+                            annual_contribution = st.number_input(
+                                f"Annual Contribution {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.annual_contribution) if existing_asset else 5000,
+                                step=500,
+                                help="How much you contribute annually"
+                            )
                         with col3:
-                            growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, int(7), help=f"Expected annual return (default: {7}%)")
+                            growth_rate = st.slider(
+                                f"Growth Rate {i+1} (%)",
+                                0, 20,
+                                int(existing_asset.growth_rate_pct) if existing_asset else 7,
+                                help=f"Expected annual return (default: 7%)"
+                            )
                             if asset_type_selection[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
-                                tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
+                                tax_rate = st.slider(
+                                    f"Capital Gains Rate {i+1} (%)",
+                                    0, 30,
+                                    int(existing_asset.tax_rate_pct) if existing_asset and existing_asset.tax_rate_pct > 0 else 15,
+                                    help="Capital gains tax rate"
+                                )
                             else:
                                 tax_rate = 0
-    
-                        assets.append(Asset(
+
+                        configured_assets.append(Asset(
                             name=asset_name,
                             asset_type=asset_type_selection[1],
                             current_balance=current_balance,
@@ -2886,12 +2931,15 @@ if not _RUNNING_TESTS:
                             growth_rate_pct=growth_rate,
                             tax_rate_pct=tax_rate
                         ))
+
+                # Replace assets with newly configured ones
+                assets = configured_assets
     
             st.markdown("---")
 
 
-            # Tax Rate Explanation - only show if assets exist
-            if len(assets) > 0:
+            # Tax Rate Explanation - only show in manual configuration mode when assets exist
+            if setup_option == "Configure Individual Assets" and len(assets) > 0:
                 with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
                     st.markdown("""
                     ### 🎯 Tax Rate Column Explained
