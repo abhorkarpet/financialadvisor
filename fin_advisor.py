@@ -3914,18 +3914,21 @@ if not _RUNNING_TESTS:
                         twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
                         twitter_url = f"https://twitter.com/intent/tweet?text={twitter_text.replace(' ', '%20').replace('\n', '%0A')}&url={app_url}"
                         if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
+                            st.markdown(f'<script>window.open("{twitter_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening Twitter in new tab...")
 
                     with col2:
                         # LinkedIn with professional messaging
                         linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
                         if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
+                            st.markdown(f'<script>window.open("{linkedin_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening LinkedIn in new tab...")
 
                     with col3:
                         facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
                         if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
+                            st.markdown(f'<script>window.open("{facebook_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening Facebook in new tab...")
 
                     with col4:
                         if st.button("📧 Email", use_container_width=True, key="share_email"):
@@ -3945,7 +3948,8 @@ if not _RUNNING_TESTS:
                                 "Best regards"
                             )
                             email_url = f"mailto:?subject={email_subject}&body={email_body}"
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
+                            st.markdown(f'<script>window.open("{email_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening email client...")
     
                     st.markdown("---")
                     st.markdown("**Or copy and share the link:**")
