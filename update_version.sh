@@ -64,8 +64,14 @@ update_file() {
     # Create backup
     cp "$file" "$file.bak"
 
-    # Perform replacement
-    sed -i "s/$pattern/$replacement/g" "$file"
+    # Perform replacement - handle macOS vs Linux sed
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS requires empty string after -i
+        sed -i '' "s/$pattern/$replacement/g" "$file"
+    else
+        # Linux sed
+        sed -i "s/$pattern/$replacement/g" "$file"
+    fi
 
     # Check if change was made
     if diff -q "$file" "$file.bak" > /dev/null; then
