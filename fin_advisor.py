@@ -35,6 +35,7 @@ import streamlit.components.v1 as components
 import io
 import csv
 import time
+import urllib.parse
 from datetime import datetime
 
 import pandas as pd
