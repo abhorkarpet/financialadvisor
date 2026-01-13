@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.5.0
+Version: 8.0.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.5.0"
+VERSION = "8.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -2889,43 +2889,44 @@ if not _RUNNING_TESTS:
     
             st.markdown("---")
         
-    
-            # Tax Rate Explanation
-            with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
-                st.markdown("""
-                ### 🎯 Tax Rate Column Explained
-                
-                The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
-                
-                #### **Pre-Tax Accounts (401k, Traditional IRA)**
-                - **Tax Rate**: `0%` (not applicable here)
-                - **Why**: The entire balance is taxed as ordinary income at withdrawal
-                - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
-                
-                #### **Post-Tax Accounts**
-                **Roth IRA:**
-                - **Tax Rate**: `0%` 
-                - **Why**: No tax on withdrawals (contributions already taxed)
-                - **Example**: Withdraw $100,000 tax-free
-                
-                **Brokerage Account:**
-                - **Tax Rate**: `15%` (default capital gains rate)
-                - **Why**: Only the **gains** are taxed, not original contributions
-                - **Example**: 
-                  - Contributed $50,000, grew to $100,000
-                  - Only $50,000 gain taxed at 15% = $7,500 tax
-                  - You keep $92,500
-                
-                #### **Tax-Deferred Accounts (HSA, Annuities)**
-                - **Tax Rate**: Varies by account type
-                - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
-                - **Annuities**: Retirement tax rate on full amount
-                
-                💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
-                """)
-        
-            # Reference to Advanced Settings for default growth rate
-            st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
+
+            # Tax Rate Explanation - only show if assets exist
+            if len(st.session_state.assets) > 0:
+                with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
+                    st.markdown("""
+                    ### 🎯 Tax Rate Column Explained
+
+                    The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
+
+                    #### **Pre-Tax Accounts (401k, Traditional IRA)**
+                    - **Tax Rate**: `0%` (not applicable here)
+                    - **Why**: The entire balance is taxed as ordinary income at withdrawal
+                    - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
+
+                    #### **Post-Tax Accounts**
+                    **Roth IRA:**
+                    - **Tax Rate**: `0%`
+                    - **Why**: No tax on withdrawals (contributions already taxed)
+                    - **Example**: Withdraw $100,000 tax-free
+
+                    **Brokerage Account:**
+                    - **Tax Rate**: `15%` (default capital gains rate)
+                    - **Why**: Only the **gains** are taxed, not original contributions
+                    - **Example**:
+                      - Contributed $50,000, grew to $100,000
+                      - Only $50,000 gain taxed at 15% = $7,500 tax
+                      - You keep $92,500
+
+                    #### **Tax-Deferred Accounts (HSA, Annuities)**
+                    - **Tax Rate**: Varies by account type
+                    - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
+                    - **Annuities**: Retirement tax rate on full amount
+
+                    💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
+                    """)
+
+                # Reference to Advanced Settings for default growth rate
+                st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
         
         
             # Save assets to session state
