@@ -1693,18 +1693,18 @@ if not _RUNNING_TESTS:
                     min_value=retirement_age+1,
                     max_value=120,
                     value=st.session_state.life_expectancy,
-                    help="""**Average Life Expectancy:**
+                    help="""Average Life Expectancy:
     • At birth: ~79 years (US avg)
     • At age 30: ~80 years
     • At age 50: ~82 years
     • At age 65: ~85 years
-    
-    **Factors to Consider:**
+
+    Factors to Consider:
     • Family history & health status
     • Lifestyle (exercise, diet, smoking)
     • Gender (women live 3-5 yrs longer)
-    
-    💡 **Tip:** Add 5-10 years for safety.""",
+
+    💡 Tip: Add 5-10 years for safety.""",
                     key="life_expectancy_input"
                 )
                 st.session_state.life_expectancy = life_expectancy
@@ -1718,20 +1718,20 @@ if not _RUNNING_TESTS:
                     max_value=500000,
                     value=st.session_state.retirement_income_goal,
                     step=5000,
-                    help="""**Typical Annual Needs:**
+                    help="""Typical Annual Needs:
     • $40K-$60K: Modest lifestyle
     • $60K-$80K: Comfortable lifestyle
     • $80K-$100K: Enhanced lifestyle
     • $100K+: Premium lifestyle
-    
-    **Consider:**
+
+    Consider:
     • Housing costs (rent/mortgage, taxes)
     • Healthcare (insurance, out-of-pocket)
     • Daily living (food, utilities)
     • Lifestyle (travel, hobbies)
     • Social Security (~$20-40K/yr)
-    
-    💡 **Rule of thumb:** 70-80% of pre-retirement income""",
+
+    💡 Rule of thumb: 70-80% of pre-retirement income""",
                     key="retirement_income_goal_input"
                 )
                 st.session_state.retirement_income_goal = retirement_income_goal
