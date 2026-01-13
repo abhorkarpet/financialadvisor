@@ -827,17 +827,44 @@ if not _RUNNING_TESTS:
         initial_sidebar_state="auto"
     )
 
-    # Modern Typography with Inter Font
+    # Modern Typography with Inter Font + Material Icons
     st.markdown("""
         <style>
         /* Import Inter font from Google Fonts */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        /* Import Material Icons for Streamlit UI elements (sidebar toggle, etc.) */
+        @import url('https://fonts.googleapis.com/css2?family=Material+Icons&display=swap');
 
         /* Apply Inter font globally */
         html, body, [class*="css"], .stApp, * {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Ensure Material Icons render properly for Streamlit UI elements */
+        .material-icons {
+            font-family: 'Material Icons' !important;
+            font-weight: normal !important;
+            font-style: normal !important;
+            font-size: 24px !important;
+            line-height: 1 !important;
+            letter-spacing: normal !important;
+            text-transform: none !important;
+            display: inline-block !important;
+            white-space: nowrap !important;
+            word-wrap: normal !important;
+            direction: ltr !important;
+            -webkit-font-smoothing: antialiased !important;
+            text-rendering: optimizeLegibility !important;
+        }
+
+        /* Sidebar toggle button icons */
+        [data-testid="collapsedControl"] span,
+        [data-testid="collapsedControl"] .material-icons,
+        button[kind="secondary"] span.material-icons {
+            font-family: 'Material Icons' !important;
         }
 
         /* Typography Hierarchy */
