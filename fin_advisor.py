@@ -827,6 +827,81 @@ if not _RUNNING_TESTS:
         initial_sidebar_state="auto"
     )
 
+    # Modern Typography with Inter Font
+    st.markdown("""
+        <style>
+        /* Import Inter font from Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        /* Apply Inter font globally */
+        html, body, [class*="css"], .stApp, * {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Typography Hierarchy */
+        h1 {
+            font-weight: 700 !important;
+            letter-spacing: -0.02em !important;
+            line-height: 1.2 !important;
+        }
+
+        h2 {
+            font-weight: 600 !important;
+            letter-spacing: -0.01em !important;
+            line-height: 1.3 !important;
+        }
+
+        h3 {
+            font-weight: 600 !important;
+            line-height: 1.4 !important;
+        }
+
+        /* Body text - improved readability */
+        p, li, span, div {
+            line-height: 1.6 !important;
+            letter-spacing: -0.005em !important;
+        }
+
+        /* Buttons - modern styling */
+        .stButton > button {
+            font-weight: 500 !important;
+            letter-spacing: 0.01em !important;
+        }
+
+        /* Metrics - crisp numbers */
+        [data-testid="stMetricValue"] {
+            font-weight: 700 !important;
+            letter-spacing: -0.02em !important;
+            font-variant-numeric: tabular-nums !important;
+        }
+
+        [data-testid="stMetricLabel"] {
+            font-weight: 500 !important;
+            text-transform: uppercase !important;
+            font-size: 0.75rem !important;
+            letter-spacing: 0.05em !important;
+        }
+
+        /* Form labels */
+        label {
+            font-weight: 500 !important;
+            letter-spacing: 0.01em !important;
+        }
+
+        /* Code and monospace */
+        code, pre {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace !important;
+        }
+
+        /* Improve number readability */
+        input[type="number"], .stNumberInput {
+            font-variant-numeric: tabular-nums !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # Initialize analytics
     initialize_analytics()
 
