@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 7.5.0
+Version: 8.0.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "7.5.0"
+VERSION = "8.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -35,6 +35,7 @@ import streamlit.components.v1 as components
 import io
 import csv
 import time
+import urllib.parse
 from datetime import datetime
 
 import pandas as pd
@@ -1494,8 +1495,10 @@ if not _RUNNING_TESTS:
     # MAIN AREA - Header & Disclaimer
     # ==========================================
     # Note: Sidebar advanced settings removed - now in Results page as What-If controls
+
+    # Header
     st.title("💰 Smart Retire AI - Advanced Retirement Planning")
-    
+
     # Legal Disclaimer
     with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
         st.markdown("""
@@ -1589,18 +1592,18 @@ if not _RUNNING_TESTS:
                     min_value=retirement_age+1,
                     max_value=120,
                     value=st.session_state.life_expectancy,
-                    help="""**Average Life Expectancy:**
+                    help="""Average Life Expectancy:
     • At birth: ~79 years (US avg)
     • At age 30: ~80 years
     • At age 50: ~82 years
     • At age 65: ~85 years
-    
-    **Factors to Consider:**
+
+    Factors to Consider:
     • Family history & health status
     • Lifestyle (exercise, diet, smoking)
     • Gender (women live 3-5 yrs longer)
-    
-    💡 **Tip:** Add 5-10 years for safety.""",
+
+    💡 Tip: Add 5-10 years for safety.""",
                     key="life_expectancy_input"
                 )
                 st.session_state.life_expectancy = life_expectancy
@@ -1614,20 +1617,20 @@ if not _RUNNING_TESTS:
                     max_value=500000,
                     value=st.session_state.retirement_income_goal,
                     step=5000,
-                    help="""**Typical Annual Needs:**
+                    help="""Typical Annual Needs:
     • $40K-$60K: Modest lifestyle
     • $60K-$80K: Comfortable lifestyle
     • $80K-$100K: Enhanced lifestyle
     • $100K+: Premium lifestyle
-    
-    **Consider:**
+
+    Consider:
     • Housing costs (rent/mortgage, taxes)
     • Healthcare (insurance, out-of-pocket)
     • Daily living (food, utilities)
     • Lifestyle (travel, hobbies)
     • Social Security (~$20-40K/yr)
-    
-    💡 **Rule of thumb:** 70-80% of pre-retirement income""",
+
+    💡 Rule of thumb: 70-80% of pre-retirement income""",
                     key="retirement_income_goal_input"
                 )
                 st.session_state.retirement_income_goal = retirement_income_goal
@@ -1635,7 +1638,7 @@ if not _RUNNING_TESTS:
                 if retirement_income_goal > 0:
                     st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
                 else:
-                    st.info("💡 **No target set** - Analysis will show your projected portfolio value")
+                    st.info("💡 **No target set** - Analysis will show your projected value")
     
             # Navigation button for Step 1
             st.markdown("---")
@@ -1667,14 +1670,15 @@ if not _RUNNING_TESTS:
             # Simplified setup options (removed Default Portfolio and Legacy Mode)
             setup_option = st.radio(
                 "Choose how to configure your accounts:",
-                ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
+                ["**Upload Financial Statements (AI) - Recommended**", "Upload CSV File", "Configure Individual Assets"],
                 help="Select how you want to add your retirement accounts"
             )
     
             # Track asset configuration method selected
             track_event('asset_config_method_selected', {'method': setup_option})
-    
-            assets: List[Asset] = []
+
+            # Initialize from session state to preserve user's work when switching modes
+            assets: List[Asset] = list(st.session_state.get('assets', []))
     
             if setup_option == "Upload Financial Statements (AI)":
                 if not _N8N_AVAILABLE:
@@ -2777,31 +2781,75 @@ if not _RUNNING_TESTS:
                 
             elif setup_option == "Configure Individual Assets":
                 st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
-                
-                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
-                
+
+                # Use existing assets count if available, otherwise default to 3
+                default_num_assets = max(len(assets), 3) if len(assets) > 0 else 3
+                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=default_num_assets, help="How many different accounts do you have?")
+
+                # Clear assets list to rebuild from form
+                configured_assets: List[Asset] = []
+
                 for i in range(num_assets):
+                    # Get existing asset data if available
+                    existing_asset = assets[i] if i < len(assets) else None
+
                     with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}", help="Name of your account")
+                            asset_name = st.text_input(
+                                f"Asset Name {i+1}",
+                                value=existing_asset.name if existing_asset else f"Asset {i+1}",
+                                help="Name of your account"
+                            )
+
+                            # Find the index of the existing asset type in the options list
+                            default_type_index = 0
+                            if existing_asset:
+                                for idx, (name, atype) in enumerate(_DEF_ASSET_TYPES):
+                                    if atype == existing_asset.asset_type:
+                                        default_type_index = idx
+                                        break
+
                             asset_type_selection: Tuple[str, AssetType] = st.selectbox(
                                 f"Asset Type {i+1}",
                                 options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
+                                index=default_type_index,
                                 format_func=lambda x: f"{x[0]} ({x[1].value})",
                                 help="Type of account for tax treatment"
                             )
                         with col2:
-                            current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000, help="Current account balance")
-                            annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
+                            current_balance = st.number_input(
+                                f"Current Balance {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.current_balance) if existing_asset else 10000,
+                                step=1000,
+                                help="Current account balance"
+                            )
+                            annual_contribution = st.number_input(
+                                f"Annual Contribution {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.annual_contribution) if existing_asset else 5000,
+                                step=500,
+                                help="How much you contribute annually"
+                            )
                         with col3:
-                            growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, int(7), help=f"Expected annual return (default: {7}%)")
+                            growth_rate = st.slider(
+                                f"Growth Rate {i+1} (%)",
+                                0, 20,
+                                int(existing_asset.growth_rate_pct) if existing_asset else 7,
+                                help=f"Expected annual return (default: 7%)"
+                            )
                             if asset_type_selection[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
-                                tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
+                                tax_rate = st.slider(
+                                    f"Capital Gains Rate {i+1} (%)",
+                                    0, 30,
+                                    int(existing_asset.tax_rate_pct) if existing_asset and existing_asset.tax_rate_pct > 0 else 15,
+                                    help="Capital gains tax rate"
+                                )
                             else:
                                 tax_rate = 0
-    
-                        assets.append(Asset(
+
+                        configured_assets.append(Asset(
                             name=asset_name,
                             asset_type=asset_type_selection[1],
                             current_balance=current_balance,
@@ -2809,46 +2857,50 @@ if not _RUNNING_TESTS:
                             growth_rate_pct=growth_rate,
                             tax_rate_pct=tax_rate
                         ))
+
+                # Replace assets with newly configured ones
+                assets = configured_assets
     
             st.markdown("---")
-        
-    
-            # Tax Rate Explanation
-            with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
-                st.markdown("""
-                ### 🎯 Tax Rate Column Explained
-                
-                The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
-                
-                #### **Pre-Tax Accounts (401k, Traditional IRA)**
-                - **Tax Rate**: `0%` (not applicable here)
-                - **Why**: The entire balance is taxed as ordinary income at withdrawal
-                - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
-                
-                #### **Post-Tax Accounts**
-                **Roth IRA:**
-                - **Tax Rate**: `0%` 
-                - **Why**: No tax on withdrawals (contributions already taxed)
-                - **Example**: Withdraw $100,000 tax-free
-                
-                **Brokerage Account:**
-                - **Tax Rate**: `15%` (default capital gains rate)
-                - **Why**: Only the **gains** are taxed, not original contributions
-                - **Example**: 
-                  - Contributed $50,000, grew to $100,000
-                  - Only $50,000 gain taxed at 15% = $7,500 tax
-                  - You keep $92,500
-                
-                #### **Tax-Deferred Accounts (HSA, Annuities)**
-                - **Tax Rate**: Varies by account type
-                - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
-                - **Annuities**: Retirement tax rate on full amount
-                
-                💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
-                """)
-        
-            # Reference to Advanced Settings for default growth rate
-            st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
+
+
+            # Tax Rate Explanation - only show for CSV/AI upload methods when assets exist (not for manual configuration)
+            if setup_option != "Configure Individual Assets" and len(assets) > 0:
+                with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
+                    st.markdown("""
+                    ### 🎯 Tax Rate Column Explained
+
+                    The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
+
+                    #### **Pre-Tax Accounts (401k, Traditional IRA)**
+                    - **Tax Rate**: `0%` (not applicable here)
+                    - **Why**: The entire balance is taxed as ordinary income at withdrawal
+                    - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
+
+                    #### **Post-Tax Accounts**
+                    **Roth IRA:**
+                    - **Tax Rate**: `0%`
+                    - **Why**: No tax on withdrawals (contributions already taxed)
+                    - **Example**: Withdraw $100,000 tax-free
+
+                    **Brokerage Account:**
+                    - **Tax Rate**: `15%` (default capital gains rate)
+                    - **Why**: Only the **gains** are taxed, not original contributions
+                    - **Example**:
+                      - Contributed $50,000, grew to $100,000
+                      - Only $50,000 gain taxed at 15% = $7,500 tax
+                      - You keep $92,500
+
+                    #### **Tax-Deferred Accounts (HSA, Annuities)**
+                    - **Tax Rate**: Varies by account type
+                    - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
+                    - **Annuities**: Retirement tax rate on full amount
+
+                    💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
+                    """)
+
+                # Reference to Advanced Settings for default growth rate
+                st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
         
         
             # Save assets to session state
@@ -3782,26 +3834,49 @@ if not _RUNNING_TESTS:
     
                     # Social share buttons - simple button layout
                     col1, col2, col3, col4 = st.columns(4)
-    
+
                     with col1:
-                        twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://smartretireai.streamlit.app"
+                        # Enhanced Twitter message with key features and value prop
+                        twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
+                        twitter_encoded = urllib.parse.quote(twitter_text)
+                        twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
                         if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
-    
+                            st.markdown(f'<script>window.open("{twitter_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening Twitter in new tab...")
+
                     with col2:
+                        # LinkedIn with professional messaging
                         linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
                         if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
-    
+                            st.markdown(f'<script>window.open("{linkedin_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening LinkedIn in new tab...")
+
                     with col3:
                         facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
                         if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
-    
+                            st.markdown(f'<script>window.open("{facebook_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening Facebook in new tab...")
+
                     with col4:
                         if st.button("📧 Email", use_container_width=True, key="share_email"):
-                            email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://smartretireai.streamlit.app"
-                            st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
+                            # Enhanced email with detailed value proposition
+                            email_subject = "Powerful FREE Retirement Planning Tool - Smart Retire AI"
+                            email_body = (
+                                "Hi!%0A%0A"
+                                "I discovered Smart Retire AI and thought you might find it helpful for retirement planning.%0A%0A"
+                                "✨ What makes it special:%0A"
+                                "• AI-powered financial statement analysis%0A"
+                                "• Tax-optimized retirement projections%0A"
+                                "• Monte Carlo simulations for risk assessment%0A"
+                                "• Personalized recommendations based on your goals%0A"
+                                "• PDF reports with detailed breakdowns%0A"
+                                "• Completely FREE to use%0A%0A"
+                                "Check it out: " + app_url + "%0A%0A"
+                                "Best regards"
+                            )
+                            email_url = f"mailto:?subject={email_subject}&body={email_body}"
+                            st.markdown(f'<script>window.open("{email_url}", "_blank");</script>', unsafe_allow_html=True)
+                            st.success("Opening email client...")
     
                     st.markdown("---")
                     st.markdown("**Or copy and share the link:**")

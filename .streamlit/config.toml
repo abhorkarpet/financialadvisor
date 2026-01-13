@@ -1,16 +1,15 @@
 [theme]
-primaryColor = "#1f77b4"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f0f2f6"
-textColor = "#262730"
+# Modern Financial Theme for Smart Retire AI
+primaryColor = "#0066CC"        # Deep Blue
+backgroundColor = "#F9FAFB"     # Light Gray
+secondaryBackgroundColor = "#FFFFFF"  # White
+textColor = "#1F2937"          # Dark Gray
 font = "sans serif"
 
 [server]
-headless = true
-port = 8501
-enableCORS = false
-enableXsrfProtection = true
+# Enable file watcher for development
+fileWatcherType = "auto"
 
 [browser]
+# Gather usage stats
 gatherUsageStats = false
-
