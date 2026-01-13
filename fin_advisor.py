@@ -836,11 +836,20 @@ if not _RUNNING_TESTS:
         /* Import Material Icons for Streamlit UI elements (sidebar toggle, etc.) */
         @import url('https://fonts.googleapis.com/css2?family=Material+Icons&display=swap');
 
-        /* Apply Inter font globally */
-        html, body, [class*="css"], .stApp, * {
+        /* Apply Inter font globally - but exclude Material Icons */
+        html, body, [class*="css"]:not(.material-icons), .stApp {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Apply Inter to most elements but allow Material Icons to override */
+        p:not(.material-icons),
+        span:not(.material-icons):not([class*="material"]),
+        div:not(.material-icons):not([class*="material"]),
+        label:not(.material-icons),
+        button:not(.material-icons) {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
 
         /* Ensure Material Icons render properly for Streamlit UI elements */
@@ -860,10 +869,27 @@ if not _RUNNING_TESTS:
             text-rendering: optimizeLegibility !important;
         }
 
-        /* Sidebar toggle button icons */
+        /* Sidebar toggle button icons - comprehensive selectors */
+        [data-testid="collapsedControl"],
+        [data-testid="collapsedControl"] *,
         [data-testid="collapsedControl"] span,
-        [data-testid="collapsedControl"] .material-icons,
-        button[kind="secondary"] span.material-icons {
+        [data-testid="collapsedControl"] div,
+        button[data-testid="collapsedControl"],
+        button[data-testid="collapsedControl"] *,
+        [class*="material"],
+        span[class*="material"],
+        .material-symbols-outlined {
+            font-family: 'Material Icons', 'Material Icons Outlined', 'Material Symbols Outlined' !important;
+            font-feature-settings: 'liga' 1 !important;
+            -webkit-font-smoothing: antialiased !important;
+            text-rendering: optimizeLegibility !important;
+        }
+
+        /* Force Material Icons for any text that looks like an icon class name */
+        span:contains("keyboard"),
+        div:contains("keyboard"),
+        *[class*="keyboard"],
+        *[class*="arrow"] {
             font-family: 'Material Icons' !important;
         }
 
@@ -885,8 +911,11 @@ if not _RUNNING_TESTS:
             line-height: 1.4 !important;
         }
 
-        /* Body text - improved readability */
-        p, li, span, div {
+        /* Body text - improved readability (exclude Material Icons) */
+        p:not(.material-icons):not([class*="material"]),
+        li:not(.material-icons):not([class*="material"]),
+        span:not(.material-icons):not([class*="material"]),
+        div:not(.material-icons):not([class*="material"]) {
             line-height: 1.6 !important;
             letter-spacing: -0.005em !important;
         }
