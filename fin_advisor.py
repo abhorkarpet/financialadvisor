@@ -1712,7 +1712,7 @@ if not _RUNNING_TESTS:
                 if retirement_income_goal > 0:
                     st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
                 else:
-                    st.info("💡 **No target set** - Analysis will show your projected portfolio value")
+                    st.info("💡 **No target set** - Analysis will show your projected value")
     
             # Navigation button for Step 1
             st.markdown("---")
@@ -1744,7 +1744,7 @@ if not _RUNNING_TESTS:
             # Simplified setup options (removed Default Portfolio and Legacy Mode)
             setup_option = st.radio(
                 "Choose how to configure your accounts:",
-                ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
+                ["**Upload Financial Statements (AI) - Recommended**", "Upload CSV File", "Configure Individual Assets"],
                 help="Select how you want to add your retirement accounts"
             )
     
