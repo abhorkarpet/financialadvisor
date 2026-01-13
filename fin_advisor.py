@@ -1679,8 +1679,8 @@ if not _RUNNING_TESTS:
 
             # Initialize from session state to preserve user's work when switching modes
             assets: List[Asset] = list(st.session_state.get('assets', []))
-    
-            if setup_option == "Upload Financial Statements (AI)":
+
+            if setup_option == "**Upload Financial Statements (AI) - Recommended**":
                 if not _N8N_AVAILABLE:
                     st.error("❌ **n8n integration not available**")
                     st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
