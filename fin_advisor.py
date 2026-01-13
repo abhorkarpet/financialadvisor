@@ -2888,10 +2888,10 @@ if not _RUNNING_TESTS:
                         ))
     
             st.markdown("---")
-        
+
 
             # Tax Rate Explanation - only show if assets exist
-            if len(st.session_state.assets) > 0:
+            if len(assets) > 0:
                 with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
                     st.markdown("""
                     ### 🎯 Tax Rate Column Explained
