@@ -3003,8 +3003,8 @@ if not _RUNNING_TESTS:
             st.markdown("---")
 
 
-            # Tax Rate Explanation - only show in manual configuration mode when assets exist
-            if setup_option == "Configure Individual Assets" and len(assets) > 0:
+            # Tax Rate Explanation - only show for CSV/AI upload methods when assets exist (not for manual configuration)
+            if setup_option != "Configure Individual Assets" and len(assets) > 0:
                 with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
                     st.markdown("""
                     ### 🎯 Tax Rate Column Explained
