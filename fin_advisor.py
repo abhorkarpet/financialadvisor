@@ -919,7 +919,15 @@ if not _RUNNING_TESTS:
 
         /* Code and monospace */
         code, pre {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace !important;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+        }
+
+        /* Ensure tooltips use Inter font, not monospace */
+        [role="tooltip"] code,
+        [role="tooltip"] pre,
+        [data-baseweb="tooltip"] code,
+        [data-baseweb="tooltip"] pre {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         }
 
         /* Improve number readability */
