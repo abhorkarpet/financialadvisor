@@ -65,12 +65,13 @@ update_file() {
     cp "$file" "$file.bak"
 
     # Perform replacement - handle macOS vs Linux sed
+    # Use -E for extended regex (works on both macOS and Linux)
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS requires empty string after -i
-        sed -i '' "s/$pattern/$replacement/g" "$file"
+        sed -i '' -E "s/$pattern/$replacement/g" "$file"
     else
-        # Linux sed
-        sed -i "s/$pattern/$replacement/g" "$file"
+        # Linux sed with extended regex
+        sed -i -E "s/$pattern/$replacement/g" "$file"
     fi
 
     # Check if change was made
@@ -85,31 +86,31 @@ update_file() {
     fi
 }
 
-# Update fin_advisor.py docstring
+# Update fin_advisor.py docstring (using extended regex syntax)
 update_file \
     "fin_advisor.py" \
-    "^Version: [0-9]\+\.[0-9]\+\.[0-9]\+$" \
+    "^Version: [0-9]+\.[0-9]+\.[0-9]+$" \
     "Version: $NEW_VERSION" \
     "docstring"
 
 # Update fin_advisor.py VERSION variable
 update_file \
     "fin_advisor.py" \
-    '^VERSION = "[0-9]\+\.[0-9]\+\.[0-9]\+"$' \
+    '^VERSION = "[0-9]+\.[0-9]+\.[0-9]+"$' \
     "VERSION = \"$NEW_VERSION\"" \
     "VERSION constant"
 
 # Update financialadvisor/__init__.py
 update_file \
     "financialadvisor/__init__.py" \
-    '^__version__ = "[0-9]\+\.[0-9]\+\.[0-9]\+"$' \
+    '^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"$' \
     "__version__ = \"$NEW_VERSION\"" \
     "__version__"
 
 # Update setup.py
 update_file \
     "setup.py" \
-    '^    version="[0-9]\+\.[0-9]\+\.[0-9]\+",$' \
+    '^    version="[0-9]+\.[0-9]+\.[0-9]+",$' \
     "    version=\"$NEW_VERSION\"," \
     "setup version"
 
