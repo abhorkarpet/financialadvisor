@@ -3837,7 +3837,8 @@ if not _RUNNING_TESTS:
                     with col1:
                         # Enhanced Twitter message with key features and value prop
                         twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
-                        twitter_url = f"https://twitter.com/intent/tweet?text={twitter_text.replace(' ', '%20').replace('\n', '%0A')}&url={app_url}"
+                        twitter_encoded = urllib.parse.quote(twitter_text)
+                        twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
                         if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
                             st.markdown(f'<script>window.open("{twitter_url}", "_blank");</script>', unsafe_allow_html=True)
                             st.success("Opening Twitter in new tab...")
