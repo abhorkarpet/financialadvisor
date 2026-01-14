@@ -1989,17 +1989,43 @@ if not _RUNNING_TESTS:
                                     # Phase 2: Processing (30-90%)
                                     status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
                                     progress_bar.progress(40)
-        
+
+                                    # Create placeholder for timer that we can clear later
+                                    timer_placeholder = st.empty()
+
+                                    # Add live timer using components.html for immediate rendering
+                                    with timer_placeholder.container():
+                                        components.html("""
+                                            <div id="ai-timer" style="font-size: 1.2em; color: #0066CC; font-weight: 600; margin: 10px 0; font-family: 'Source Sans Pro', sans-serif;">
+                                                ⏱️ Processing time: <span id="timer-value">0s</span>
+                                            </div>
+                                            <script>
+                                                let startTime = Date.now();
+                                                setInterval(function() {
+                                                    let elapsed = Math.floor((Date.now() - startTime) / 1000);
+                                                    let timerElement = document.getElementById('timer-value');
+                                                    if (timerElement) {
+                                                        timerElement.textContent = elapsed + 's';
+                                                    }
+                                                }, 1000);
+                                            </script>
+                                        """, height=50)
+
                                     # Make the actual API call (blocking)
+                                    ai_start_time = time.time()
                                     result = client.upload_statements(files_to_upload)
-        
+                                    ai_elapsed = time.time() - ai_start_time
+
+                                    # Hide the timer now that processing is complete
+                                    timer_placeholder.empty()
+
                                     # Show completion with total time
                                     total_time = time.time() - start_time
                                     progress_bar.progress(90)
         
                                     if result['success']:
                                         progress_bar.progress(100)
-                                        status_text.markdown(f"**✅ Extraction Complete!** (Total time: {total_time:.1f}s)")
+                                        status_text.markdown(f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)")
         
                                         # Parse response (handle both JSON and CSV formats)
                                         response_format = result.get('format', 'csv')
