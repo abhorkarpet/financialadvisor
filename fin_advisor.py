@@ -812,6 +812,8 @@ def contribution_reminder_dialog():
             st.session_state.contribution_reminder_dismissed = True
             if 'show_contribution_reminder' in st.session_state:
                 del st.session_state.show_contribution_reminder
+            # Advance to results page
+            st.session_state.current_page = 'results'
             st.rerun()
 
 
@@ -3856,20 +3858,29 @@ if not _RUNNING_TESTS:
                         twitter_encoded = urllib.parse.quote(twitter_text)
                         twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
                         if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
-                            st.markdown(f'<script>window.open("{twitter_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{twitter_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening Twitter in new tab...")
 
                     with col2:
                         # LinkedIn with professional messaging
                         linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
                         if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
-                            st.markdown(f'<script>window.open("{linkedin_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{linkedin_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening LinkedIn in new tab...")
 
                     with col3:
                         facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
                         if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
-                            st.markdown(f'<script>window.open("{facebook_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{facebook_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening Facebook in new tab...")
 
                     with col4:
@@ -3890,7 +3901,10 @@ if not _RUNNING_TESTS:
                                 "Best regards"
                             )
                             email_url = f"mailto:?subject={email_subject}&body={email_body}"
-                            st.markdown(f'<script>window.open("{email_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.location.href="{email_url}";</script>""",
+                                height=0
+                            )
                             st.success("Opening email client...")
     
                     st.markdown("---")
