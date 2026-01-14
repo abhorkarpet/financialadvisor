@@ -145,7 +145,7 @@ fi
 echo ""
 
 # Step 2: Stage and commit
-echo -e "${CYAN}Step 2/4: Stage and commit changes${NC}"
+echo -e "${CYAN}Step 2/3: Stage and commit changes${NC}"
 read -p "Stage and commit changes? (Y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Nn]$ ]]; then
@@ -161,52 +161,19 @@ else
     git commit -m "Bump version to $NEW_VERSION"
     echo -e "${GREEN}✓ Committed${NC}"
 fi
+
 echo ""
 
-# Step 3: Create git tag
-echo -e "${CYAN}Step 3/4: Create git tag${NC}"
-read -p "Create git tag 'v$NEW_VERSION'? (Y/n) " -n 1 -r
-tag=1
-echo
-if [[ $REPLY =~ ^[Nn]$ ]]; then
-    echo -e "${YELLOW}Skipped tag creation. You can tag manually later:${NC}"
-    echo "  git tag -a v$NEW_VERSION -m 'Release v$NEW_VERSION'"
-    tag=0
-else
-    # Check if tag already exists
-    if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
-        echo -e "${RED}✗ Tag v$NEW_VERSION already exists${NC}"
-        read -p "Delete and recreate tag? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            git tag -d "v$NEW_VERSION"
-            git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
-            echo -e "${GREEN}✓ Tag recreated: v$NEW_VERSION${NC}"
-        else
-            echo -e "${YELLOW}Keeping existing tag${NC}"
-        fi
-    else
-        git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
-        echo -e "${GREEN}✓ Tag created: v$NEW_VERSION${NC}"
-    fi
-fi
-echo ""
-
-# Step 4: Push to remote
-echo -e "${CYAN}Step 4/4: Push to remote${NC}"
-read -p "Push commits and tags to remote? (Y/n) " -n 1 -r
+# Step 3: Push to remote
+echo -e "${CYAN}Step 3/3: Push to remote${NC}"
+read -p "Push commits? (Y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Nn]$ ]]; then
     echo -e "${YELLOW}Skipped push. You can push manually later:${NC}"
     echo "  git push"
-    echo "  git push --tags"
 else
     echo -e "${GREEN}Pushing commits...${NC}"
     git push
-    if [ $tag == 1 ] ; then
-	echo -e "${GREEN}Pushing tags...${NC}"
-	git push --tags
-    fi
     echo -e "${GREEN}✓ Pushed to remote${NC}"
 fi
 echo ""
