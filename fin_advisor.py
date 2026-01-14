@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 8.0.0
+Version: 8.3.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "8.0.0"
+VERSION = "8.3.0"
 
 # Streamlit import
 import streamlit as st
@@ -812,6 +812,8 @@ def contribution_reminder_dialog():
             st.session_state.contribution_reminder_dismissed = True
             if 'show_contribution_reminder' in st.session_state:
                 del st.session_state.show_contribution_reminder
+            # Advance to results page
+            st.session_state.current_page = 'results'
             st.rerun()
 
 
@@ -841,7 +843,22 @@ if not _RUNNING_TESTS:
         """,
         height=0,
     )
-    
+
+    # Fix tooltip font consistency
+    st.markdown("""
+        <style>
+        /* Ensure tooltips use consistent sans-serif font */
+        [role="tooltip"],
+        [role="tooltip"] *,
+        [data-baseweb="tooltip"],
+        [data-baseweb="tooltip"] *,
+        div[data-baseweb="popover"],
+        div[data-baseweb="popover"] * {
+            font-family: "Source Sans Pro", sans-serif !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # Note: PostHog session replay requires browser JavaScript which doesn't work
     # reliably in Streamlit's server-side architecture. Session analytics (based on
     # events) will still work and show session duration, events per session, etc.
@@ -1679,8 +1696,8 @@ if not _RUNNING_TESTS:
 
             # Initialize from session state to preserve user's work when switching modes
             assets: List[Asset] = list(st.session_state.get('assets', []))
-    
-            if setup_option == "Upload Financial Statements (AI)":
+
+            if setup_option == "**Upload Financial Statements (AI) - Recommended**":
                 if not _N8N_AVAILABLE:
                     st.error("❌ **n8n integration not available**")
                     st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
@@ -1972,17 +1989,43 @@ if not _RUNNING_TESTS:
                                     # Phase 2: Processing (30-90%)
                                     status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
                                     progress_bar.progress(40)
-        
+
+                                    # Create placeholder for timer that we can clear later
+                                    timer_placeholder = st.empty()
+
+                                    # Add live timer using components.html for immediate rendering
+                                    with timer_placeholder.container():
+                                        components.html("""
+                                            <div id="ai-timer" style="font-size: 1.2em; color: #0066CC; font-weight: 600; margin: 10px 0; font-family: 'Source Sans Pro', sans-serif;">
+                                                ⏱️ Processing time: <span id="timer-value">0s</span>
+                                            </div>
+                                            <script>
+                                                let startTime = Date.now();
+                                                setInterval(function() {
+                                                    let elapsed = Math.floor((Date.now() - startTime) / 1000);
+                                                    let timerElement = document.getElementById('timer-value');
+                                                    if (timerElement) {
+                                                        timerElement.textContent = elapsed + 's';
+                                                    }
+                                                }, 1000);
+                                            </script>
+                                        """, height=50)
+
                                     # Make the actual API call (blocking)
+                                    ai_start_time = time.time()
                                     result = client.upload_statements(files_to_upload)
-        
+                                    ai_elapsed = time.time() - ai_start_time
+
+                                    # Hide the timer now that processing is complete
+                                    timer_placeholder.empty()
+
                                     # Show completion with total time
                                     total_time = time.time() - start_time
                                     progress_bar.progress(90)
         
                                     if result['success']:
                                         progress_bar.progress(100)
-                                        status_text.markdown(f"**✅ Extraction Complete!** (Total time: {total_time:.1f}s)")
+                                        status_text.markdown(f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)")
         
                                         # Parse response (handle both JSON and CSV formats)
                                         response_format = result.get('format', 'csv')
@@ -3828,7 +3871,7 @@ if not _RUNNING_TESTS:
                 feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
     
                 with feedback_tab1:
-                    st.markdown("**Share Smart Retire AI with others:**")
+                    st.markdown("**Share Smart Retire AI with others:** (Tip: Turn the pop-up blocker off for best results)")
     
                     app_url = "https://smartretireai.streamlit.app"
     
@@ -3841,20 +3884,29 @@ if not _RUNNING_TESTS:
                         twitter_encoded = urllib.parse.quote(twitter_text)
                         twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
                         if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
-                            st.markdown(f'<script>window.open("{twitter_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{twitter_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening Twitter in new tab...")
 
                     with col2:
                         # LinkedIn with professional messaging
                         linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
                         if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
-                            st.markdown(f'<script>window.open("{linkedin_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{linkedin_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening LinkedIn in new tab...")
 
                     with col3:
                         facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
                         if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
-                            st.markdown(f'<script>window.open("{facebook_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.open("{facebook_url}", "_blank");</script>""",
+                                height=0
+                            )
                             st.success("Opening Facebook in new tab...")
 
                     with col4:
@@ -3875,7 +3927,10 @@ if not _RUNNING_TESTS:
                                 "Best regards"
                             )
                             email_url = f"mailto:?subject={email_subject}&body={email_body}"
-                            st.markdown(f'<script>window.open("{email_url}", "_blank");</script>', unsafe_allow_html=True)
+                            components.html(
+                                f"""<script>window.location.href="{email_url}";</script>""",
+                                height=0
+                            )
                             st.success("Opening email client...")
     
                     st.markdown("---")
