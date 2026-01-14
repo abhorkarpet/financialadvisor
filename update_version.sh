@@ -166,12 +166,12 @@ echo ""
 # Step 3: Create git tag
 echo -e "${CYAN}Step 3/4: Create git tag${NC}"
 read -p "Create git tag 'v$NEW_VERSION'? (Y/n) " -n 1 -r
-tag = 1
+tag=1
 echo
 if [[ $REPLY =~ ^[Nn]$ ]]; then
     echo -e "${YELLOW}Skipped tag creation. You can tag manually later:${NC}"
     echo "  git tag -a v$NEW_VERSION -m 'Release v$NEW_VERSION'"
-    tag = 0
+    tag=0
 else
     # Check if tag already exists
     if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
