@@ -203,7 +203,7 @@ if [[ $REPLY =~ ^[Nn]$ ]]; then
 else
     echo -e "${GREEN}Pushing commits...${NC}"
     git push
-    if $tag = 1; then
+    if [ $tag == 1 ] ; then
 	echo -e "${GREEN}Pushing tags...${NC}"
 	git push --tags
     fi
