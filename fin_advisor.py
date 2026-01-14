@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 8.1.0
+Version: 8.1.5
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "8.1.0"
+VERSION = "8.1.5"
 
 # Streamlit import
 import streamlit as st
@@ -3845,7 +3845,7 @@ if not _RUNNING_TESTS:
                 feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
     
                 with feedback_tab1:
-                    st.markdown("**Share Smart Retire AI with others:**")
+                    st.markdown("**Share Smart Retire AI with others:** (Tip: Turn the pop-up blocker off for best results)")
     
                     app_url = "https://smartretireai.streamlit.app"
     
