@@ -140,6 +140,136 @@ from financialadvisor.core.explainer import explain_projected_balance
 # ---------------------------
 
 
+def apply_theme(theme: str = "light"):
+    """Apply custom theme styling to the Streamlit app.
+
+    Args:
+        theme: Either "light" or "dark"
+    """
+    if theme == "dark":
+        # Dark theme colors
+        st.markdown("""
+            <style>
+                /* Main app background */
+                .stApp {
+                    background-color: #0E1117;
+                }
+
+                /* Sidebar background */
+                [data-testid="stSidebar"] {
+                    background-color: #262730;
+                }
+
+                /* Primary text color */
+                .stMarkdown, .stText, p, span, div {
+                    color: #FAFAFA !important;
+                }
+
+                /* Headers */
+                h1, h2, h3, h4, h5, h6 {
+                    color: #FAFAFA !important;
+                }
+
+                /* Input fields, text areas */
+                .stTextInput input, .stTextArea textarea, .stNumberInput input {
+                    background-color: #262730 !important;
+                    color: #FAFAFA !important;
+                    border-color: #4A4A4A !important;
+                }
+
+                /* Select boxes and dropdowns */
+                .stSelectbox select, [data-baseweb="select"] {
+                    background-color: #262730 !important;
+                    color: #FAFAFA !important;
+                }
+
+                /* Sliders */
+                .stSlider {
+                    color: #FAFAFA !important;
+                }
+
+                /* Buttons */
+                .stButton button {
+                    background-color: #0066CC !important;
+                    color: #FFFFFF !important;
+                    border: none !important;
+                }
+
+                .stButton button:hover {
+                    background-color: #0052A3 !important;
+                }
+
+                /* Expander */
+                .streamlit-expanderHeader {
+                    background-color: #262730 !important;
+                    color: #FAFAFA !important;
+                }
+
+                /* Dataframe */
+                .stDataFrame {
+                    background-color: #262730 !important;
+                }
+
+                /* Metrics */
+                [data-testid="stMetricValue"] {
+                    color: #FAFAFA !important;
+                }
+
+                /* Info/Warning/Error boxes */
+                .stAlert {
+                    background-color: #262730 !important;
+                    color: #FAFAFA !important;
+                }
+
+                /* Code blocks */
+                .stCodeBlock {
+                    background-color: #1E1E1E !important;
+                }
+
+                /* Tabs */
+                .stTabs [data-baseweb="tab"] {
+                    color: #FAFAFA !important;
+                }
+
+                /* Secondary background color for cards */
+                [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+                    background-color: #1E1E1E;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+    else:
+        # Light theme - use default colors from config.toml
+        st.markdown("""
+            <style>
+                /* Reset to light theme (uses config.toml values) */
+                .stApp {
+                    background-color: #F9FAFB;
+                }
+
+                [data-testid="stSidebar"] {
+                    background-color: #FFFFFF;
+                }
+
+                .stMarkdown, .stText, p, span, div {
+                    color: #1F2937 !important;
+                }
+
+                h1, h2, h3, h4, h5, h6 {
+                    color: #1F2937 !important;
+                }
+
+                .stButton button {
+                    background-color: #0066CC !important;
+                    color: #FFFFFF !important;
+                }
+
+                .stButton button:hover {
+                    background-color: #0052A3 !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
+
 def create_default_assets() -> List[Asset]:
     """Create default asset configuration."""
     return [
@@ -1182,11 +1312,31 @@ if not _RUNNING_TESTS:
         st.session_state.client_name = ""
     if 'assets' not in st.session_state:
         st.session_state.assets = []
-    
+
+    # Initialize theme preference (default to light)
+    if 'theme' not in st.session_state:
+        st.session_state.theme = "light"
+
+    # Apply the current theme
+    apply_theme(st.session_state.theme)
+
     # ==========================================
     # SIDEBAR - Advanced Settings (Collapsed by Default)
     # ==========================================
     with st.sidebar:
+        # Theme Toggle
+        st.markdown("### 🎨 Theme")
+        current_theme = st.session_state.theme
+        theme_icon = "🌙" if current_theme == "light" else "☀️"
+        theme_text = "Dark Mode" if current_theme == "light" else "Light Mode"
+
+        if st.button(f"{theme_icon} Switch to {theme_text}", use_container_width=True):
+            # Toggle theme
+            st.session_state.theme = "dark" if current_theme == "light" else "light"
+            st.rerun()
+
+        st.markdown("---")
+
         with st.expander("⚙️ Advanced Settings", expanded=False):
             st.markdown("### Tax Settings")
     
