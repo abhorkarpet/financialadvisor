@@ -1,19 +1,21 @@
 [theme]
+
+base="dark"
 # Set a custom theme to enable the theme selector
-primaryColor = "#FF4B4B"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
-font = "sans serif"
+primaryColor="#FF4B4B"
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F0F2F6"
+textColor="#262730"
+font="sans serif"
 
 [client]
 # Show the theme selector in the app menu
-showSidebarNavigation = true
+showSidebarNavigation=true
 
 [server]
 # Enable file watcher for development
-fileWatcherType = "auto"
+fileWatcherType="auto"
 
 [browser]
 # Gather usage stats
-gatherUsageStats = false
+gatherUsageStats=false
