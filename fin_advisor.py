@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 8.3.0
+Version: 8.4.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "8.3.0"
+VERSION = "8.4.0"
 
 # Streamlit import
 import streamlit as st
@@ -1474,7 +1474,7 @@ if not _RUNNING_TESTS:
                         border-left: 5px solid #4caf50;
                         margin: 20px 0;'>
                 <p style='margin: 0; font-size: 1.05em; color: #2e7d32;'>
-                    <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
+                    <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes. For fast results, download the latest statements for accounts that you want to include in the analysis.
                 </p>
             </div>
             """,
