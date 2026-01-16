@@ -23,7 +23,12 @@ st.set_page_config(
     page_title="Financial Statement Uploader",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/abhorkarpet/financialadvisor',
+        'Report a bug': 'https://github.com/abhorkarpet/financialadvisor/issues',
+        'About': "Smart Retire AI - Financial Statement Uploader v2.0"
+    }
 )
 
 
@@ -771,6 +776,36 @@ def display_results(data, format_type='csv', warnings=None):
                 mime="application/json"
             )
 
+        # Add Excel export if openpyxl is available
+        try:
+            import openpyxl
+            from io import BytesIO
+
+            # Create Excel file in memory
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Accounts')
+
+                # Add tax bucket sheets if available
+                if tax_buckets_by_account:
+                    for idx, (account_id, buckets) in enumerate(list(tax_buckets_by_account.items())[:10]):  # Limit to 10 sheets
+                        bucket_df = pd.DataFrame(buckets)
+                        sheet_name = f"Buckets_{idx+1}"[:31]  # Excel sheet name limit
+                        bucket_df.to_excel(writer, index=False, sheet_name=sheet_name)
+
+            excel_buffer.seek(0)
+
+            # Add Excel download button
+            st.download_button(
+                label="📥 Download Excel",
+                data=excel_buffer,
+                file_name=f"financial_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Download as Excel with separate sheets for tax buckets"
+            )
+        except ImportError:
+            st.info("💡 Install openpyxl to enable Excel export: `pip install openpyxl`")
+
     except Exception as e:
         st.error(f"Error parsing data: {str(e)}")
         if format_type == 'csv':
@@ -779,10 +814,93 @@ def display_results(data, format_type='csv', warnings=None):
             st.json(data)
 
 
+def estimate_processing_time(file_count: int, total_size_mb: float) -> float:
+    """
+    Estimate processing time based on file count and size.
+
+    Args:
+        file_count: Number of files to process
+        total_size_mb: Total size in MB
+
+    Returns:
+        Estimated time in seconds
+    """
+    # Base time per file (includes AI processing)
+    base_time_per_file = 5.0  # seconds
+
+    # Additional time based on file size
+    time_per_mb = 2.0  # seconds per MB
+
+    estimated_time = (file_count * base_time_per_file) + (total_size_mb * time_per_mb)
+
+    return max(estimated_time, 10.0)  # Minimum 10 seconds
+
+
+def display_file_preview_cards(uploaded_files, validation):
+    """Display uploaded files as preview cards with status."""
+    st.markdown("### 📁 Uploaded Files")
+
+    for file in uploaded_files:
+        file_size_kb = file.size / 1024
+        file_size_mb = file_size_kb / 1024
+
+        # Find file in validation results
+        file_info = None
+        is_valid = False
+        for valid_file in validation['valid']:
+            if valid_file['name'] == file.name:
+                file_info = valid_file
+                is_valid = True
+                break
+        if not file_info:
+            for invalid_file in validation['invalid']:
+                if invalid_file['name'] == file.name:
+                    file_info = invalid_file
+                    break
+
+        # Create card
+        with st.container():
+            cols = st.columns([1, 4, 2, 2])
+
+            with cols[0]:
+                # Icon based on status
+                if is_valid:
+                    st.markdown("### ✅")
+                else:
+                    st.markdown("### ⚠️")
+
+            with cols[1]:
+                st.markdown(f"**{file.name}**")
+                if file_info and 'keywords' in file_info and file_info['keywords']:
+                    keywords_preview = ', '.join(file_info['keywords'][:2])
+                    st.caption(f"Keywords: {keywords_preview}")
+
+            with cols[2]:
+                if file_size_mb >= 1:
+                    st.metric("Size", f"{file_size_mb:.1f} MB")
+                else:
+                    st.metric("Size", f"{file_size_kb:.1f} KB")
+
+            with cols[3]:
+                if file_info:
+                    confidence = file_info.get('confidence', 0) * 100
+                    st.metric("Confidence", f"{confidence:.0f}%")
+
+            st.markdown("---")
+
+
 def main():
     """Main application"""
 
     load_custom_css()
+
+    # Initialize session state for upload history and retry functionality
+    if 'upload_history' not in st.session_state:
+        st.session_state.upload_history = []
+    if 'last_upload_result' not in st.session_state:
+        st.session_state.last_upload_result = None
+    if 'retry_data' not in st.session_state:
+        st.session_state.retry_data = None
 
     # Header
     st.markdown('<div class="main-header">📄 Financial Statement Uploader</div>', unsafe_allow_html=True)
@@ -800,7 +918,7 @@ def main():
 
         **Powered by:**
         - n8n workflow automation
-        - OpenAI GPT-4.1
+        - OpenAI GPT-4o
         - OCR text extraction
         """)
 
@@ -839,7 +957,7 @@ def main():
 
     # Show configuration status
     with st.expander("ℹ️ Configuration Status"):
-        st.success(f"✓ Webhook configured: {webhook_url[:50]}...")
+        st.success(f"✓ Webhook configured: {webhook_url}")
 
         # Test connection
         if st.button("Test Webhook Connection"):

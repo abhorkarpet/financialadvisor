@@ -1,58 +1,89 @@
 """
-Smart Retire AI — Stage 2: Asset Classification & Advanced Tax Logic
+Smart Retire AI — Advanced Retirement Planning Tool
 
 Enhanced retirement planning tool with:
 - Asset classification (pre_tax, post_tax, tax_deferred)
-- Per-asset growth simulation
-- Sophisticated tax logic with IRS projections
-- Capital gains calculations for brokerage accounts
+- Per-asset growth simulation with tax-efficient projections
+- Portfolio growth during retirement with inflation-adjusted withdrawals
+- One-time life expenses at retirement support
+- Comprehensive income gap recommendations
 
-USAGE:
-  # 1) Run tests
-  python fin_advisor.py --run-tests
+Usage:
+    Run the Streamlit web application:
+        $ streamlit run fin_advisor.py
 
-  # 2) CLI with flags (no UI)
-  python fin_advisor.py \
-    --age 30 --retirement-age 65 \
-    --income 85000 --contribution-rate 15 \
-    --current-balance 50000 --growth-rate 7 \
-    --inflation-rate 3 --tax-rate 25
-
-  # 3) Streamlit (if installed)
-  streamlit run fin_advisor.py
+    Run unit tests:
+        $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 4.6.0
+Version: 8.3.0
 """
 
 from __future__ import annotations
 import argparse
 import math
-import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "4.6.0"
-
-def bump_minor_version(version: str) -> str:
-    """Bump the minor version number (e.g., 2.1.0 -> 2.2.0)."""
-    parts = version.split('.')
-    if len(parts) >= 2:
-        major, minor = parts[0], parts[1]
-        patch = parts[2] if len(parts) > 2 else "0"
-        new_minor = str(int(minor) + 1)
-        return f"{major}.{new_minor}.{patch}"
-    return version
+VERSION = "8.3.0"
 
 # Streamlit import
 import streamlit as st
+import streamlit.components.v1 as components
 import io
 import csv
+import time
+import urllib.parse
 from datetime import datetime
 
 import pandas as pd
+
+# Analytics module
+try:
+    from financialadvisor.utils.analytics import (
+        initialize_analytics,
+        set_analytics_consent,
+        track_event,
+        track_page_view,
+        track_onboarding_step_started,
+        track_onboarding_step_completed,
+        track_feature_usage,
+        track_pdf_generation,
+        track_monte_carlo_run,
+        track_statement_upload,
+        track_error,
+        is_analytics_enabled,
+        opt_out,
+        opt_in,
+        get_age_range,
+        get_goal_range,
+        get_session_replay_script,
+        reset_analytics_session,
+    )
+    ANALYTICS_AVAILABLE = True
+except ImportError:
+    ANALYTICS_AVAILABLE = False
+    # Define no-op functions if analytics not available with matching signatures
+    def initialize_analytics() -> None: pass
+    def set_analytics_consent(consented: bool) -> None: pass
+    def track_event(event_name: str, properties: Optional[Dict[str, any]] = None, user_properties: Optional[Dict[str, any]] = None) -> None: pass
+    def track_page_view(page_name: str) -> None: pass
+    def track_onboarding_step_started(step: int) -> None: pass
+    def track_onboarding_step_completed(step: int, **kwargs: any) -> None: pass
+    def track_feature_usage(feature: str, **kwargs: any) -> None: pass
+    def track_pdf_generation(success: bool) -> None: pass
+    def track_monte_carlo_run(num_simulations: int, **kwargs: any) -> None: pass
+    def track_statement_upload(success: bool, num_statements: int, num_accounts: int) -> None: pass
+    def track_error(error_type: str, error_message: str, context: Optional[Dict[str, any]] = None) -> None: pass
+    def is_analytics_enabled() -> bool: return False
+    def opt_out() -> None: pass
+    def opt_in() -> None: pass
+    def get_age_range(age: float) -> str: return "unknown"
+    def get_goal_range(goal: float) -> str: return "unknown"
+    def get_session_replay_script() -> str: return ""
+    def reset_analytics_session() -> None: pass
 
 # n8n integration for financial statement upload
 try:
@@ -77,526 +108,37 @@ except ImportError:
     _REPORTLAB_AVAILABLE = False
 
 # ---------------------------
-# Domain Models & Computation
+# Import refactored modules
 # ---------------------------
+from financialadvisor.domain.models import (
+    AssetType,
+    Asset,
+    TaxBracket,
+    UserInputs,
+    _DEF_ASSET_TYPES,
+)
 
-class AssetType(Enum):
-    """Asset classification for tax treatment."""
-    PRE_TAX = "pre_tax"           # 401(k), Traditional IRA
-    POST_TAX = "post_tax"         # Roth IRA, Brokerage
-    TAX_DEFERRED = "tax_deferred" # Annuities, HSA
+from financialadvisor.core.calculator import (
+    years_to_retirement,
+    future_value_with_contrib,
+)
 
-@dataclass
-class Asset:
-    """Individual asset with specific tax treatment."""
-    name: str
-    asset_type: AssetType
-    current_balance: float
-    annual_contribution: float
-    growth_rate_pct: float
-    tax_rate_pct: float = 0.0  # For post_tax assets (capital gains)
-    
-    def __post_init__(self):
-        """Validate asset configuration."""
-        if self.asset_type == AssetType.POST_TAX and self.tax_rate_pct == 0.0:
-            # Default capital gains rate for brokerage accounts
-            self.tax_rate_pct = 15.0
+from financialadvisor.core.tax_engine import (
+    get_irs_tax_brackets_2024,
+    project_tax_rate,
+    calculate_asset_growth,
+    apply_tax_logic,
+    simple_post_tax,
+)
 
-@dataclass
-class TaxBracket:
-    """IRS tax bracket information."""
-    min_income: float
-    max_income: Optional[float]
-    rate_pct: float
+from financialadvisor.core.projector import project
 
-@dataclass(init=False)
-class UserInputs:
-    age: int
-    retirement_age: int
-    life_expectancy: int = 90  # Expected age at death
-    annual_income: float = 0.0
-    contribution_rate_pct: float = 0.0  # % of income contributed annually
-    expected_growth_rate_pct: float = 7.0  # nominal annual return %
-    inflation_rate_pct: float = 3.0
-    current_marginal_tax_rate_pct: float = 0.0  # Current tax bracket
-    retirement_marginal_tax_rate_pct: float = 0.0  # Projected retirement tax bracket
-    assets: List[Asset] = field(default_factory=list)
-
-    def __init__(
-        self,
-        age: int,
-        retirement_age: int,
-        annual_income: float = 0.0,
-        contribution_rate_pct: float = 0.0,
-        current_balance: Optional[float] = None,
-        expected_growth_rate_pct: float = 7.0,
-        inflation_rate_pct: float = 3.0,
-        tax_rate_pct: Optional[float] = None,
-        asset_types: Optional[List[str]] = None,
-        life_expectancy: int = 90,
-        current_marginal_tax_rate_pct: Optional[float] = None,
-        retirement_marginal_tax_rate_pct: Optional[float] = None,
-        assets: Optional[List[Asset]] = None,
-    ):
-        # Core fields
-        self.age = age
-        self.retirement_age = retirement_age
-        self.life_expectancy = life_expectancy
-        self.annual_income = annual_income
-        self.contribution_rate_pct = contribution_rate_pct
-        self.expected_growth_rate_pct = expected_growth_rate_pct
-        self.inflation_rate_pct = inflation_rate_pct
-
-        # Tax rates: prefer explicit modern names, fall back to legacy `tax_rate_pct` if provided
-        if current_marginal_tax_rate_pct is not None:
-            self.current_marginal_tax_rate_pct = current_marginal_tax_rate_pct
-        elif tax_rate_pct is not None:
-            self.current_marginal_tax_rate_pct = tax_rate_pct
-        else:
-            self.current_marginal_tax_rate_pct = 0.0
-
-        if retirement_marginal_tax_rate_pct is not None:
-            self.retirement_marginal_tax_rate_pct = retirement_marginal_tax_rate_pct
-        else:
-            # default to current tax rate if retirement not provided
-            self.retirement_marginal_tax_rate_pct = self.current_marginal_tax_rate_pct
-
-        # Legacy alias for tests / older callers
-        self.tax_rate_pct = self.current_marginal_tax_rate_pct
-
-        # Assets: accept modern `assets` list or legacy `asset_types` + `current_balance`
-        self.assets = assets or []
-
-        # Store legacy current balance if provided (used when no assets passed)
-        self._legacy_current_balance = current_balance
-
-        # If legacy asset_types provided and no explicit assets, create simple assets
-        if asset_types and not self.assets:
-            # Map known names to AssetType where possible
-            name_to_type = {name: at for (name, at) in _DEF_ASSET_TYPES}
-            for name in asset_types:
-                asset_type = name_to_type.get(name, AssetType.POST_TAX)
-                self.assets.append(
-                    Asset(
-                        name=name,
-                        asset_type=asset_type,
-                        current_balance=(self._legacy_current_balance or 0.0) if len(asset_types) == 1 else 0.0,
-                        annual_contribution=self.annual_income * (self.contribution_rate_pct / 100.0),
-                        growth_rate_pct=self.expected_growth_rate_pct,
-                    )
-                )
-
-    @property
-    def current_balance(self) -> float:
-        """Total current balance across all assets or legacy value if no assets."""
-        total = sum(asset.current_balance for asset in self.assets)
-        if total == 0 and (self._legacy_current_balance is not None):
-            return float(self._legacy_current_balance)
-        return float(total)
-
-    @property
-    def asset_types(self) -> List[str]:
-        """Legacy asset types for backward compatibility."""
-        if self.assets:
-            return [asset.name for asset in self.assets]
-        return []
-
-
-def years_to_retirement(age: int, retirement_age: int) -> int:
-    if retirement_age < age:
-        raise ValueError("retirement_age must be >= age")
-    return retirement_age - age
-
-
-def future_value_with_contrib(principal: float, annual_contribution: float, rate_pct: float, years: int) -> float:
-    """Compute FV with annual compounding and end-of-year contributions.
-    Handles zero-rate edge case explicitly.
-    FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
-    """
-    if years < 0:
-        raise ValueError("years must be >= 0")
-    r = rate_pct / 100.0
-    if r == 0:
-        return principal + annual_contribution * years
-    growth = (1.0 + r) ** years
-    return principal * growth + annual_contribution * ((growth - 1.0) / r)
-
-
-def get_irs_tax_brackets_2024() -> List[TaxBracket]:
-    """Get 2024 IRS tax brackets for single filers."""
-    return [
-        TaxBracket(0, 11000, 10.0),
-        TaxBracket(11000, 44725, 12.0),
-        TaxBracket(44725, 95375, 22.0),
-        TaxBracket(95375, 182050, 24.0),
-        TaxBracket(182050, 231250, 32.0),
-        TaxBracket(231250, 578125, 35.0),
-        TaxBracket(578125, None, 37.0),
-    ]
-
-
-def project_tax_rate(income: float, brackets: List[TaxBracket]) -> float:
-    """Project marginal tax rate based on income and tax brackets."""
-    for bracket in brackets:
-        if bracket.min_income <= income and (bracket.max_income is None or income < bracket.max_income):
-            return bracket.rate_pct
-    return brackets[-1].rate_pct  # Top bracket
-
-
-def calculate_asset_growth(asset: Asset, years: int) -> Tuple[float, float]:
-    """Calculate future value and total contributions for an asset.
-    
-    Returns:
-        Tuple of (future_value, total_contributions)
-    """
-    fv = future_value_with_contrib(
-        asset.current_balance,
-        asset.annual_contribution,
-        asset.growth_rate_pct,
-        years
-    )
-    total_contributions = asset.annual_contribution * years
-    return fv, total_contributions
-
-
-def apply_tax_logic(asset: Asset, future_value: float, total_contributions: float, 
-                   retirement_tax_rate_pct: float) -> Tuple[float, float]:
-    """Apply tax logic based on asset type.
-    
-    Returns:
-        Tuple of (after_tax_value, tax_liability)
-    """
-    # Handle both enum and string asset types for robustness
-    asset_type = asset.asset_type
-    if hasattr(asset_type, 'value'):
-        asset_type_value = asset_type.value
-    else:
-        asset_type_value = str(asset_type)
-    
-    if asset_type == AssetType.PRE_TAX or asset_type_value == "pre_tax":
-        # Pre-tax accounts: taxed at withdrawal
-        tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
-        after_tax_value = future_value - tax_liability
-        
-    elif asset_type == AssetType.POST_TAX or asset_type_value == "post_tax":
-        if "Roth" in asset.name:
-            # Roth IRA: no tax on withdrawal
-            after_tax_value = future_value
-            tax_liability = 0.0
-        else:
-            # Brokerage: only capital gains are taxed
-            gains = future_value - total_contributions
-            tax_liability = gains * (asset.tax_rate_pct / 100.0)
-            after_tax_value = future_value - tax_liability
-            
-    elif asset_type == AssetType.TAX_DEFERRED or asset_type_value == "tax_deferred":
-        # Annuities, HSA: complex rules, simplified for now
-        if "HSA" in asset.name:
-            # HSA: tax-free for medical expenses, taxed for other withdrawals
-            # Simplified: assume 50% medical, 50% other
-            medical_portion = future_value * 0.5
-            other_portion = future_value * 0.5
-            tax_liability = other_portion * (retirement_tax_rate_pct / 100.0)
-            after_tax_value = future_value - tax_liability
-        else:
-            # Annuities: taxed as ordinary income
-            tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
-            after_tax_value = future_value - tax_liability
-    else:
-        raise ValueError(f"Unknown asset type: {asset.asset_type} (type: {type(asset.asset_type)}, value: {asset_type_value})")
-    
-    return after_tax_value, tax_liability
-
-
-def simple_post_tax(balance: float, tax_rate_pct: float) -> float:
-    """Legacy function for backward compatibility."""
-    tax_rate = tax_rate_pct / 100.0
-    tax_rate = min(max(tax_rate, 0.0), 1.0)
-    return balance * (1.0 - tax_rate)
-
-
-def explain_projected_balance(inputs: UserInputs) -> str:
-    """Generate a detailed explanation of how projected balance is calculated.
-
-    Returns a formatted string explaining:
-    - The core formula for future value with contributions
-    - How annual contributions are incorporated
-    - Step-by-step calculation breakdown
-    - Tax treatment by asset type
-
-    Args:
-        inputs: UserInputs object with retirement planning parameters
-
-    Returns:
-        Multi-line formatted explanation string
-    """
-    yrs = years_to_retirement(inputs.age, inputs.retirement_age)
-
-    explanation = []
-    explanation.append("=" * 80)
-    explanation.append("PROJECTED BALANCE CALCULATION EXPLAINED")
-    explanation.append("=" * 80)
-    explanation.append("")
-
-    # Core Formula Section
-    explanation.append("📊 CORE FORMULA: Future Value with Annual Contributions")
-    explanation.append("-" * 80)
-    explanation.append("")
-    explanation.append("FV = P × (1 + r)^t + C × [((1 + r)^t - 1) / r]")
-    explanation.append("")
-    explanation.append("Where:")
-    explanation.append("  P = Current Balance (Principal)")
-    explanation.append("  r = Annual Growth Rate (as decimal)")
-    explanation.append("  t = Years Until Retirement")
-    explanation.append("  C = Annual Contribution (made at end of each year)")
-    explanation.append("  FV = Future Value (Projected Balance)")
-    explanation.append("")
-
-    # Explanation of Each Term
-    explanation.append("📈 HOW IT WORKS:")
-    explanation.append("-" * 80)
-    explanation.append("")
-    explanation.append("The formula has TWO components:")
-    explanation.append("")
-    explanation.append("1. PRINCIPAL GROWTH: P × (1 + r)^t")
-    explanation.append("   - Takes your current balance")
-    explanation.append("   - Grows it with compound interest over t years")
-    explanation.append("   - Example: $50,000 growing at 7% for 35 years")
-    explanation.append("             = $50,000 × (1.07)^35")
-    explanation.append("             = $50,000 × 10.677")
-    explanation.append("             = $533,850")
-    explanation.append("")
-    explanation.append("2. CONTRIBUTION GROWTH: C × [((1 + r)^t - 1) / r]")
-    explanation.append("   - Takes your annual contribution amount")
-    explanation.append("   - Multiplies by the 'future value of annuity' factor")
-    explanation.append("   - This accounts for each year's contribution growing")
-    explanation.append("   - Example: $12,750/year at 7% for 35 years")
-    explanation.append("             = $12,750 × [((1.07)^35 - 1) / 0.07]")
-    explanation.append("             = $12,750 × 138.237")
-    explanation.append("             = $1,762,523")
-    explanation.append("")
-    explanation.append("3. TOTAL PRE-TAX VALUE:")
-    explanation.append("   = Principal Growth + Contribution Growth")
-    explanation.append("   = $533,850 + $1,762,523")
-    explanation.append("   = $2,296,373")
-    explanation.append("")
-
-    # Your Specific Calculation
-    explanation.append("💼 YOUR CALCULATION:")
-    explanation.append("-" * 80)
-    explanation.append("")
-    explanation.append(f"Age: {inputs.age} → Retirement Age: {inputs.retirement_age}")
-    explanation.append(f"Years to Retirement: {yrs}")
-    explanation.append("")
-
-    # Calculate for each asset
-    if not inputs.assets:
-        # Use default asset logic
-        total_contribution = inputs.annual_income * (inputs.contribution_rate_pct / 100.0)
-        explanation.append(f"Current Balance (P): ${inputs.current_balance:,.2f}")
-        explanation.append(f"Annual Contribution (C): ${total_contribution:,.2f}")
-        explanation.append(f"Growth Rate (r): {inputs.expected_growth_rate_pct}% = {inputs.expected_growth_rate_pct/100.0:.4f}")
-        explanation.append("")
-
-        r = inputs.expected_growth_rate_pct / 100.0
-        if r == 0:
-            fv = inputs.current_balance + total_contribution * yrs
-            explanation.append(f"Since growth rate is 0%, calculation simplifies to:")
-            explanation.append(f"FV = {inputs.current_balance:,.2f} + {total_contribution:,.2f} × {yrs}")
-            explanation.append(f"FV = ${fv:,.2f}")
-        else:
-            growth_factor = (1.0 + r) ** yrs
-            principal_growth = inputs.current_balance * growth_factor
-            annuity_factor = (growth_factor - 1.0) / r
-            contribution_growth = total_contribution * annuity_factor
-            fv = principal_growth + contribution_growth
-
-            explanation.append(f"Step 1: Principal Growth")
-            explanation.append(f"  P × (1 + r)^t = ${inputs.current_balance:,.2f} × (1 + {r:.4f})^{yrs}")
-            explanation.append(f"                = ${inputs.current_balance:,.2f} × {growth_factor:.6f}")
-            explanation.append(f"                = ${principal_growth:,.2f}")
-            explanation.append("")
-            explanation.append(f"Step 2: Contribution Growth")
-            explanation.append(f"  C × [((1 + r)^t - 1) / r] = ${total_contribution:,.2f} × [({growth_factor:.6f} - 1) / {r:.4f}]")
-            explanation.append(f"                            = ${total_contribution:,.2f} × {annuity_factor:.6f}")
-            explanation.append(f"                            = ${contribution_growth:,.2f}")
-            explanation.append("")
-            explanation.append(f"Step 3: Total Pre-Tax Future Value")
-            explanation.append(f"  FV = ${principal_growth:,.2f} + ${contribution_growth:,.2f}")
-            explanation.append(f"     = ${fv:,.2f}")
-            explanation.append("")
-
-        # Tax calculation
-        tax_liability = fv * (inputs.retirement_marginal_tax_rate_pct / 100.0)
-        after_tax = fv - tax_liability
-        explanation.append(f"Step 4: After-Tax Value")
-        explanation.append(f"  Tax Rate: {inputs.retirement_marginal_tax_rate_pct}%")
-        explanation.append(f"  Tax Liability = ${fv:,.2f} × {inputs.retirement_marginal_tax_rate_pct/100.0:.2f}")
-        explanation.append(f"                = ${tax_liability:,.2f}")
-        explanation.append(f"  After-Tax Value = ${fv:,.2f} - ${tax_liability:,.2f}")
-        explanation.append(f"                  = ${after_tax:,.2f}")
-    else:
-        explanation.append("Assets Breakdown:")
-        explanation.append("")
-
-        for i, asset in enumerate(inputs.assets, 1):
-            explanation.append(f"Asset {i}: {asset.name}")
-            explanation.append(f"  Type: {asset.asset_type.value if hasattr(asset.asset_type, 'value') else asset.asset_type}")
-            explanation.append(f"  Current Balance (P): ${asset.current_balance:,.2f}")
-            explanation.append(f"  Annual Contribution (C): ${asset.annual_contribution:,.2f}")
-            explanation.append(f"  Growth Rate (r): {asset.growth_rate_pct}%")
-            explanation.append("")
-
-            r = asset.growth_rate_pct / 100.0
-            if r == 0:
-                fv = asset.current_balance + asset.annual_contribution * yrs
-                explanation.append(f"  FV = ${asset.current_balance:,.2f} + ${asset.annual_contribution:,.2f} × {yrs} = ${fv:,.2f}")
-            else:
-                growth_factor = (1.0 + r) ** yrs
-                principal_growth = asset.current_balance * growth_factor
-                annuity_factor = (growth_factor - 1.0) / r
-                contribution_growth = asset.annual_contribution * annuity_factor
-                fv = principal_growth + contribution_growth
-
-                explanation.append(f"  Principal Growth: ${asset.current_balance:,.2f} × {growth_factor:.4f} = ${principal_growth:,.2f}")
-                explanation.append(f"  Contribution Growth: ${asset.annual_contribution:,.2f} × {annuity_factor:.4f} = ${contribution_growth:,.2f}")
-                explanation.append(f"  Pre-Tax FV: ${fv:,.2f}")
-
-            # Tax calculation
-            total_contributions = asset.annual_contribution * yrs
-            after_tax_value, tax_liability = apply_tax_logic(
-                asset, fv, total_contributions,
-                inputs.retirement_marginal_tax_rate_pct
-            )
-
-            explanation.append(f"  Tax Liability: ${tax_liability:,.2f}")
-            explanation.append(f"  After-Tax Value: ${after_tax_value:,.2f}")
-            explanation.append("")
-
-    # Tax Treatment Section
-    explanation.append("")
-    explanation.append("🏦 TAX TREATMENT BY ASSET TYPE:")
-    explanation.append("-" * 80)
-    explanation.append("")
-    explanation.append("Pre-Tax (401k, Traditional IRA):")
-    explanation.append("  • Full balance is taxed at retirement tax rate")
-    explanation.append("  • Tax = FV × retirement_tax_rate")
-    explanation.append("")
-    explanation.append("Post-Tax (Roth IRA):")
-    explanation.append("  • Tax-free on withdrawal")
-    explanation.append("  • Tax = $0")
-    explanation.append("")
-    explanation.append("Post-Tax (Brokerage):")
-    explanation.append("  • Only capital gains are taxed")
-    explanation.append("  • Gains = FV - Total Contributions")
-    explanation.append("  • Tax = Gains × capital_gains_rate")
-    explanation.append("")
-    explanation.append("Tax-Deferred (HSA):")
-    explanation.append("  • 50% assumed for medical expenses (tax-free)")
-    explanation.append("  • 50% for other withdrawals (taxed)")
-    explanation.append("  • Tax = 50% × FV × retirement_tax_rate")
-    explanation.append("")
-    explanation.append("Tax-Deferred (Annuities):")
-    explanation.append("  • Taxed as ordinary income")
-    explanation.append("  • Tax = FV × retirement_tax_rate")
-    explanation.append("")
-
-    # Key Insights
-    explanation.append("💡 KEY INSIGHTS:")
-    explanation.append("-" * 80)
-    explanation.append("")
-    explanation.append("1. Annual contributions are assumed to be made at the END of each year")
-    explanation.append("2. Each contribution grows with compound interest for the remaining years")
-    explanation.append("3. The longer the time horizon, the more powerful the contribution growth")
-    explanation.append("4. Asset type significantly affects after-tax value")
-    explanation.append("5. Tax-advantaged accounts (Roth, HSA) provide substantial benefits")
-    explanation.append("")
-    explanation.append("=" * 80)
-
-    return "\n".join(explanation)
-
-
-def project(inputs: UserInputs) -> Dict[str, float]:
-    """Enhanced projection with asset classification and sophisticated tax logic."""
-    yrs = years_to_retirement(inputs.age, inputs.retirement_age)
-    
-    # If no assets defined, create a default one for backward compatibility
-    if not inputs.assets:
-        total_contribution = inputs.annual_income * (inputs.contribution_rate_pct / 100.0)
-        # Treat the year's contribution as already invested for backward compatibility
-        default_asset = Asset(
-            name="401(k) / Traditional IRA (Pre-Tax)",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=inputs.current_balance + total_contribution,
-            annual_contribution=0.0,
-            growth_rate_pct=inputs.expected_growth_rate_pct
-        )
-        inputs.assets = [default_asset]
-    
-    # Calculate projections for each asset
-    asset_results = []
-    total_pre_tax_value = 0.0
-    total_after_tax_value = 0.0
-    total_tax_liability = 0.0
-    
-    for asset in inputs.assets:
-        future_value, total_contributions = calculate_asset_growth(asset, yrs)
-        after_tax_value, tax_liability = apply_tax_logic(
-            asset, future_value, total_contributions, 
-            inputs.retirement_marginal_tax_rate_pct
-        )
-        
-        asset_results.append({
-            "name": asset.name,
-            "type": asset.asset_type.value,
-            "pre_tax_value": future_value,
-            "after_tax_value": after_tax_value,
-            "tax_liability": tax_liability,
-            "total_contributions": total_contributions
-        })
-        
-        total_pre_tax_value += future_value
-        total_after_tax_value += after_tax_value
-        total_tax_liability += tax_liability
-    
-    # Calculate tax efficiency
-    tax_efficiency = (total_after_tax_value / total_pre_tax_value * 100) if total_pre_tax_value > 0 else 0
-
-    result = {
-        "Years Until Retirement": float(yrs),
-        "Total Future Value (Pre-Tax)": float(round(total_pre_tax_value, 2)),
-        "Total After-Tax Balance": float(round(total_after_tax_value, 2)),
-        "Total Tax Liability": float(round(total_tax_liability, 2)),
-        "Tax Efficiency (%)": float(round(tax_efficiency, 2)),
-        "Number of Assets": len(inputs.assets),
-        "asset_results": asset_results,  # Store detailed breakdown for display
-        "assets_input": inputs.assets  # Store input assets for current balance
-    }
-
-    # Backwards-compatible aliases expected by older callers/tests
-    result["Future Value (Pre-Tax)"] = result["Total Future Value (Pre-Tax)"]
-    result["Estimated Post-Tax Balance"] = result["Total After-Tax Balance"]
-
-    # Add per-asset breakdown
-    for i, asset_result in enumerate(asset_results):
-        result[f"Asset {i+1} - {asset_result['name']} (Pre-Tax)"] = round(asset_result['pre_tax_value'], 2)
-        result[f"Asset {i+1} - {asset_result['name']} (After-Tax)"] = round(asset_result['after_tax_value'], 2)
-
-    return result
-
+from financialadvisor.core.explainer import explain_projected_balance
 
 # ---------------------------
-# UI LAYERS
+# Domain Models & Computation (now imported from financialadvisor package)
 # ---------------------------
 
-_DEF_ASSET_TYPES = [
-    ("401(k) / Traditional IRA", AssetType.PRE_TAX),
-    ("Roth IRA", AssetType.POST_TAX),
-    ("Brokerage Account", AssetType.POST_TAX),
-    ("HSA (Health Savings Account)", AssetType.TAX_DEFERRED),
-    ("Annuity", AssetType.TAX_DEFERRED),
-    ("Savings Account", AssetType.POST_TAX),
-]
 
 def create_default_assets() -> List[Asset]:
     """Create default asset configuration."""
@@ -639,7 +181,7 @@ def create_asset_template_csv() -> str:
     template_data = [
         {
             "Account Name": "401(k) / Traditional IRA",
-            "Asset Type": "pre_tax",
+            "Tax Treatment": "Tax-Deferred",
             "Current Balance": 50000,
             "Annual Contribution": 12000,
             "Growth Rate (%)": 7.0,
@@ -647,7 +189,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Roth IRA",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "Tax-Free",
             "Current Balance": 10000,
             "Annual Contribution": 6000,
             "Growth Rate (%)": 7.0,
@@ -655,7 +197,7 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "Brokerage Account",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "Post-Tax",
             "Current Balance": 15000,
             "Annual Contribution": 3000,
             "Growth Rate (%)": 7.0,
@@ -663,49 +205,68 @@ def create_asset_template_csv() -> str:
         },
         {
             "Account Name": "High-Yield Savings Account",
-            "Asset Type": "post_tax",
+            "Tax Treatment": "Post-Tax",
             "Current Balance": 25000,
             "Annual Contribution": 2000,
             "Growth Rate (%)": 4.5,
             "Tax Rate (%)": 0.0
         }
     ]
-    
+
     # Create CSV string
     output = io.StringIO()
-    fieldnames = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
+    fieldnames = ["Account Name", "Tax Treatment", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(template_data)
-    
+
     return output.getvalue()
 
 
 def parse_uploaded_csv(csv_content: str) -> List[Asset]:
     """Parse uploaded CSV content into Asset objects."""
     assets = []
-    
+
     try:
         # Read CSV content
         csv_reader = csv.DictReader(io.StringIO(csv_content))
-        
+
+        # Determine which column name is used for tax treatment
+        # Support both "Tax Treatment" (new) and "Asset Type" (legacy) for backward compatibility
+        fieldnames = csv_reader.fieldnames or []
+        has_tax_treatment = "Tax Treatment" in fieldnames
+        has_asset_type = "Asset Type" in fieldnames
+
+        if not has_tax_treatment and not has_asset_type:
+            raise ValueError("CSV must contain either 'Tax Treatment' or 'Asset Type' column")
+
+        tax_column = "Tax Treatment" if has_tax_treatment else "Asset Type"
+
         for row in csv_reader:
             # Validate required fields
-            required_fields = ["Account Name", "Asset Type", "Current Balance", "Annual Contribution", "Growth Rate (%)"]
+            required_fields = ["Account Name", tax_column, "Current Balance", "Annual Contribution", "Growth Rate (%)"]
             for field in required_fields:
                 if field not in row or not row[field].strip():
                     raise ValueError(f"Missing or empty required field: {field}")
-            
-            # Parse asset type
-            asset_type_str = row["Asset Type"].strip().lower()
-            if asset_type_str == "pre_tax":
+
+            # Parse asset type (using the determined column name)
+            # Support both human-readable format (Tax-Deferred, Tax-Free, Post-Tax)
+            # and legacy format (pre_tax, post_tax, tax_deferred)
+            asset_type_str = row[tax_column].strip()
+            asset_type_lower = asset_type_str.lower()
+
+            # Map to AssetType enum
+            if asset_type_lower in ["pre_tax", "tax-deferred", "tax deferred"]:
                 asset_type = AssetType.PRE_TAX
-            elif asset_type_str == "post_tax":
+            elif asset_type_lower in ["post_tax", "post-tax", "post tax"]:
                 asset_type = AssetType.POST_TAX
-            elif asset_type_str == "tax_deferred":
+            elif asset_type_lower in ["tax_deferred"]:
                 asset_type = AssetType.TAX_DEFERRED
+            elif asset_type_lower in ["tax-free", "tax free", "roth"]:
+                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                asset_type = AssetType.POST_TAX
             else:
-                raise ValueError(f"Invalid asset type: {asset_type_str}. Must be 'pre_tax', 'post_tax', or 'tax_deferred'")
+                raise ValueError(f"Invalid tax treatment: '{asset_type_str}'. Must be 'Tax-Deferred', 'Tax-Free', or 'Post-Tax' (or legacy: 'pre_tax', 'post_tax', 'tax_deferred')")
             
             # Parse numeric values (handle commas in numbers)
             try:
@@ -860,9 +421,9 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
 
     # Asset Breakdown
     story.append(Paragraph("Asset Breakdown", heading_style))
-    
-    # Asset details table
-    asset_data = [["Account", "Type", "Current Balance", "Annual Contribution", "Growth Rate", "Tax Rate"]]
+
+    # Asset details table with proper formatting
+    asset_data = [["Account", "Tax\nTreatment", "Current\nBalance", "Annual\nContribution", "Growth\nRate", "Tax\nRate"]]
     for asset in assets:
         asset_data.append([
             asset.name,
@@ -872,15 +433,18 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
             f"{asset.growth_rate_pct}%",
             f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
         ])
-    
-    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1.2*inch, 1.2*inch, 0.8*inch, 0.8*inch])
+
+    # Adjusted column widths for better spacing
+    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 0.8*inch, 0.7*inch])
     asset_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
         ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('FONTSIZE', (0, 1), (-1, -1), 9)
@@ -928,12 +492,34 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     
     # Retirement Income Analysis
     story.append(Paragraph("Retirement Income Analysis", heading_style))
-    
+
     total_after_tax = result.get("Total After-Tax Balance", 0)
     life_expectancy = user_inputs.get('life_expectancy', 85)
     retirement_age = user_inputs.get('retirement_age', 65)
     years_in_retirement = life_expectancy - retirement_age
-    annual_retirement_income = total_after_tax / years_in_retirement
+
+    # Validate years in retirement
+    if years_in_retirement <= 0:
+        raise ValueError(f"Life expectancy ({life_expectancy}) must be greater than retirement age ({retirement_age})")
+
+    # Use inflation-adjusted annuity formula (same as What-If section)
+    retirement_growth_rate = user_inputs.get('retirement_growth_rate', 4.0)
+    inflation_rate = user_inputs.get('inflation_rate', 3)
+    r = retirement_growth_rate / 100.0
+    i = inflation_rate / 100.0
+    n = years_in_retirement
+
+    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+        annual_retirement_income = total_after_tax / n
+    elif r > i:  # Normal case: growth exceeds inflation
+        numerator = r - i
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+    else:  # r < i: inflation exceeds growth
+        numerator = r - i  # This will be negative
+        denominator = 1 - ((1 + i) / (1 + r)) ** n
+        annual_retirement_income = total_after_tax * (numerator / denominator)
+
     retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
     income_shortfall = retirement_income_goal - annual_retirement_income
     income_ratio = (annual_retirement_income / retirement_income_goal * 100) if retirement_income_goal > 0 else 0
@@ -1041,1564 +627,1304 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     return buffer.getvalue()
 
 
-# Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
-st.set_page_config(page_title="Smart Retire AI", layout="wide")
-
-# Initialize session state for splash screen
-if 'splash_dismissed' not in st.session_state:
-    st.session_state.splash_dismissed = False
-
-# Initialize session state for onboarding flow
-if 'onboarding_step' not in st.session_state:
-    st.session_state.onboarding_step = 1
-if 'onboarding_complete' not in st.session_state:
-    st.session_state.onboarding_complete = False
-
-# Initialize session state for page navigation
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
-
-# Initialize session state for baseline values (from onboarding)
-if 'birth_year' not in st.session_state:
-    st.session_state.birth_year = datetime.now().year - 30
-if 'baseline_retirement_age' not in st.session_state:
-    st.session_state.baseline_retirement_age = 65
-if 'baseline_life_expectancy' not in st.session_state:
-    st.session_state.baseline_life_expectancy = 85
-if 'baseline_retirement_income_goal' not in st.session_state:
-    st.session_state.baseline_retirement_income_goal = 0  # Optional field
-if 'client_name' not in st.session_state:
-    st.session_state.client_name = ""
-if 'assets' not in st.session_state:
-    st.session_state.assets = []
-
-# Initialize session state for what-if scenario values (used on results page)
-if 'whatif_retirement_age' not in st.session_state:
-    st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
-if 'whatif_life_expectancy' not in st.session_state:
-    st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
-if 'whatif_retirement_income_goal' not in st.session_state:
-    st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
-if 'whatif_current_tax_rate' not in st.session_state:
-    st.session_state.whatif_current_tax_rate = 22
-if 'whatif_retirement_tax_rate' not in st.session_state:
-    st.session_state.whatif_retirement_tax_rate = 25
-if 'whatif_inflation_rate' not in st.session_state:
-    st.session_state.whatif_inflation_rate = 3
-
-# Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
-if 'retirement_age' not in st.session_state:
-    st.session_state.retirement_age = st.session_state.baseline_retirement_age
-if 'life_expectancy' not in st.session_state:
-    st.session_state.life_expectancy = st.session_state.baseline_life_expectancy
-if 'retirement_income_goal' not in st.session_state:
-    st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
-
 # ==========================================
-# SPLASH SCREEN / WELCOME PAGE
+# DIALOG FUNCTIONS FOR NEXT STEPS
 # ==========================================
-if not st.session_state.splash_dismissed:
-    # Display splash screen
-    st.markdown(
-        """
-        <style>
-            .splash-container {
-                background: linear-gradient(135deg, #1f77b4 0%, #2ca02c 100%);
-                padding: 60px 40px;
-                border-radius: 20px;
-                text-align: center;
-                color: white;
-                margin: 40px auto;
-                max-width: 900px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            }
-            .splash-title {
-                font-size: 3em;
-                font-weight: bold;
-                margin-bottom: 10px;
-                text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-            }
-            .splash-version {
-                font-size: 1.2em;
-                opacity: 0.9;
-                margin-bottom: 30px;
-            }
-            .splash-tagline {
-                font-size: 1.4em;
-                font-weight: 500;
-                margin-bottom: 40px;
-                opacity: 0.95;
-            }
-            .splash-description {
-                font-size: 1.1em;
-                line-height: 1.8;
-                margin-bottom: 40px;
-                text-align: left;
-                background: rgba(255,255,255,0.1);
-                padding: 30px;
-                border-radius: 10px;
-            }
-            .splash-features {
-                text-align: left;
-                margin: 30px 0;
-            }
-            .splash-feature {
-                font-size: 1.05em;
-                margin: 12px 0;
-                padding-left: 10px;
-            }
-            .splash-desktop-note {
-                font-size: 0.95em;
-                margin-top: 8px;
-                opacity: 0.95;
-                font-style: italic;
-                color: rgba(255,255,255,0.9);
-            }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
 
-    # Splash header with gradient
-    st.markdown(
-        f"""
-        <div class="splash-container">
-            <div class="splash-title">💰 Smart Retire AI</div>
-            <div class="splash-version">Version {VERSION}</div>
-            <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
-            <div class="splash-desktop-note">Best used on a desktop browser for the full experience.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Content using Streamlit components for proper rendering
-    st.markdown("### 👋 Welcome!")
+@st.dialog("📄 Generate PDF Report")
+def generate_report_dialog():
+    """Dialog for generating and downloading PDF report."""
     st.markdown("""
-    Smart Retire AI helps you plan for a comfortable retirement with sophisticated
-    financial modeling and AI-powered insights.
+    Create a comprehensive PDF report with:
+    - Executive summary of your retirement plan
+    - Detailed portfolio breakdown
+    - Individual asset projections
+    - Tax analysis and optimization strategies
+    - Personalized recommendations
     """)
 
-    st.markdown("### ✨ Key Features")
+    st.markdown("---")
 
-    # Two-column layout for features
+    # Name input
+    report_name = st.text_input(
+        "Your Name (Optional)",
+        value=st.session_state.get('client_name', ''),
+        placeholder="Enter your name for the report",
+        help="This will appear on the PDF report"
+    )
+
+    st.markdown("---")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**✨ AI Statement Upload**")
-        st.caption("Automatically extract account data from PDF statements")
-        st.markdown("")
-
-        st.markdown("**📊 Smart Tax Planning**")
-        st.caption("Optimize with pre-tax, post-tax, and tax-free accounts")
-        st.markdown("")
-
-        st.markdown("**📈 Growth Projections**")
-        st.caption("See your portfolio grow year by year until retirement")
-
-    with col2:
-        st.markdown("**💡 Personalized Insights**")
-        st.caption("Get recommendations tailored to your financial situation")
-        st.markdown("")
-
-        st.markdown("**🎯 What-If Scenarios**")
-        st.caption("Easily adjust assumptions and see instant results")
-        st.markdown("")
-
-    st.markdown("---")
-
-    # Getting Started section with green background
-    st.markdown(
-        """
-        <div style='background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-                    padding: 20px;
-                    border-radius: 10px;
-                    border-left: 5px solid #4caf50;
-                    margin: 20px 0;'>
-            <p style='margin: 0; font-size: 1.05em; color: #2e7d32;'>
-                <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Buttons and checkbox
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        # Note: The checkbox state is automatically captured by Streamlit
-        # We'll check its value when the button is clicked
-        st.checkbox("✓ Don't show this again", key="dont_show_splash")
-
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
-            # Check if user wants to hide splash permanently
-            if st.session_state.get("dont_show_splash", False):
-                st.session_state.splash_dismissed = True
-            else:
-                # Just dismiss for this session, will show again on page reload
-                st.session_state.splash_dismissed = True
+        if st.button("❌ Cancel", use_container_width=True):
             st.rerun()
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    with col2:
+        if st.button("📥 Generate PDF", type="primary", use_container_width=True):
+            if not _REPORTLAB_AVAILABLE:
+                st.error("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
+                st.code("pip install reportlab", language="bash")
+                return
 
-    # Contact info at bottom
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666; font-size: 0.9em; padding: 20px;'>
-            Questions? Contact us at <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4;'>smartretireai@gmail.com</a>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            try:
+                # Get the result and assets from session state
+                if 'last_result' not in st.session_state or 'assets' not in st.session_state:
+                    st.error("❌ No analysis results found. Please run the analysis first.")
+                    return
 
-    # Stop rendering the rest of the page
-    st.stop()
+                result = st.session_state.last_result
+                assets = st.session_state.assets
 
-# ==========================================
-# MAIN AREA - Header & Disclaimer
-# ==========================================
-# Note: Sidebar advanced settings removed - now in Results page as What-If controls
-st.title("💰 Smart Retire AI - Advanced Retirement Planning")
+                # Prepare user inputs for PDF
+                user_inputs = {
+                    'client_name': report_name if report_name else 'Client',
+                    'current_marginal_tax_rate_pct': st.session_state.get('whatif_current_tax_rate', 22),
+                    'retirement_marginal_tax_rate_pct': st.session_state.get('whatif_retirement_tax_rate', 25),
+                    'inflation_rate_pct': st.session_state.get('whatif_inflation_rate', 3),
+                    'age': datetime.now().year - st.session_state.birth_year,
+                    'retirement_age': int(st.session_state.get('whatif_retirement_age', 65)),
+                    'life_expectancy': int(st.session_state.get('whatif_life_expectancy', 85)),
+                    'birth_year': st.session_state.birth_year,
+                    'retirement_income_goal': st.session_state.get('whatif_retirement_income_goal', 0),
+                    'retirement_growth_rate': st.session_state.get('whatif_retirement_growth_rate', 4.0),
+                    'inflation_rate': st.session_state.get('whatif_inflation_rate', 3)
+                }
 
-# Legal Disclaimer
-with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
+                # Generate PDF
+                with st.spinner("Generating PDF report..."):
+                    pdf_bytes = generate_pdf_report(result, assets, user_inputs)
+
+                # Create filename
+                client_name_clean = report_name.replace(" ", "_").replace(",", "").replace(".", "") if report_name else "Client"
+                filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+                # Track successful PDF generation
+                track_pdf_generation(success=True)
+
+                # Show download button
+                st.success("✅ PDF report generated successfully!")
+                st.download_button(
+                    label="📥 Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+            except Exception as e:
+                # Track failed PDF generation
+                track_pdf_generation(success=False)
+                track_error('pdf_generation_error', str(e), {'report_name': report_name})
+
+                st.error(f"❌ Error generating PDF: {str(e)}")
+                st.info("💡 Try refreshing the page and running the analysis again.")
+
+
+@st.dialog("🎲 Run Scenario Analysis")
+def monte_carlo_dialog():
+    """Dialog for configuring and running Monte Carlo simulation."""
     st.markdown("""
-    ### 🚨 **DISCLAIMER - READ CAREFULLY**
-
-    **This application provides educational and informational content only. It is NOT financial, tax, legal, or investment advice.**
-
-    **Important Limitations:**
-    - **Not Professional Advice**: This tool is for educational purposes only and does not constitute professional financial, tax, legal, or investment advice
-    - **No Personal Recommendations**: Results are based on general assumptions and may not be suitable for your specific situation
-    - **No Guarantees**: Past performance does not guarantee future results; all projections are estimates
-    - **Consult Professionals**: Always consult with qualified financial advisors, tax professionals, and legal counsel before making financial decisions
-    - **Your Responsibility**: You are solely responsible for your financial decisions and their consequences
-
-    **No Liability**: The creators and operators of this application disclaim all liability for any losses, damages, or consequences arising from the use of this information.
-
-    **By using this application, you acknowledge and agree to these terms.**
+    Explore thousands of possible retirement scenarios to understand:
+    - Range of potential retirement income
+    - Best-case and worst-case outcomes
+    - Probability of meeting your goals
+    - Impact of market volatility
     """)
 
-# Collapsible description to reduce above-the-fold content
-with st.expander("ℹ️ About This Application", expanded=False):
-    st.markdown(
-        """
-        ### Stage 2: Asset Classification & Advanced Tax Logic
-        This enhanced version includes:
-        - **Asset Classification**: Pre-tax, Post-tax, and Tax-deferred accounts
-        - **Per-Asset Growth Simulation**: Individual tracking of each account
-        - **Sophisticated Tax Logic**: IRS tax brackets and capital gains calculations
-        - **Tax Efficiency Analysis**: Optimize your retirement strategy
-        """
+    st.markdown("---")
+
+    # Configuration options
+    col1, col2 = st.columns(2)
+
+    with col1:
+        num_simulations = st.select_slider(
+            "Number of Scenarios",
+            options=[100, 500, 1000, 5000, 10000],
+            value=1000,
+            help="More scenarios = more accurate results but slower processing"
+        )
+
+    with col2:
+        volatility = st.slider(
+            "Market Volatility (%)",
+            min_value=5.0,
+            max_value=30.0,
+            value=15.0,
+            step=1.0,
+            help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
+        )
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+
+    with col2:
+        if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+            # Store configuration in session state and navigate to Monte Carlo page
+            st.session_state.monte_carlo_config = {
+                'num_simulations': num_simulations,
+                'volatility': volatility
+            }
+            st.session_state.current_page = 'monte_carlo'
+            st.rerun()
+
+
+@st.dialog("💡 Reminder: Adjust Annual Contributions")
+def contribution_reminder_dialog():
+    """Dialog to remind users to adjust contributions before finishing onboarding."""
+    st.markdown("""
+    ### 📊 For More Accurate Projections
+
+    We noticed you haven't set any annual contributions yet. Adding your expected annual
+    contributions will significantly improve the accuracy of your retirement projections.
+
+    **Why contributions matter:**
+    - 🎯 More realistic projections of your future retirement balance
+    - 📈 Better understanding of your retirement income potential
+    - 💰 More accurate income gap recommendations
+
+    **You can adjust contributions in the asset table above:**
+    - Click the "Annual Contribution" cells to edit them
+    - Set to $0 if you're no longer contributing to an account
+    - Use your actual planned contribution amounts for the most accurate results
+    """)
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("← Go Back and Adjust", use_container_width=True, type="primary"):
+            # Clear the flag and close dialog
+            if 'show_contribution_reminder' in st.session_state:
+                del st.session_state.show_contribution_reminder
+            st.rerun()
+
+    with col2:
+        if st.button("Continue Anyway →", use_container_width=True):
+            # User chose to proceed without adjusting contributions
+            st.session_state.contribution_reminder_dismissed = True
+            if 'show_contribution_reminder' in st.session_state:
+                del st.session_state.show_contribution_reminder
+            # Advance to results page
+            st.session_state.current_page = 'results'
+            st.rerun()
+
+
+# Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
+# Skip UI code if running tests
+import sys
+_RUNNING_TESTS = "--run-tests" in sys.argv
+
+if not _RUNNING_TESTS:
+    st.set_page_config(
+        page_title="Smart Retire AI",
+        page_icon="💰",
+        layout="wide",
+        initial_sidebar_state="auto"
     )
 
-# Share & Feedback section - Simple and clean
-with st.expander("💬 Share & Feedback", expanded=False):
-    # Create tabs for better organization
-    feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
+    # Initialize analytics
+    initialize_analytics()
 
-    with feedback_tab1:
-        st.markdown("**Share Smart Retire AI with others:**")
+    # Scroll to top on page changes
+    # This ensures focus starts at top when navigating between pages
+    components.html(
+        """
+        <script>
+            window.parent.document.querySelector('section.main').scrollTo(0, 0);
+        </script>
+        """,
+        height=0,
+    )
 
-        app_url = "https://smartretireai.streamlit.app"
+    # Fix tooltip font consistency
+    st.markdown("""
+        <style>
+        /* Ensure tooltips use consistent sans-serif font */
+        [role="tooltip"],
+        [role="tooltip"] *,
+        [data-baseweb="tooltip"],
+        [data-baseweb="tooltip"] *,
+        div[data-baseweb="popover"],
+        div[data-baseweb="popover"] * {
+            font-family: "Source Sans Pro", sans-serif !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-        # Social share buttons - simple button layout
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            twitter_url = "https://twitter.com/intent/tweet?text=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!&url=https://smartretireai.streamlit.app"
-            if st.button("🐦 Twitter", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={twitter_url}">', unsafe_allow_html=True)
-
-        with col2:
-            linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-            if st.button("💼 LinkedIn", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={linkedin_url}">', unsafe_allow_html=True)
-
-        with col3:
-            facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-            if st.button("📘 Facebook", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={facebook_url}">', unsafe_allow_html=True)
-
-        with col4:
-            if st.button("📧 Email", use_container_width=True):
-                email_url = "mailto:?subject=Check%20out%20Smart%20Retire%20AI&body=Check%20out%20Smart%20Retire%20AI%20-%20an%20advanced%20retirement%20planning%20tool!%0A%0Ahttps://smartretireai.streamlit.app"
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={email_url}">', unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("**Or copy and share the link:**")
-        st.code(app_url, language=None)
-
-    with feedback_tab2:
-        st.markdown("**We'd love to hear from you!**")
-
-        # Quick rating
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("👍 Love it!", use_container_width=True):
-                st.success("Thank you! 💚")
-                st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
-        with col2:
-            if st.button("👎 Could improve", use_container_width=True):
-                st.info("Thanks for the feedback!")
-                st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
-
-        st.markdown("---")
-
-        # Simple feedback form
-        with st.form("simple_feedback"):
-            feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
-            if st.form_submit_button("📧 Send Feedback"):
-                if feedback_msg:
-                    email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
-                    st.success("Ready to send!")
-                    st.markdown(f"[Click to open email →]({email_url})")
-
-    with feedback_tab3:
+    # Note: PostHog session replay requires browser JavaScript which doesn't work
+    # reliably in Streamlit's server-side architecture. Session analytics (based on
+    # events) will still work and show session duration, events per session, etc.
+    
+    @st.dialog("📊 Help Us Improve Smart Retire AI")
+    def analytics_consent_dialog():
+        """Display analytics consent dialog for user opt-in."""
         st.markdown("""
-        **Get in touch:**
-
-        📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
-        ⏱️ **Response time:** 24-48 hours
-        🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
-
-        We're here to help with questions, bugs, or feature requests!
+        ### We'd like to collect anonymous usage data to improve your experience
+    
+        **What we collect (if you opt-in):**
+        - ✅ Anonymous usage patterns (e.g., which features you use)
+        - ✅ Error logs (to fix bugs faster)
+        - ✅ Browser/device info (for compatibility)
+    
+        **What we NEVER collect:**
+        - ❌ Your financial data (account balances, numbers)
+        - ❌ Personal information (name, email, address)
+        - ❌ PDF file contents
+        - ❌ Exact ages or retirement goals
+    
+        **Your data:**
+        - Anonymous ID only (not tied to you)
+        - Encrypted and stored securely
+        - Automatically deleted after 90 days
+        - You can opt-out anytime in Advanced Settings
+    
+        ---
         """)
-
-# ==========================================
-# PAGE ROUTING
-# ==========================================
-# Route to appropriate page based on current_page state
-
-if st.session_state.current_page == 'onboarding':
-    # ==========================================
-    # ONBOARDING PAGE
-    # ==========================================
-    st.markdown("---")
-
-    # Progress indicator
-    total_steps = 2
-    current_step = st.session_state.onboarding_step
     
-    # Visual progress bar
-    progress_text = f"**Step {current_step} of {total_steps}**"
-    progress_percentage = (current_step - 1) / total_steps
-    st.progress(progress_percentage, text=progress_text)
+        # Privacy policy link
+        if st.button("📄 Read Full Privacy Policy", use_container_width=True, key="analytics_privacy_link"):
+            show_privacy_policy()
     
-    # Step titles
-    step_titles = {
-        1: "👤 Personal Information",
-        2: "🏦 Asset Configuration"
-    }
+        st.markdown("---")
     
-    st.header(f"📝 {step_titles[current_step]}")
-    st.markdown("---")
-    
-    # ==========================================
-    # STEP 1: Personal Information
-    # ==========================================
-    if current_step == 1:
+        # Consent buttons
         col1, col2 = st.columns(2)
     
         with col1:
-            # Birth year input instead of age
-            current_year = datetime.now().year
-            birth_year = st.number_input(
-                "Birth Year",
-                min_value=current_year-90,
-                max_value=current_year-18,
-                value=st.session_state.birth_year,
-                help="Your birth year (age will be calculated automatically)",
-                key="birth_year_input"
-            )
-            st.session_state.birth_year = birth_year
-            age = current_year - birth_year
-            st.info(f"📅 **Current Age**: {age} years old")
-    
-            retirement_age = st.number_input(
-                "Target Retirement Age",
-                min_value=40,
-                max_value=80,
-                value=st.session_state.retirement_age,
-                help="When you plan to retire",
-                key="retirement_age_input"
-            )
-            st.session_state.retirement_age = retirement_age
-            st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
-    
-            # Life expectancy input with guidance
-            with st.expander("📊 **Life Expectancy Guidance**", expanded=False):
-                st.markdown("""
-                ### 🎯 **How to Estimate Your Life Expectancy**
-    
-                **Average Life Expectancy by Age:**
-                - **At birth**: ~79 years (US average)
-                - **At age 30**: ~80 years
-                - **At age 50**: ~82 years
-                - **At age 65**: ~85 years
-    
-                **Factors to Consider:**
-                - **Family history**: Long-lived parents/grandparents
-                - **Health status**: Current health conditions
-                - **Lifestyle**: Exercise, diet, smoking, stress
-                - **Gender**: Women typically live 3-5 years longer
-                - **Education/Income**: Higher education/income correlates with longer life
-    
-                **Conservative Planning**: Consider adding 5-10 years to your estimate for safety.
-                """)
-    
-            life_expectancy = st.number_input(
-                "Life Expectancy (Age)",
-                min_value=retirement_age+1,
-                max_value=120,
-                value=st.session_state.life_expectancy,
-                help="Expected age at death - use guidance above to estimate",
-                key="life_expectancy_input"
-            )
-            st.session_state.life_expectancy = life_expectancy
-            years_in_retirement = life_expectancy - retirement_age
-            st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
-    
-        with col2:
-            # Retirement income goal
-            st.subheader("🎯 Desired Annual Retirement Income")
-            with st.expander("💡 How much do you need in retirement?", expanded=False):
-                st.markdown("""
-                **Typical annual retirement income needs:**
-                - **$40,000 - $60,000**: Modest lifestyle
-                - **$60,000 - $80,000**: Comfortable lifestyle
-                - **$80,000 - $100,000**: Enhanced lifestyle
-                - **$100,000+**: Premium lifestyle
-    
-                **Consider:**
-                - **Housing costs**: Rent/mortgage, property taxes, maintenance
-                - **Healthcare**: Insurance premiums, out-of-pocket costs
-                - **Daily living**: Food, utilities, transportation
-                - **Lifestyle**: Travel, hobbies, entertainment
-                - **Social Security**: Estimate at ssa.gov (typically $20k-$40k/year)
-    
-                **Rule of thumb:** Most people need 70-80% of their pre-retirement income.
-                """)
-    
-            retirement_income_goal = st.number_input(
-                "Annual Income Needed in Retirement ($) - Optional",
-                min_value=0,
-                max_value=500000,
-                value=st.session_state.retirement_income_goal,
-                step=5000,
-                help="(Optional) How much you want to spend each year in retirement. Leave at 0 to skip.",
-                key="retirement_income_goal_input"
-            )
-            st.session_state.retirement_income_goal = retirement_income_goal
-    
-            if retirement_income_goal > 0:
-                st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
-            else:
-                st.info("💡 **No target set** - Analysis will show your projected portfolio value")
-    
-            # Client name for personalization
-            client_name = st.text_input(
-                "Client Name (for report personalization)",
-                value=st.session_state.client_name,
-                placeholder="Enter your name for the PDF report",
-                help="Optional: Your name will appear on the PDF report",
-                key="client_name_input"
-            )
-            st.session_state.client_name = client_name
-    
-        # Navigation button for Step 1
-        st.markdown("---")
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col3:
-            if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
-                st.session_state.onboarding_step = 2
+            if st.button("✅ I Accept", type="primary", use_container_width=True, key="analytics_accept"):
+                set_analytics_consent(True)
+                track_event('analytics_consent_shown')
+                st.success("✅ Thank you! Analytics enabled.")
+                time.sleep(0.5)  # Brief pause to show success message
                 st.rerun()
     
-    # ==========================================
-    # STEP 2: Asset Configuration
-    # ==========================================
-    elif current_step == 2:
-        # Tax Rate Explanation
-        with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
-            st.markdown("""
-            ### 🎯 Tax Rate Column Explained
-            
-            The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
-            
-            #### **Pre-Tax Accounts (401k, Traditional IRA)**
-            - **Tax Rate**: `0%` (not applicable here)
-            - **Why**: The entire balance is taxed as ordinary income at withdrawal
-            - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
-            
-            #### **Post-Tax Accounts**
-            **Roth IRA:**
-            - **Tax Rate**: `0%` 
-            - **Why**: No tax on withdrawals (contributions already taxed)
-            - **Example**: Withdraw $100,000 tax-free
-            
-            **Brokerage Account:**
-            - **Tax Rate**: `15%` (default capital gains rate)
-            - **Why**: Only the **gains** are taxed, not original contributions
-            - **Example**: 
-              - Contributed $50,000, grew to $100,000
-              - Only $50,000 gain taxed at 15% = $7,500 tax
-              - You keep $92,500
-            
-            #### **Tax-Deferred Accounts (HSA, Annuities)**
-            - **Tax Rate**: Varies by account type
-            - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
-            - **Annuities**: Retirement tax rate on full amount
-            
-            💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
-            """)
+        with col2:
+            if st.button("❌ No Thanks", use_container_width=True, key="analytics_decline"):
+                set_analytics_consent(False)
+                st.info("ℹ️ You can enable analytics later in Advanced Settings.")
+                time.sleep(0.5)  # Brief pause to show info message
+                st.rerun()
     
-        # Reference to Advanced Settings for default growth rate
-        st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
+        st.caption("**Your choice is saved for this session.** You can change it anytime in Advanced Settings.")
+    
+    
+    @st.dialog("Privacy Policy")
+    def show_privacy_policy():
+        """Display comprehensive privacy policy in a dialog."""
+        st.markdown("""
+        ## Smart Retire AI Privacy Policy
+    
+        **Effective Date:** January 2026
+        **Last Updated:** January 3, 2026
+    
+        ---
+    
+        ### 📋 Introduction
+    
+        Smart Retire AI ("we", "our", or "the app") is committed to protecting your privacy. This policy explains what data we collect, how we use it, and your rights.
+    
+        ---
+    
+        ### 🔐 Data We NEVER Collect
+    
+        We want to be crystal clear about what we **DO NOT** collect:
+    
+        ❌ **Financial Account Information**
+        - Account balances, numbers, or statements
+        - Investment holdings or transaction details
+        - Banking or credit card information
+    
+        ❌ **Personally Identifiable Information (PII)**
+        - Names, email addresses, or phone numbers
+        - Social Security Numbers or tax IDs
+        - Home addresses or zip codes
+        - Birth dates (we use age ranges only)
+    
+        ❌ **Sensitive Personal Data**
+        - Uploaded PDF file contents
+        - Exact retirement goals (we use ranges)
+        - Specific financial advice or recommendations
+    
+        ---
+    
+        ### ✅ Data We May Collect (With Your Consent)
+    
+        **If you opt-in to analytics**, we collect anonymous usage data:
+    
+        **1. Anonymous Usage Events**
+        - Actions you take in the app (e.g., "user completed step 1")
+        - Features you use (e.g., "PDF report generated")
+        - Anonymous user ID (random UUID, not linked to you)
+    
+        **2. Technical Information**
+        - Browser type and version (for compatibility)
+        - Operating system (for compatibility)
+        - Device type (desktop/mobile/tablet)
+        - Screen resolution (for UI optimization)
+    
+        **3. Session Data**
+        - Time spent in app
+        - Pages/screens visited
+        - Navigation patterns (to improve UX)
+    
+        **4. Error Logs**
+        - Error types and frequency (for debugging)
+        - Performance metrics (load times, crashes)
+    
+        **5. Aggregated Statistics**
+        - Number of assets added (count only, not values)
+        - Age ranges (e.g., 30-40, not exact age)
+        - Retirement goal ranges (not exact amounts)
+    
+        ---
+    
+        ### 🎯 How We Use Data
+    
+        **Analytics data is used to:**
+        - ✅ Understand how users navigate the app
+        - ✅ Identify where users encounter problems
+        - ✅ Fix bugs and improve performance
+        - ✅ Improve user experience and interface
+        - ✅ Measure feature adoption and usage
+    
+        **We NEVER:**
+        - ❌ Sell your data to third parties
+        - ❌ Use data for advertising or marketing
+        - ❌ Share data with financial institutions
+        - ❌ Track you across other websites
+        - ❌ Build personal profiles or credit scores
+    
+        ---
+    
+        ### 🔒 Data Storage & Security
+    
+        **If you opt-in to analytics:**
+        - Data stored with PostHog (analytics platform)
+        - Servers located in US/EU (GDPR compliant)
+        - Data encrypted in transit (HTTPS)
+        - Data encrypted at rest (AES-256)
+        - Data automatically deleted after 90 days
+    
+        **Financial calculations:**
+        - All calculations happen in your browser
+        - No financial data sent to our servers
+        - No cloud storage of your account information
+    
+        ---
+    
+        ### 🌍 GDPR & Privacy Compliance
+    
+        **Your Rights:**
+        - ✅ **Right to Opt-Out**: Decline analytics at any time
+        - ✅ **Right to Access**: Request data we've collected
+        - ✅ **Right to Delete**: Request deletion of your data
+        - ✅ **Right to Export**: Request copy of your data
+        - ✅ **Right to Correct**: Request corrections to data
+    
+        **GDPR Compliance:**
+        - ✅ Opt-in consent required (not opt-out)
+        - ✅ Clear explanation of data collection
+        - ✅ Easy to withdraw consent
+        - ✅ Data minimization (only what's needed)
+        - ✅ Purpose limitation (analytics only)
+    
+        ---
+    
+        ### 🍪 Cookies & Tracking
+    
+        **Session Cookies (Required):**
+        - Used to maintain your session state
+        - Stored locally in your browser only
+        - Deleted when you close browser
+        - Not used for tracking across sites
+    
+        **Analytics Cookies (Optional):**
+        - Only if you opt-in to analytics
+        - Used to recognize returning users (anonymously)
+        - Can be disabled by declining analytics
+        - No third-party advertising cookies
+    
+        ---
+    
+        ### 📊 Session Recording (Optional)
+    
+        **If you opt-in to session recording:**
+        - We may record your interactions with the app
+        - Used to understand user experience and fix UI issues
+        - **Financial data is automatically masked**
+        - Recordings deleted after 30 days
+        - You can opt-out at any time
+    
+        **What's Masked in Recordings:**
+        - All number inputs (balances, ages, goals)
+        - Text inputs (names, custom labels)
+        - Uploaded file names and contents
+    
+        **What's Visible in Recordings:**
+        - Mouse movements and clicks
+        - Page navigation patterns
+        - Button clicks and interactions
+        - UI elements (labels, help text)
+    
+        ---
+    
+        ### 👤 Children's Privacy
+    
+        Smart Retire AI is not intended for users under 18 years of age. We do not knowingly collect data from children.
+    
+        ---
+    
+        ### 🔄 Third-Party Services
+    
+        **Analytics Provider:**
+        - PostHog (https://posthog.com)
+        - GDPR and SOC 2 compliant
+        - Privacy policy: https://posthog.com/privacy
+    
+        **Hosting:**
+        - Streamlit Cloud (https://streamlit.io)
+        - Privacy policy: https://streamlit.io/privacy-policy
+    
+        **AI Statement Processing:**
+        - n8n webhook (self-hosted)
+        - No data retention beyond processing
+    
+        ---
+    
+        ### ⚖️ Legal Basis for Processing
+    
+        We process data based on:
+        - **Consent**: You explicitly opt-in to analytics
+        - **Legitimate Interest**: Error logging and app improvement
+        - **Contract**: Providing the app service you requested
+    
+        ---
+    
+        ### 🔔 Changes to Privacy Policy
+    
+        We may update this policy to reflect:
+        - Changes in data practices
+        - New features or services
+        - Legal or regulatory requirements
+    
+        **How you'll be notified:**
+        - Updated "Last Updated" date above
+        - In-app notification on next visit
+        - Option to review changes before continuing
+    
+        ---
+    
+        ### 📧 Contact Us
+    
+        Questions about privacy or data practices?
+    
+        **Email:** smartretireai@gmail.com
+        **Response Time:** 24-48 hours
+        **Data Requests:** Include "Privacy Request" in subject
+    
+        ---
+    
+        ### 📝 Your Consent
+    
+        By clicking "I Accept" on the analytics consent screen:
+        - You acknowledge reading this privacy policy
+        - You consent to anonymous analytics collection
+        - You understand you can opt-out at any time
+        - You agree to the terms described above
+    
+        By clicking "No Thanks" on the analytics consent screen:
+        - No analytics data will be collected
+        - The app will function normally
+        - You can opt-in later in Settings if desired
+    
+        ---
+    
+        **Thank you for trusting Smart Retire AI with your retirement planning!**
+        """)
+    
+        if st.button("Close", use_container_width=True, type="primary"):
+            st.rerun()
+    
+    
+    
+    # Initialize session state for splash screen
+    if 'splash_dismissed' not in st.session_state:
+        st.session_state.splash_dismissed = False
+    
+    # Initialize session state for onboarding flow
+    if 'onboarding_step' not in st.session_state:
+        st.session_state.onboarding_step = 1
+    if 'onboarding_complete' not in st.session_state:
+        st.session_state.onboarding_complete = False
+    
+    # Initialize session state for page navigation
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
+    
+    # Initialize session state for baseline values (from onboarding)
+    if 'birth_year' not in st.session_state:
+        st.session_state.birth_year = datetime.now().year - 30
+    if 'baseline_retirement_age' not in st.session_state:
+        st.session_state.baseline_retirement_age = 65
+    if 'baseline_life_expectancy' not in st.session_state:
+        st.session_state.baseline_life_expectancy = 85
+    if 'baseline_retirement_income_goal' not in st.session_state:
+        st.session_state.baseline_retirement_income_goal = 0  # Optional field
+    if 'client_name' not in st.session_state:
+        st.session_state.client_name = ""
+    if 'assets' not in st.session_state:
+        st.session_state.assets = []
+    
+    # ==========================================
+    # SIDEBAR - Advanced Settings (Collapsed by Default)
+    # ==========================================
+    with st.sidebar:
+        with st.expander("⚙️ Advanced Settings", expanded=False):
+            st.markdown("### Tax Settings")
+    
+            # Current tax rate with helpful guidance
+            with st.expander("💡 How to find your current tax rate", expanded=False):
+                st.markdown("""
+                **To find your current marginal tax rate:**
+                1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+                2. **Use IRS tax brackets**: Find which bracket your income falls into
+    
+                **2024 Tax Brackets (Single):**
+                - 10%: $0 - $11,600
+                - 12%: $11,601 - $47,150
+                - 22%: $47,151 - $100,525
+                - 24%: $100,526 - $191,950
+                - 32%: $191,951 - $243,725
+                - 35%: $243,726 - $609,350
+                - 37%: $609,351+
+                """)
+    
+            current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
+    
+            with st.expander("💡 How to estimate retirement tax rate", expanded=False):
+                st.markdown("""
+                **Consider these factors:**
+                1. **Lower income**: Most people have lower income in retirement
+                2. **Social Security**: Only 85% is taxable for most people
+                3. **Roth withdrawals**: Tax-free if qualified
+                4. **Required Minimum Distributions**: Start at age 73 (2024)
+    
+                **Common scenarios:**
+                - **Conservative**: Same as current rate
+                - **Optimistic**: 10-15% lower than current
+                - **Pessimistic**: 5-10% higher (if tax rates increase)
+                """)
+    
+            retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+    
+            st.markdown("---")
+            st.markdown("### Growth Rate Assumptions")
+    
+            with st.expander("💡 Inflation guidance", expanded=False):
+                st.markdown("""
+                **Historical context:**
+                - **Long-term average**: 3.0-3.5% annually
+                - **Recent years**: 2-4% (2020-2024)
+                - **Federal Reserve target**: 2% annually
+    
+                **Consider:**
+                - **Conservative**: 2-3% (Fed target)
+                - **Moderate**: 3-4% (historical average)
+                - **Aggressive**: 4-5% (higher inflation)
+                """)
+    
+            inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
+    
+            st.markdown("---")
+            st.markdown("### Investment Growth Rate")
+    
+            with st.expander("💡 Growth rate guidance", expanded=False):
+                st.markdown("""
+                **Typical annual growth rates:**
+                - **Stocks/Equity funds**: 7-10%
+                - **Bonds/Fixed income**: 4-5%
+                - **Savings accounts**: 2-4%
+                - **Conservative portfolio**: 5-6%
+                - **Aggressive portfolio**: 8-10%
+    
+                **Note:** This is used as the default when adding investment accounts.
+                """)
+    
+            default_growth_rate = st.slider(
+                "Default Growth Rate for Investments (%)",
+                min_value=0.0,
+                max_value=20.0,
+                value=7.0,
+                step=0.5,
+                help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
+            )
+    
+            st.markdown("---")
+            st.markdown("### 📊 Analytics & Privacy")
+    
+            # Show current analytics status
+            analytics_enabled = is_analytics_enabled()
+            if analytics_enabled:
+                st.success("✅ **Analytics Enabled** - Helping us improve Smart Retire AI")
+            else:
+                st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
+    
+            # Privacy policy link
+            if st.button("📄 View Privacy Policy", use_container_width=True, key="sidebar_privacy_policy"):
+                show_privacy_policy()
+    
+            # Opt-out/Opt-in toggle
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("❌ Disable Analytics", use_container_width=True, disabled=not analytics_enabled):
+                    opt_out()
+                    st.success("✅ Analytics disabled")
+                    st.rerun()
+            with col2:
+                if st.button("✅ Enable Analytics", use_container_width=True, disabled=analytics_enabled):
+                    opt_in()
+                    st.success("✅ Analytics enabled")
+                    st.rerun()
+    
+            # Reset analytics session (for testing)
+            with st.expander("🔧 Advanced: Reset Analytics Session"):
+                st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
+                if st.button("🔄 Reset Analytics Session", use_container_width=True, key="reset_analytics"):
+                    reset_analytics_session()
+                    st.success("✅ Analytics session reset")
+                    st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
+                    st.rerun()
+    
+            st.markdown("---")
+            st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
+    
+    # Reset button (only show if onboarding is complete)
+    if st.session_state.onboarding_complete:
+        st.sidebar.markdown("---")
+        if st.sidebar.button("🔄 Reset Onboarding", use_container_width=True):
+            st.session_state.onboarding_step = 1
+            st.session_state.onboarding_complete = False
+            st.rerun()
+    
+    # Initialize session state for what-if scenario values (used on results page)
+    if 'whatif_retirement_age' not in st.session_state:
+        st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
+    if 'whatif_life_expectancy' not in st.session_state:
+        st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
+    if 'whatif_retirement_income_goal' not in st.session_state:
+        st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
+    if 'whatif_current_tax_rate' not in st.session_state:
+        st.session_state.whatif_current_tax_rate = 22
+    if 'whatif_retirement_tax_rate' not in st.session_state:
+        st.session_state.whatif_retirement_tax_rate = 25
+    if 'whatif_inflation_rate' not in st.session_state:
+        st.session_state.whatif_inflation_rate = 3
+    if 'whatif_life_expenses' not in st.session_state:
+        st.session_state.whatif_life_expenses = 0
+    if 'whatif_retirement_growth_rate' not in st.session_state:
+        st.session_state.whatif_retirement_growth_rate = 4.0
+    
+    # Legacy compatibility (keep retirement_age, life_expectancy for backward compatibility)
+    if 'retirement_age' not in st.session_state:
+        st.session_state.retirement_age = st.session_state.baseline_retirement_age
+    if 'life_expectancy' not in st.session_state:
+        st.session_state.life_expectancy = st.session_state.baseline_life_expectancy
+    if 'retirement_income_goal' not in st.session_state:
+        st.session_state.retirement_income_goal = st.session_state.baseline_retirement_income_goal
+    
+    # ==========================================
+    # PRIVACY POLICY DIALOG
+    # ==========================================
+    
+    
+    
+    # ==========================================
+    # SPLASH SCREEN / WELCOME PAGE
+    # ==========================================
+    if not st.session_state.splash_dismissed:
+        # Display splash screen
+        st.markdown(
+            """
+            <style>
+                .splash-container {
+                    background: linear-gradient(135deg, #1f77b4 0%, #2ca02c 100%);
+                    padding: 60px 40px;
+                    border-radius: 20px;
+                    text-align: center;
+                    color: white;
+                    margin: 40px auto;
+                    max-width: 900px;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+                }
+                .splash-title {
+                    font-size: 3em;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+                }
+                .splash-version {
+                    font-size: 1.2em;
+                    opacity: 0.9;
+                    margin-bottom: 30px;
+                }
+                .splash-tagline {
+                    font-size: 1.4em;
+                    font-weight: 500;
+                    margin-bottom: 40px;
+                    opacity: 0.95;
+                }
+                .splash-description {
+                    font-size: 1.1em;
+                    line-height: 1.8;
+                    margin-bottom: 40px;
+                    text-align: left;
+                    background: rgba(255,255,255,0.1);
+                    padding: 30px;
+                    border-radius: 10px;
+                }
+                .splash-features {
+                    text-align: left;
+                    margin: 30px 0;
+                }
+                .splash-feature {
+                    font-size: 1.05em;
+                    margin: 12px 0;
+                    padding-left: 10px;
+                }
+                .splash-desktop-note {
+                    font-size: 0.95em;
+                    margin-top: 8px;
+                    opacity: 0.95;
+                    font-style: italic;
+                    color: rgba(255,255,255,0.9);
+                }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    
+        # Splash header with gradient
+        st.markdown(
+            f"""
+            <div class="splash-container">
+                <div class="splash-title">💰 Smart Retire AI</div>
+                <div class="splash-version">Version {VERSION}</div>
+                <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
+                <div class="splash-desktop-note">Best used on a desktop browser for the full experience.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+        # Content using Streamlit components for proper rendering
+        st.markdown("### 👋 Welcome!")
+        st.markdown("""
+        Smart Retire AI helps you plan for a comfortable retirement with sophisticated
+        financial modeling and AI-powered insights.
+        """)
+    
+        st.markdown("### ✨ Key Features")
+    
+        # Two-column layout for features
+        col1, col2 = st.columns(2)
+    
+        with col1:
+            st.markdown("**✨ AI Statement Upload**")
+            st.caption("Automatically extract account data from PDF statements")
+            st.markdown("")
+    
+            st.markdown("**📊 Smart Tax Planning**")
+            st.caption("Optimize with pre-tax, post-tax, and tax-free accounts")
+            st.markdown("")
+    
+            st.markdown("**📈 Growth Projections**")
+            st.caption("See your portfolio grow year by year until retirement")
+    
+        with col2:
+            st.markdown("**💡 Personalized Insights**")
+            st.caption("Get recommendations tailored to your financial situation")
+            st.markdown("")
+    
+            st.markdown("**🎯 What-If Scenarios**")
+            st.caption("Easily adjust assumptions and see instant results")
+            st.markdown("")
+    
+            st.markdown("**🎲 Scenario Analysis**")
+            st.caption("Run Monte Carlo simulations to explore thousands of possible outcomes")
+            st.markdown("")
     
         st.markdown("---")
     
-        # Simplified setup options (removed Default Portfolio and Legacy Mode)
-        setup_option = st.radio(
-            "Choose how to configure your accounts:",
-            ["Upload Financial Statements (AI)", "Upload CSV File", "Configure Individual Assets"],
-            help="Select how you want to add your retirement accounts"
+        # Getting Started section with green background
+        st.markdown(
+            """
+            <div style='background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+                        padding: 20px;
+                        border-radius: 10px;
+                        border-left: 5px solid #4caf50;
+                        margin: 20px 0;'>
+                <p style='margin: 0; font-size: 1.05em; color: #2e7d32;'>
+                    <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
     
-        assets = []
+        st.markdown("<br>", unsafe_allow_html=True)
     
-        if setup_option == "Upload Financial Statements (AI)":
-            if not _N8N_AVAILABLE:
-                st.error("❌ **n8n integration not available**")
-                st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
-            else:
-                st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
+        # Button with privacy policy link
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
     
-                # Privacy and How It Works explanation
-                with st.expander("🔒 How It Works & Your Privacy", expanded=False):
-                    st.markdown("""
-                    ### 🤖 What Happens to Your Statements?
+            # Main action button
+            if st.button("✅ Continue", type="primary", use_container_width=True):
+                st.session_state.splash_dismissed = True
+                st.rerun()
     
-                    **Your privacy is our priority.** Here's exactly what happens when you upload:
+        st.markdown("<br><br>", unsafe_allow_html=True)
     
-                    #### 📋 The Process (Simple Version):
-                    1. **Upload** → You select your PDF statements (401k, IRA, brokerage, etc.)
-                    2. **Extract** → AI reads the PDFs to find account numbers, balances, and types
-                    3. **Clean** → Personal information (SSN, address, full names) is automatically removed
-                    4. **Organize** → Data is structured into a clean table for you to review
-                    5. **You Control** → You can edit, delete, or clear any extracted data
+        # Contact info at bottom
+        st.markdown(
+            """
+            <div style='text-align: center; color: #666; font-size: 0.9em; padding: 20px;'>
+                Questions? Contact us at <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4;'>smartretireai@gmail.com</a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     
-                    ---
+        # Stop rendering the rest of the page
+        st.stop()
     
-                    ### 🔐 Privacy & Security
+    # ==========================================
+    # MAIN AREA - Header & Disclaimer
+    # ==========================================
+    # Note: Sidebar advanced settings removed - now in Results page as What-If controls
+
+    # Header
+    st.title("💰 Smart Retire AI - Advanced Retirement Planning")
+
+    # Legal Disclaimer
+    with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
+        st.markdown("""
+        ### 🚨 **DISCLAIMER - READ CAREFULLY**
     
-                    **What we protect:**
-                    - ✅ **Personal Identifiable Information (PII)** is automatically scrubbed
-                    - ✅ **Social Security Numbers** are removed
-                    - ✅ **Full names and addresses** are stripped out
-                    - ✅ Only account types, balances, and institution names are kept
+        **This application provides educational and informational content only. It is NOT financial, tax, legal, or investment advice.**
     
-                    **What stays:**
-                    - 📊 Account balances (needed for retirement planning)
-                    - 🏦 Account types (401k, IRA, Roth, etc.)
-                    - 🏢 Institution names (Fidelity, Vanguard, etc.)
-                    - 🔢 Last 4 digits of account numbers (for your reference)
+        **Important Limitations:**
+        - **Not Professional Advice**: This tool is for educational purposes only and does not constitute professional financial, tax, legal, or investment advice
+        - **No Personal Recommendations**: Results are based on general assumptions and may not be suitable for your specific situation
+        - **No Guarantees**: Past performance does not guarantee future results; all projections are estimates
+        - **Consult Professionals**: Always consult with qualified financial advisors, tax professionals, and legal counsel before making financial decisions
+        - **Your Responsibility**: You are solely responsible for your financial decisions and their consequences
     
-                    **Your data, your control:**
-                    - 💾 Data is processed temporarily and not permanently stored
-                    - ❌ No data is saved to our servers long-term
-                    - 🔄 You can clear extracted data anytime with "Clear and Upload New"
-                    - ✏️ You can edit any extracted information before using it
+        **No Liability**: The creators and operators of this application disclaim all liability for any losses, damages, or consequences arising from the use of this information.
     
-                    ---
+        **By using this application, you acknowledge and agree to these terms.**
+        """)
     
-                    ### 🛠️ Technical Details (For The Curious)
+    # ==========================================
+    # PAGE ROUTING
+    # ==========================================
+    # Route to appropriate page based on current_page state
     
-                    **AI Processing:**
-                    - Uses GPT-4 to intelligently read and categorize your statements
-                    - Identifies account types (401k, Roth IRA, Brokerage, etc.)
-                    - Extracts current balances and tax treatment
-                    - Handles complex statements with multiple account types
+    if st.session_state.current_page == 'onboarding':
+        # Show analytics consent dialog on first load (before onboarding)
+        if st.session_state.get('analytics_consent') is None:
+            analytics_consent_dialog()
+        # ==========================================
+        # ONBOARDING PAGE
+        # ==========================================
+        st.markdown("---")
     
-                    **Why it's better than manual:**
-                    - ⏱️ **Faster**: Seconds instead of minutes per statement
-                    - 🎯 **Accurate**: AI recognizes formats from 100+ financial institutions
-                    - 🧠 **Smart**: Automatically categorizes tax treatments (pre-tax, post-tax, tax-free)
-                    - 🔄 **Consistent**: Standardizes data across different statement formats
+        # Progress indicator
+        total_steps = 2
+        current_step = st.session_state.onboarding_step
+        
+        # Visual progress bar
+        progress_text = f"**Step {current_step} of {total_steps}**"
+        progress_percentage = (current_step - 1) / total_steps
+        st.progress(progress_percentage, text=progress_text)
+        
+        # Step titles
+        step_titles = {
+            1: "👤 Personal Information",
+            2: "🏦 Asset Configuration"
+        }
+        
+        st.header(f"📝 {step_titles[current_step]}")
+        st.markdown("---")
+        
+        # ==========================================
+        # STEP 1: Personal Information
+        # ==========================================
+        if current_step == 1:
+            # Track step 1 started
+            track_onboarding_step_started(1)
     
-                    **Supported Documents:**
-                    - 401(k) and 403(b) statements
-                    - Traditional and Roth IRAs
-                    - Brokerage account statements
-                    - HSA statements
-                    - Bank account statements
-                    - Annuity statements
+            col1, col2 = st.columns(2)
     
-                    ---
+            with col1:
+                # Birth year input instead of age
+                current_year = datetime.now().year
+                birth_year = st.number_input(
+                    "Birth Year",
+                    min_value=current_year-90,
+                    max_value=current_year-18,
+                    value=st.session_state.birth_year,
+                    help="Your birth year (age will be calculated automatically)",
+                    key="birth_year_input"
+                )
+                st.session_state.birth_year = birth_year
+                age = current_year - birth_year
+                st.info(f"📅 **Current Age**: {age} years old")
     
-                    ### ❓ Common Questions
+                retirement_age = st.number_input(
+                    "Target Retirement Age",
+                    min_value=40,
+                    max_value=80,
+                    value=st.session_state.retirement_age,
+                    help="When you plan to retire",
+                    key="retirement_age_input"
+                )
+                st.session_state.retirement_age = retirement_age
+                st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
     
-                    **Q: Can I use scanned PDFs?**
-                    A: Yes! The AI can read both digital PDFs and scanned documents.
+            with col2:
+                # Life expectancy input with tooltip help
+                life_expectancy = st.number_input(
+                    "Life Expectancy (Age)",
+                    min_value=retirement_age+1,
+                    max_value=120,
+                    value=st.session_state.life_expectancy,
+                    help="""Average Life Expectancy:
+    • At birth: ~79 years (US avg)
+    • At age 30: ~80 years
+    • At age 50: ~82 years
+    • At age 65: ~85 years
+
+    Factors to Consider:
+    • Family history & health status
+    • Lifestyle (exercise, diet, smoking)
+    • Gender (women live 3-5 yrs longer)
+
+    💡 Tip: Add 5-10 years for safety.""",
+                    key="life_expectancy_input"
+                )
+                st.session_state.life_expectancy = life_expectancy
+                years_in_retirement = life_expectancy - retirement_age
+                st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
     
-                    **Q: What if extraction makes a mistake?**
-                    A: You review and edit all extracted data before it's used. Plus, you can rate the accuracy to help us improve.
+                # Retirement income goal with tooltip help
+                retirement_income_goal = st.number_input(
+                    "After Tax Annual Income Needed in Retirement ($) - Optional",
+                    min_value=0,
+                    max_value=500000,
+                    value=st.session_state.retirement_income_goal,
+                    step=5000,
+                    help="""Typical Annual Needs:
+    • $40K-$60K: Modest lifestyle
+    • $60K-$80K: Comfortable lifestyle
+    • $80K-$100K: Enhanced lifestyle
+    • $100K+: Premium lifestyle
+
+    Consider:
+    • Housing costs (rent/mortgage, taxes)
+    • Healthcare (insurance, out-of-pocket)
+    • Daily living (food, utilities)
+    • Lifestyle (travel, hobbies)
+    • Social Security (~$20-40K/yr)
+
+    💡 Rule of thumb: 70-80% of pre-retirement income""",
+                    key="retirement_income_goal_input"
+                )
+                st.session_state.retirement_income_goal = retirement_income_goal
     
-                    **Q: Is my data encrypted?**
-                    A: Yes, all uploads use secure HTTPS encryption.
-    
-                    **Q: What happens to my PDFs after processing?**
-                    A: PDFs are processed temporarily and deleted. Only the extracted data (balances, account types) is shown to you.
-                    """)
-    
-                # Initialize session state for extracted data
-                if 'ai_extracted_accounts' not in st.session_state:
-                    st.session_state.ai_extracted_accounts = None
-                if 'ai_tax_buckets' not in st.session_state:
-                    st.session_state.ai_tax_buckets = {}
-                if 'ai_warnings' not in st.session_state:
-                    st.session_state.ai_warnings = []
-                if 'ai_edited_table' not in st.session_state:
-                    st.session_state.ai_edited_table = None
-    
-                # Initialize variables for this run
-                df_extracted = None
-                tax_buckets_by_account = {}
-    
-                # Check if we already have extracted data
-                if st.session_state.ai_extracted_accounts is not None:
-                    st.success(f"✅ Using previously extracted {len(st.session_state.ai_extracted_accounts)} accounts")
-    
-                    # Add button to clear and re-upload
-                    if st.button("🔄 Clear and Upload New Statements", type="secondary"):
-                        st.session_state.ai_extracted_accounts = None
-                        st.session_state.ai_tax_buckets = {}
-                        st.session_state.ai_warnings = []
-                        st.session_state.ai_edited_table = None
-                        st.rerun()
-    
-                    # Use existing data
-                    df_extracted = st.session_state.ai_extracted_accounts
-                    tax_buckets_by_account = st.session_state.ai_tax_buckets
-                    warnings = st.session_state.ai_warnings
-    
-                    # Display warnings if any
-                    if warnings and len(warnings) > 0:
-                        with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
-                            for warning in warnings:
-                                st.warning(warning)
-    
-                    # **NEW: Display the editable table for previously extracted data**
-                    # This ensures the table persists when navigating between steps
-                    if df_extracted is not None:
-                        with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
-                            st.info("💡 **Review and edit your account data. These are preserved even when you change personal info in Step 1.**")
-    
-                            # Display the editable table from session state
-                            if st.session_state.ai_edited_table is not None:
-                                df_table = st.session_state.ai_edited_table
-                            else:
-                                # This shouldn't happen, but fallback to extracted data
-                                df_table = df_extracted
-    
-                            # Define column configuration - MUST MATCH the original extraction config
-                            column_config = {
-                                "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
-                                "Institution": st.column_config.TextColumn(
-                                    "Institution",
-                                    disabled=True,
-                                    help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                    width="medium"
-                                ),
-                                "Account Name": st.column_config.TextColumn(
-                                    "Account Name",
-                                    help="Account name/description from statement",
-                                    width="medium"
-                                ),
-                                "Last 4": st.column_config.TextColumn(
-                                    "Last 4",
-                                    disabled=True,
-                                    help="Last 4 digits of account number",
-                                    width="small"
-                                ),
-                                "Account Type": st.column_config.TextColumn(
-                                    "Account Type",
-                                    disabled=True,
-                                    help="Type of account (401k, IRA, Savings, etc.)",
-                                    width="small"
-                                ),
-                                "Tax Treatment": st.column_config.SelectboxColumn(
-                                    "Tax Treatment",
-                                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                                    help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
-                                ),
-                                "Current Balance ($)": st.column_config.NumberColumn(
-                                    "Current Balance ($)",
-                                    min_value=0,
-                                    format="$%d",
-                                    help="Current account balance"
-                                ),
-                                "Annual Contribution ($)": st.column_config.NumberColumn(
-                                    "Annual Contribution ($)",
-                                    min_value=0,
-                                    format="$%d",
-                                    help="How much you contribute annually"
-                                ),
-                                "Growth Rate (%)": st.column_config.NumberColumn(
-                                    "Growth Rate (%)",
-                                    min_value=0.0,
-                                    max_value=20.0,
-                                    format="%.1f%%",
-                                    help="Expected annual growth rate"
-                                ),
-                                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                    "Tax Rate on Gains (%)",
-                                    min_value=0.0,
-                                    max_value=50.0,
-                                    format="%.1f%%",
-                                    help="Tax rate on gains (capital gains or income tax)"
-                                )
-                            }
-    
-                            # Add optional column configs if they exist in the data
-                            if "Income Eligibility" in df_table.columns:
-                                column_config["Income Eligibility"] = st.column_config.TextColumn(
-                                    "Income Eligibility",
-                                    disabled=True,
-                                    help="Income restrictions for this account type",
-                                    width="small"
-                                )
-                            if "Purpose" in df_table.columns:
-                                column_config["Purpose"] = st.column_config.TextColumn(
-                                    "Purpose",
-                                    disabled=True,
-                                    help="Primary purpose of this account",
-                                    width="small"
-                                )
-    
-                            # Display editable table with unique key for reload view
-                            edited_df = st.data_editor(
-                                df_table,
-                                column_config=column_config,
-                                use_container_width=True,
-                                hide_index=True,
-                                num_rows="dynamic",
-                                key="ai_table_reload_view"  # Unique key for this table
-                            )
-    
-                            # Save edited table to session state
-                            st.session_state.ai_edited_table = edited_df
-    
-                    # CRITICAL: Convert edited table to assets on every rerun
-                    # This ensures assets persist even when user changes personal info
-                    if st.session_state.ai_edited_table is not None:
-                        edited_df = st.session_state.ai_edited_table
-                        try:
-                            assets = []
-                            for _, row in edited_df.iterrows():
-                                # Parse tax treatment (from human-readable to enum)
-                                tax_treatment_str = row["Tax Treatment"]
-                                if tax_treatment_str == "Tax-Deferred":
-                                    asset_type = AssetType.TAX_DEFERRED
-                                elif tax_treatment_str == "Post-Tax":
-                                    asset_type = AssetType.POST_TAX
-                                elif tax_treatment_str == "Tax-Free":
-                                    # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                    asset_type = AssetType.POST_TAX
-                                else:
-                                    raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-    
-                                # Create asset - use actual DataFrame column names (without $ suffix)
-                                # Note: column_config labels are just for display, DataFrame columns keep original names
-                                asset = Asset(
-                                    name=row["Account Name"],
-                                    asset_type=asset_type,
-                                    current_balance=float(row["Current Balance"]),
-                                    annual_contribution=float(row["Annual Contribution"]),
-                                    growth_rate_pct=float(row["Growth Rate (%)"]),
-                                    tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                )
-                                assets.append(asset)
-    
-                            st.info(f"📊 Using {len(assets)} AI-extracted accounts for retirement analysis")
-    
-                        except Exception as e:
-                            st.error(f"❌ Error loading AI-extracted accounts: {str(e)}")
-                            st.info("💡 Try clicking '🔄 Clear and Upload New Statements' and re-uploading.")
-    
+                if retirement_income_goal > 0:
+                    st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
                 else:
-                    # Upload financial statement PDFs
-                    uploaded_files = st.file_uploader(
-                        "📤 Upload Financial Statement PDFs",
-                        type=['pdf'],
-                        accept_multiple_files=True,
-                        help="Upload 401(k), IRA, brokerage, or bank statements"
+                    st.info("💡 **No target set** - Analysis will show your projected value")
+    
+            # Navigation button for Step 1
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 1, 1])
+            with col3:
+                if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
+                    # Track step 1 completed
+                    track_onboarding_step_completed(
+                        1,
+                        age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
+                        retirement_age=st.session_state.retirement_age,
+                        years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
+                        goal_range=get_goal_range(st.session_state.retirement_income_goal)
                     )
-    
-                    if uploaded_files:
-                        if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
-                            import time
-    
-                            progress_bar = st.progress(0)
-                            status_text = st.empty()
-    
-                            try:
-                                start_time = time.time()
-    
-                                # Phase 1: Upload (0-30%)
-                                status_text.markdown("**📤 Phase 1/2: Uploading Files**")
-                                progress_bar.progress(10)
-    
-                                # Initialize n8n client and prepare files
-                                client = N8NClient()
-                                files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
-    
-                                status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(uploaded_files)} file(s) to AI processor...")
-                                progress_bar.progress(25)
-    
-                                # Phase 2: Processing (30-90%)
-                                status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...")
-                                progress_bar.progress(40)
-    
-                                # Make the actual API call (blocking)
-                                result = client.upload_statements(files_to_upload)
-    
-                                # Show completion with total time
-                                total_time = time.time() - start_time
-                                progress_bar.progress(90)
-    
-                                if result['success']:
-                                    progress_bar.progress(100)
-                                    status_text.markdown(f"**✅ Extraction Complete!** (Total time: {total_time:.1f}s)")
-    
-                                    # Parse response (handle both JSON and CSV formats)
-                                    response_format = result.get('format', 'csv')
-                                    tax_buckets_by_account = {}
-    
-                                    if response_format == 'json':
-                                        # Split accounts with multiple tax sources BEFORE creating DataFrame
-                                        split_accounts = []
-                                        for account in result['data']:
-                                            # Check if account has multiple non-zero tax sources
-                                            raw_tax_sources = account.get('_raw_tax_sources', [])
-                                            non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
-    
-                                            if len(non_zero_sources) > 1:
-                                                # Split into separate accounts
-                                                for source in non_zero_sources:
-                                                    split_account = account.copy()
-                                                    source_label = source['label']
-                                                    source_balance = source['balance']
-    
-                                                    # Determine tax treatment from source label
-                                                    if 'roth' in source_label.lower():
-                                                        tax_treatment = 'tax_free'
-                                                        suffix = '- Roth'
-                                                    elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
-                                                        tax_treatment = 'post_tax'
-                                                        suffix = '- After-Tax'
-                                                    else:  # Employee Deferral, Traditional, etc.
-                                                        tax_treatment = 'tax_deferred'
-                                                        suffix = '- Traditional'
-    
-                                                    # Update split account
-                                                    split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
-                                                    split_account['ending_balance'] = source_balance
-                                                    split_account['tax_treatment'] = tax_treatment
-                                                    split_account['_tax_source_label'] = source_label
-                                                    # Remove _raw_tax_sources to avoid confusion
-                                                    split_account.pop('_raw_tax_sources', None)
-    
-                                                    split_accounts.append(split_account)
-                                            else:
-                                                # Keep account as-is
-                                                split_accounts.append(account)
-    
-                                        # Save tax_buckets or raw_tax_sources before converting to DataFrame
-                                        for idx, account in enumerate(split_accounts):
-                                            account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
-    
-                                            # Check for processed tax_buckets first
-                                            if 'tax_buckets' in account and account['tax_buckets']:
-                                                tax_buckets_by_account[account_id] = account['tax_buckets']
-                                            # Fall back to raw_tax_sources if available
-                                            elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
-                                                # Convert raw_tax_sources to bucket format for display
-                                                raw_sources = account['_raw_tax_sources']
-                                                buckets = []
-                                                for source in raw_sources:
-                                                    if source.get('balance', 0) > 0:  # Only show non-zero balances
-                                                        # Map label to tax treatment
-                                                        label = source['label'].lower()
-                                                        if 'roth' in label:
-                                                            tax_treatment_bucket = 'tax_free'
-                                                        elif 'after tax' in label or 'after-tax' in label:
-                                                            tax_treatment_bucket = 'post_tax'
-                                                        else:  # Employee deferral, traditional, etc.
-                                                            tax_treatment_bucket = 'tax_deferred'
-    
-                                                        buckets.append({
-                                                            'bucket_type': source['label'],
-                                                            'tax_treatment': tax_treatment_bucket,
-                                                            'balance': source['balance']
-                                                        })
-                                                if buckets:
-                                                    tax_buckets_by_account[account_id] = buckets
-    
-                                        # JSON format - already a list of dicts
-                                        df_extracted = pd.DataFrame(split_accounts)
-                                        # Rename JSON fields if needed
-                                        column_mapping = {
-                                            'account_name': 'label',
-                                            'ending_balance': 'value',
-                                            'balance_as_of_date': 'period_end',
-                                            'institution': 'document_type',
-                                            'account_id': 'account_id'
-                                        }
-                                        df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
-                                    else:
-                                        # CSV format
-                                        csv_content = result['data']
-                                        df_extracted = pd.read_csv(io.StringIO(csv_content))
-    
-                                    # Convert to numeric
-                                    if 'value' in df_extracted.columns:
-                                        df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
-                                    elif 'ending_balance' in df_extracted.columns:
-                                        df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
-    
-                                    # Store in session state for persistence across reruns
-                                    st.session_state.ai_extracted_accounts = df_extracted
-                                    st.session_state.ai_tax_buckets = tax_buckets_by_account
-                                    st.session_state.ai_warnings = result.get('warnings', [])
-    
-                                    st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
-                                    st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
-    
-                                    # Display warnings if any
-                                    warnings = st.session_state.ai_warnings
-                                    if warnings and len(warnings) > 0:
-                                        with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
-                                            for warning in warnings:
-                                                st.warning(warning)
-    
-                                    # Map extracted data to Asset objects
-                                    with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
-                                        st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
-    
-                                        # Helper function to humanize account type
-                                        def humanize_account_type(account_type: str) -> str:
-                                            """Convert account_type codes to human-readable format."""
-                                            if not account_type:
-                                                return 'Unknown'
-    
-                                            mappings = {
-                                                '401k': '401(k)',
-                                                'ira': 'IRA',
-                                                'roth_ira': 'Roth IRA',
-                                                'traditional_ira': 'Traditional IRA',
-                                                'rollover_ira': 'Rollover IRA',
-                                                'savings': 'Savings Account',
-                                                'checking': 'Checking Account',
-                                                'brokerage': 'Brokerage Account',
-                                                'hsa': 'HSA (Health Savings Account)',
-                                                'high yield savings': 'High Yield Savings',
-                                                'stock_plan': 'Stock Plan',
-                                                'roth': 'Roth IRA',
-                                                '403b': '403(b)',
-                                                '457': '457 Plan'
-                                            }
-                                            account_type_lower = str(account_type).lower().strip()
-    
-                                            # Check exact match first
-                                            if account_type_lower in mappings:
-                                                return mappings[account_type_lower]
-    
-                                            # Check if it contains key patterns
-                                            for key, value in mappings.items():
-                                                if key in account_type_lower:
-                                                    return value
-    
-                                            # Default: title case with underscores removed
-                                            return account_type.replace('_', ' ').title()
-    
-                                        # Check if we already have edited table data in session state
-                                        if st.session_state.ai_edited_table is not None:
-                                            # Use previously edited table
-                                            df_table = st.session_state.ai_edited_table
-                                        else:
-                                            # Create editable table from extracted data (first time)
-                                            table_data = []
-                                            for idx, row in df_extracted.iterrows():
-                                                # Get account type first (we'll need it for inference)
-                                                account_type_raw = row.get('account_type', '')
-                                                account_type = humanize_account_type(account_type_raw)
-    
-                                                # Map tax_treatment to AssetType (human-readable)
-                                                # If tax_treatment is missing, infer from account_type
-                                                tax_treatment = str(row.get('tax_treatment', '')).lower()
+                    st.session_state.onboarding_step = 2
+                    st.rerun()
         
-                                                if not tax_treatment or tax_treatment == 'nan':
-                                                    # Infer from account_type
-                                                    account_type_lower = str(account_type_raw).lower()
-                                                    if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
-                                                        tax_treatment = 'tax_deferred'
-                                                    elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
-                                                        tax_treatment = 'tax_free'
-                                                    elif account_type_lower == 'hsa':
-                                                        tax_treatment = 'tax_deferred'  # HSA is tax-deferred
-                                                    else:
-                                                        tax_treatment = 'post_tax'  # brokerage, savings, checking
-        
-                                                # Map to display value
-                                                if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
-                                                    asset_type_display = 'Tax-Deferred'
-                                                elif tax_treatment == 'post_tax':
-                                                    asset_type_display = 'Post-Tax'
-                                                elif tax_treatment == 'tax_free':
-                                                    asset_type_display = 'Tax-Free'
-                                                else:
-                                                    asset_type_display = 'Post-Tax'  # default
-        
-                                                # Get account name and humanize it
-                                                account_name_raw = str(row.get('label', f"Account {idx+1}"))
-        
-                                                # Helper function to humanize account names
-                                                def humanize_account_name(name: str) -> str:
-                                                    """Convert raw account names to human-readable format."""
-                                                    # Handle common patterns
-                                                    name_clean = name.strip()
-        
-                                                    # Stock plans - extract company and plan type
-                                                    if 'STOCK PLAN' in name_clean.upper():
-                                                        # "STOCK PLAN - MICROSOFT ESPP PLAN" → "Microsoft ESPP"
-                                                        # "STOCK PLAN - ORACLE STOCK OPTIONS" → "Oracle Stock Options"
-                                                        parts = name_clean.split('-')
-                                                        if len(parts) >= 2:
-                                                            plan_details = parts[1].strip()
-                                                            # Extract company name (first word) and plan type
-                                                            words = plan_details.split()
-                                                            if len(words) >= 2:
-                                                                company = words[0].title()
-                                                                if 'ESPP' in plan_details.upper():
-                                                                    return f"{company} ESPP"
-                                                                elif 'STOCK OPTION' in plan_details.upper():
-                                                                    return f"{company} Stock Options"
-                                                                elif 'RSU' in plan_details.upper():
-                                                                    return f"{company} RSUs"
-                                                                else:
-                                                                    plan_type = ' '.join(words[1:]).title()
-                                                                    return f"{company} {plan_type}"
-        
-                                                    # Brokerage accounts
-                                                    if 'at Work Self-Directed' in name_clean:
-                                                        # "Morgan Stanley at Work Self-Directed Account" → "Morgan Stanley Brokerage"
-                                                        institution = name_clean.split(' at Work')[0]
-                                                        return f"{institution} Brokerage"
-        
-                                                    # Generic brokerage account shortening
-                                                    if name_clean.lower() == 'brokerage account':
-                                                        return 'Brokerage'
-        
-                                                    # Fix common formatting issues
-                                                    replacements = {
-                                                        'rollover_ira': 'Rollover IRA',
-                                                        'roth_ira': 'Roth IRA',
-                                                        'traditional_ira': 'Traditional IRA',
-                                                        'health_savings_account': 'HSA',
-                                                        '401k': '401(k)',
-                                                        '403b': '403(b)',
-                                                        '457': '457(b)',
-                                                    }
-        
-                                                    name_lower = name_clean.lower()
-                                                    for key, value in replacements.items():
-                                                        if key == name_lower:
-                                                            return value
-                                                        # Also handle patterns like "401k - Traditional"
-                                                        if name_lower.startswith(key):
-                                                            suffix = name_clean[len(key):].strip()
-                                                            return f"{value}{suffix}"
-        
-                                                    # Title case for all-caps names
-                                                    if name_clean.isupper():
-                                                        return name_clean.title()
-        
-                                                    # Return as-is if no pattern matches
-                                                    return name_clean
-        
-                                                account_name = humanize_account_name(account_name_raw)
-        
-                                                # Get institution and account number for display
-                                                institution = str(row.get('document_type', ''))  # Institution is stored in document_type
-                                                account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
-        
-                                                # Get current balance
-                                                current_balance = float(row.get('value', 0))
-        
-                                                # Helper function to humanize income eligibility
-                                                def humanize_eligibility(value: str) -> str:
-                                                    mappings = {
-                                                        'eligible': '✅ Eligible',
-                                                        'conditionally_eligible': '⚠️ Conditionally Eligible',
-                                                        'not_eligible': '❌ Not Eligible'
-                                                    }
-                                                    return mappings.get(str(value).lower(), value)
-        
-                                                # Helper function to humanize purpose
-                                                def humanize_purpose(value: str) -> str:
-                                                    mappings = {
-                                                        'income': 'Retirement Income',
-                                                        'general_income': 'General Income',
-                                                        'healthcare_only': 'Healthcare Only (HSA)',
-                                                        'education_only': 'Education Only (529)',
-                                                        'employment_compensation': 'Employment Compensation',
-                                                        'restricted_other': 'Restricted/Other'
-                                                    }
-                                                    return mappings.get(str(value).lower(), value)
-        
-                                                # Get income eligibility and purpose if available
-                                                income_eligibility = row.get('income_eligibility', '')
-                                                purpose = row.get('purpose', '')
-        
-                                                # Set default tax rate based on tax treatment
-                                                if asset_type_display == 'Post-Tax':
-                                                    default_tax_rate = 15.0  # Capital gains tax
-                                                else:
-                                                    default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
-        
-                                                # Set default growth rate based on account type
-                                                account_type_lower = str(account_type_raw).lower()
-                                                if account_type_lower in ['savings', 'checking']:
-                                                    account_growth_rate = 3.0  # HYSA/Savings: conservative rate
-                                                else:
-                                                    # Use the user's default growth rate for all investment accounts
-                                                    account_growth_rate = 7
-        
-                                                table_row = {
-                                                    "#": f"#{idx+1}",
-                                                    "Institution": institution,
-                                                    "Account Name": account_name,
-                                                    "Last 4": account_number_last4,
-                                                    "Account Type": account_type,
-                                                    "Tax Treatment": asset_type_display,
-                                                    "Current Balance": current_balance,
-                                                    "Annual Contribution": 0.0,  # User needs to fill
-                                                    "Growth Rate (%)": account_growth_rate,
-                                                    "Tax Rate on Gains (%)": default_tax_rate
-                                                }
-        
-                                                # Add income eligibility if available
-                                                if income_eligibility:
-                                                    table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
-        
-                                                # Add purpose if available
-                                                if purpose:
-                                                    table_row["Purpose"] = humanize_purpose(purpose)
-        
-                                                table_data.append(table_row)
+        # ==========================================
+        # STEP 2: Asset Configuration
+        # ==========================================
+        elif current_step == 2:
+            # Track step 2 started
+            track_onboarding_step_started(2)
     
-                                            # Create DataFrame from table_data
-                                            df_table = pd.DataFrame(table_data)
+            # Show contribution reminder dialog if flagged
+            if st.session_state.get('show_contribution_reminder', False):
+                contribution_reminder_dialog()
     
-                                        # Define column configuration
-                                        column_config = {
-                                            "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
-                                            "Institution": st.column_config.TextColumn(
-                                                "Institution",
-                                                disabled=True,
-                                                help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                                width="medium"
-                                            ),
-                                            "Account Name": st.column_config.TextColumn(
-                                                "Account Name",
-                                                help="Account name/description from statement",
-                                                width="medium"
-                                            ),
-                                            "Last 4": st.column_config.TextColumn(
-                                                "Last 4",
-                                                disabled=True,
-                                                help="Last 4 digits of account number",
-                                                width="small"
-                                            ),
-                                            "Account Type": st.column_config.TextColumn(
-                                                "Account Type",
-                                                disabled=True,
-                                                help="Type of account (401k, IRA, Savings, etc.) - extracted from statement",
-                                                width="small"
-                                            ),
-                                            "Tax Treatment": st.column_config.SelectboxColumn(
-                                                "Tax Treatment",
-                                                options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                                                help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                                            ),
-                                            "Current Balance": st.column_config.NumberColumn(
-                                                "Current Balance ($)",
-                                                min_value=0,
-                                                format="$%d",
-                                                help="Current account balance (extracted from statements)"
-                                            ),
-                                            "Annual Contribution": st.column_config.NumberColumn(
-                                                "Annual Contribution ($)",
-                                                min_value=0,
-                                                format="$%d",
-                                                help="How much you contribute annually to this account"
-                                            ),
-                                            "Growth Rate (%)": st.column_config.NumberColumn(
-                                                "Growth Rate (%)",
-                                                min_value=0,
-                                                max_value=50,
-                                                format="%.1f%%",
-                                                help=f"Expected annual growth rate (your default: {7}%)"
-                                            ),
-                                            "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                                "Tax Rate on Gains (%)",
-                                                min_value=0,
-                                                max_value=50,
-                                                format="%.1f%%",
-                                                help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                                            ),
-                                            "Income Eligibility": st.column_config.TextColumn(
-                                                "Income Eligibility",
-                                                disabled=True,
-                                                help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
-                                            ),
-                                            "Purpose": st.column_config.TextColumn(
-                                                "Purpose",
-                                                disabled=True,
-                                                help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
-                                            )
-                                        }
-    
-                                        # Display editable table with unique key for fresh extraction view
-                                        edited_df = st.data_editor(
-                                            df_table,
-                                            column_config=column_config,
-                                            use_container_width=True,
-                                            hide_index=True,
-                                            num_rows="dynamic",
-                                            key="ai_table_fresh_extraction"  # Unique key for this table
-                                        )
-    
-                                        # Save edited table to session state for persistence across reruns
-                                        st.session_state.ai_edited_table = edited_df
-    
-                                        # Extraction Quality Feedback Module
-                                        st.markdown("---")
-                                        st.markdown("#### 💬 Data Extraction Feedback")
-                                        st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
-    
-                                        feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
-    
-                                        with feedback_col1:
-                                            if st.button("👍 Looks Good", key="extraction_feedback_good", use_container_width=True, type="secondary"):
-                                                # Positive feedback - send email
-                                                subject = "AI Extraction Feedback - Accurate Data"
-                                                body = f"""Hi Smart Retire AI team,
-    
-    The AI extraction worked great! Here are the details:
-    
-    Number of accounts extracted: {len(edited_df)}
-    Institution(s): {', '.join(edited_df['Institution'].unique())}
-    
-    The extracted data was accurate and saved me time.
-    
-    Thank you!
-    """
-                                                # URL encode the body
-                                                body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
-    
-                                        with feedback_col2:
-                                            if st.button("👎 Needs Work", key="extraction_feedback_bad", use_container_width=True, type="secondary"):
-                                                # Negative feedback - show form
-                                                st.session_state.show_extraction_feedback_form = True
-    
-                                        # Show detailed feedback form if user clicked "Needs Work"
-                                        if st.session_state.get('show_extraction_feedback_form', False):
-                                            st.markdown("---")
-                                            st.markdown("##### 📝 Tell us what went wrong")
-    
-                                            with st.form("extraction_feedback_form", clear_on_submit=True):
-                                                issue_type = st.multiselect(
-                                                    "What issues did you encounter? (Select all that apply)",
-                                                    [
-                                                        "Wrong account balances",
-                                                        "Incorrect account types",
-                                                        "Wrong tax classification",
-                                                        "Missing accounts",
-                                                        "Duplicate accounts",
-                                                        "Wrong institution name",
-                                                        "Account numbers incorrect",
-                                                        "Other"
-                                                    ]
-                                                )
-    
-                                                specific_issues = st.text_area(
-                                                    "Specific details about the issue:",
-                                                    placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
-                                                    height=100
-                                                )
-    
-                                                statement_type = st.text_input(
-                                                    "Statement type/institution (optional):",
-                                                    placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
-                                                )
-    
-                                                submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary", use_container_width=True)
-    
-                                                if submit_feedback:
-                                                    if issue_type and specific_issues:
-                                                        # Generate email
-                                                        subject = "AI Extraction Issue Report"
-                                                        issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
-                                                        body = f"""Hi Smart Retire AI team,
-    
-    I encountered issues with the AI extraction feature:
-    
-    ISSUES ENCOUNTERED:
-    {issues_list}
-    
-    SPECIFIC DETAILS:
-    {specific_issues}
-    
-    STATEMENT INFO:
-    {statement_type if statement_type else 'Not provided'}
-    
-    NUMBER OF ACCOUNTS: {len(edited_df)}
-    INSTITUTIONS: {', '.join(edited_df['Institution'].unique())}
-    
-    Please investigate and improve the extraction accuracy.
-    
-    Thank you!
-    """
-                                                        # URL encode the body
-                                                        body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                        email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                        st.success("✅ Thank you for the detailed feedback!")
-                                                        st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
-                                                        st.session_state.show_extraction_feedback_form = False
-                                                    else:
-                                                        st.error("⚠️ Please select at least one issue type and provide specific details.")
-    
-                                        # Display tax bucket breakdowns if available
-                                        if tax_buckets_by_account:
-                                            st.markdown("---")
-                                            st.markdown("#### 🔍 Tax Bucket Breakdown")
-                                            st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
-    
-                                            for account_id, buckets in tax_buckets_by_account.items():
-                                                # Find account name in DataFrame
-                                                account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
-                                                if account_row is not None and not account_row.empty:
-                                                    account_name = account_row.iloc[0].get('label', account_id)
-                                                else:
-                                                    account_name = account_id
-    
-                                                with st.expander(f"📊 {account_name}"):
-                                                    # Create DataFrame for buckets
-                                                    bucket_df = pd.DataFrame(buckets)
-    
-                                                    # Humanize bucket_type and tax_treatment
-                                                    def humanize_bucket(value: str) -> str:
-                                                        mappings = {
-                                                            'traditional_401k': 'Traditional 401(k)',
-                                                            'roth_in_plan_conversion': 'Roth In-Plan Conversion',
-                                                            'after_tax_401k': 'After-Tax 401(k)',
-                                                            'tax_deferred': 'Tax-Deferred',
-                                                            'tax_free': 'Tax-Free',
-                                                            'post_tax': 'Post-Tax',
-                                                            'pre_tax': 'Pre-Tax'
-                                                        }
-                                                        return mappings.get(str(value).lower(), value)
-    
-                                                    if 'bucket_type' in bucket_df.columns:
-                                                        bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
-                                                    if 'tax_treatment' in bucket_df.columns:
-                                                        bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
-    
-                                                    # Format balance as currency
-                                                    if 'balance' in bucket_df.columns:
-                                                        total_bucket_balance = bucket_df['balance'].sum()
-                                                        bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
-    
-                                                    # Rename columns
-                                                    bucket_df = bucket_df.rename(columns={
-                                                        'bucket_type': 'Tax Bucket',
-                                                        'tax_treatment': 'Tax Treatment',
-                                                        'balance': 'Balance'
-                                                    })
-    
-                                                    st.dataframe(bucket_df, use_container_width=True, hide_index=True)
-    
-                                                    # Show total
-                                                    st.metric("Total", f"${total_bucket_balance:,.2f}")
-    
-                                        # Convert edited dataframe to Asset objects
-                                        if not edited_df.empty:
-                                            try:
-                                                assets = []
-                                                for _, row in edited_df.iterrows():
-                                                    # Parse tax treatment (from human-readable to enum)
-                                                    tax_treatment_str = row["Tax Treatment"]
-                                                    if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
-                                                        asset_type = AssetType.TAX_DEFERRED
-                                                    elif tax_treatment_str == "Post-Tax":
-                                                        asset_type = AssetType.POST_TAX
-                                                    elif tax_treatment_str == "Tax-Free":
-                                                        # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                                        asset_type = AssetType.POST_TAX
-                                                    else:
-                                                        raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-    
-                                                    # Create asset
-                                                    asset = Asset(
-                                                        name=row["Account Name"],
-                                                        asset_type=asset_type,
-                                                        current_balance=float(row["Current Balance"]),
-                                                        annual_contribution=float(row["Annual Contribution"]),
-                                                        growth_rate_pct=float(row["Growth Rate (%)"]),
-                                                        tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                                    )
-                                                    assets.append(asset)
-    
-                                                st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
-    
-                                            except Exception as e:
-                                                st.error(f"❌ Error processing extracted data: {str(e)}")
-                                                st.info("💡 Please check the values in the table.")
-    
-                                else:
-                                    progress_bar.progress(100)
-                                    status_text.text("✗ Extraction failed")
-                                    st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
-    
-                            except N8NError as e:
-                                progress_bar.progress(100)
-                                status_text.text("✗ Configuration error")
-                                st.error(f"Configuration Error: {str(e)}")
-                                st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
-    
-                            except Exception as e:
-                                progress_bar.progress(100)
-                                status_text.text("✗ Unexpected error")
-                                st.error(f"Error: {str(e)}")
-    
-        elif setup_option == "Upload CSV File":
-            st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
-            
-            # Download template button
-            csv_template = create_asset_template_csv()
-            st.download_button(
-                label="📥 Download CSV Template",
-                data=csv_template,
-                file_name="asset_template.csv",
-                mime="text/csv",
-                help="Download a pre-filled template with example data"
+            # Simplified setup options (removed Default Portfolio and Legacy Mode)
+            setup_option = st.radio(
+                "Choose how to configure your accounts:",
+                ["**Upload Financial Statements (AI) - Recommended**", "Upload CSV File", "Configure Individual Assets"],
+                help="Select how you want to add your retirement accounts"
             )
-            
-            # Upload file
-            uploaded_file = st.file_uploader(
-                "📤 Upload Your CSV File",
-                type=['csv'],
-                help="Upload your modified CSV file with your asset data"
-            )
-            
-            if uploaded_file is not None:
-                try:
-                    # Read uploaded file
-                    csv_content = uploaded_file.read().decode('utf-8')
-                    assets = parse_uploaded_csv(csv_content)
-                    
-                    st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
-                    
-                    # Show uploaded assets in editable table format
-                    with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
-                        # Helper function to convert asset type to human-readable format
-                        def asset_type_to_display(asset: Asset) -> str:
-                            """Convert AssetType enum to human-readable display value."""
-                            if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
-                                return "Tax-Deferred"
-                            elif asset.asset_type == AssetType.POST_TAX:
-                                # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
-                                if asset.tax_rate_pct == 0:
-                                    return "Tax-Free"
-                                else:
-                                    return "Post-Tax"
-                            return "Post-Tax"  # default
     
-                        # Create editable table data
-                        table_data = []
-                        for i, asset in enumerate(assets):
-                            row = {
-                                "Index": i,
-                                "Account Name": asset.name,
-                                "Tax Treatment": asset_type_to_display(asset),
-                                "Current Balance": asset.current_balance,
-                                "Annual Contribution": asset.annual_contribution,
-                                "Growth Rate (%)": asset.growth_rate_pct,
-                                "Tax Rate on Gains (%)": asset.tax_rate_pct
-                            }
-                            table_data.append(row)
-                        
-                        # Create editable dataframe
-                        df = pd.DataFrame(table_data)
-                        
-                        # Define column configuration for editing
-                        column_config = {
-                            "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
-                            "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                            "Tax Treatment": st.column_config.SelectboxColumn(
-                                "Tax Treatment",
-                                options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                                help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                            ),
-                            "Current Balance": st.column_config.NumberColumn(
-                                "Current Balance ($)",
-                                min_value=0,
-                                format="$%d",
-                                help="Current account balance"
-                            ),
-                            "Annual Contribution": st.column_config.NumberColumn(
-                                "Annual Contribution ($)",
-                                min_value=0,
-                                format="$%d",
-                                help="Annual contribution amount"
-                            ),
-                            "Growth Rate (%)": st.column_config.NumberColumn(
-                                "Growth Rate (%)",
-                                min_value=0,
-                                max_value=50,
-                                format="%.1f%%",
-                                help=f"Expected annual growth rate (your default: {7}%)"
-                            ),
-                            "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                "Tax Rate on Gains (%)",
-                                min_value=0,
-                                max_value=50,
-                                format="%.1f%%",
-                                help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                            )
-                        }
-                        
-                        # Display editable table
-                        st.info("💡 **Edit your assets directly in the table below. Changes will be applied when you run the analysis.**")
-                        edited_df = st.data_editor(
-                            df, 
-                            column_config=column_config,
-                            use_container_width=True, 
-                            hide_index=True,
-                            num_rows="dynamic"
-                        )
-                        
-                        # Convert edited dataframe back to Asset objects
-                        if not edited_df.empty:
+            # Track asset configuration method selected
+            track_event('asset_config_method_selected', {'method': setup_option})
+
+            # Initialize from session state to preserve user's work when switching modes
+            assets: List[Asset] = list(st.session_state.get('assets', []))
+
+            if setup_option == "**Upload Financial Statements (AI) - Recommended**":
+                if not _N8N_AVAILABLE:
+                    st.error("❌ **n8n integration not available**")
+                    st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
+                else:
+                    st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
+        
+                    # Privacy and How It Works explanation
+                    with st.expander("🔒 How It Works & Your Privacy", expanded=False):
+                        st.markdown("""
+                        ### 🤖 What Happens to Your Statements?
+        
+                        **Your privacy is our priority.** Here's exactly what happens when you upload:
+        
+                        #### 📋 The Process (Simple Version):
+                        1. **Upload** → You select your PDF statements (401k, IRA, brokerage, etc.)
+                        2. **Extract** → AI reads the PDFs to find account numbers, balances, and types
+                        3. **Clean** → Personal information (SSN, address, full names) is automatically removed
+                        4. **Organize** → Data is structured into a clean table for you to review
+                        5. **You Control** → You can edit, delete, or clear any extracted data
+        
+                        ---
+        
+                        ### 🔐 Privacy & Security
+        
+                        **What we protect:**
+                        - ✅ **Personal Identifiable Information (PII)** is automatically scrubbed
+                        - ✅ **Social Security Numbers** are removed
+                        - ✅ **Full names and addresses** are stripped out
+                        - ✅ Only account types, balances, and institution names are kept
+        
+                        **What stays:**
+                        - 📊 Account balances (needed for retirement planning)
+                        - 🏦 Account types (401k, IRA, Roth, etc.)
+                        - 🏢 Institution names (Fidelity, Vanguard, etc.)
+                        - 🔢 Last 4 digits of account numbers (for your reference)
+        
+                        **Your data, your control:**
+                        - 💾 Data is processed temporarily and not permanently stored
+                        - ❌ No data is saved to our servers long-term
+                        - 🔄 You can clear extracted data anytime with "Clear and Upload New"
+                        - ✏️ You can edit any extracted information before using it
+        
+                        ---
+        
+                        ### 🛠️ Technical Details (For The Curious)
+        
+                        **AI Processing:**
+                        - Uses GPT-4 to intelligently read and categorize your statements
+                        - Identifies account types (401k, Roth IRA, Brokerage, etc.)
+                        - Extracts current balances and tax treatment
+                        - Handles complex statements with multiple account types
+        
+                        **Why it's better than manual:**
+                        - ⏱️ **Faster**: Seconds instead of minutes per statement
+                        - 🎯 **Accurate**: AI recognizes formats from 100+ financial institutions
+                        - 🧠 **Smart**: Automatically categorizes tax treatments (pre-tax, post-tax, tax-free)
+                        - 🔄 **Consistent**: Standardizes data across different statement formats
+        
+                        **Supported Documents:**
+                        - 401(k) and 403(b) statements
+                        - Traditional and Roth IRAs
+                        - Brokerage account statements
+                        - HSA statements
+                        - Bank account statements
+                        - Annuity statements
+        
+                        ---
+        
+                        ### ❓ Common Questions
+        
+                        **Q: Can I use scanned PDFs?**
+                        A: Yes! The AI can read both digital PDFs and scanned documents.
+        
+                        **Q: What if extraction makes a mistake?**
+                        A: You review and edit all extracted data before it's used. Plus, you can rate the accuracy to help us improve.
+        
+                        **Q: Is my data encrypted?**
+                        A: Yes, all uploads use secure HTTPS encryption.
+        
+                        **Q: What happens to my PDFs after processing?**
+                        A: PDFs are processed temporarily and deleted. Only the extracted data (balances, account types) is shown to you.
+                        """)
+        
+                    # Initialize session state for extracted data
+                    if 'ai_extracted_accounts' not in st.session_state:
+                        st.session_state.ai_extracted_accounts = None
+                    if 'ai_tax_buckets' not in st.session_state:
+                        st.session_state.ai_tax_buckets = {}
+                    if 'ai_warnings' not in st.session_state:
+                        st.session_state.ai_warnings = []
+                    if 'ai_edited_table' not in st.session_state:
+                        st.session_state.ai_edited_table = None
+        
+                    # Initialize variables for this run
+                    df_extracted = None
+                    tax_buckets_by_account = {}
+        
+                    # Check if we already have extracted data
+                    if st.session_state.ai_extracted_accounts is not None:
+                        st.success(f"✅ Using previously extracted {len(st.session_state.ai_extracted_accounts)} accounts")
+        
+                        # Add button to clear and re-upload
+                        if st.button("🔄 Clear and Upload New Statements", type="secondary"):
+                            st.session_state.ai_extracted_accounts = None
+                            st.session_state.ai_tax_buckets = {}
+                            st.session_state.ai_warnings = []
+                            st.session_state.ai_edited_table = None
+                            st.rerun()
+        
+                        # Use existing data
+                        df_extracted = st.session_state.ai_extracted_accounts
+                        tax_buckets_by_account = st.session_state.ai_tax_buckets
+                        warnings = st.session_state.ai_warnings
+        
+                        # Display warnings if any
+                        if warnings and len(warnings) > 0:
+                            with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
+                                for warning in warnings:
+                                    st.warning(warning)
+        
+                        # **NEW: Display the editable table for previously extracted data**
+                        # This ensures the table persists when navigating between steps
+                        if df_extracted is not None:
+                            with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
+                                st.info("💡 **Review and edit your account data. These are preserved even when you change personal info in Step 1.**")
+        
+                                # Display the editable table from session state
+                                if st.session_state.ai_edited_table is not None:
+                                    df_table = st.session_state.ai_edited_table
+                                else:
+                                    # This shouldn't happen, but fallback to extracted data
+                                    df_table = df_extracted
+        
+                                # Define column configuration - MUST MATCH the original extraction config
+                                column_config = {
+                                    "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                                    "Institution": st.column_config.TextColumn(
+                                        "Institution",
+                                        disabled=True,
+                                        help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                                        width="medium"
+                                    ),
+                                    "Account Name": st.column_config.TextColumn(
+                                        "Account Name",
+                                        help="Account name/description from statement",
+                                        width="medium"
+                                    ),
+                                    "Last 4": st.column_config.TextColumn(
+                                        "Last 4",
+                                        disabled=True,
+                                        help="Last 4 digits of account number",
+                                        width="small"
+                                    ),
+                                    "Account Type": st.column_config.TextColumn(
+                                        "Account Type",
+                                        disabled=True,
+                                        help="Type of account (401k, IRA, Savings, etc.)",
+                                        width="small"
+                                    ),
+                                    "Tax Treatment": st.column_config.SelectboxColumn(
+                                        "Tax Treatment",
+                                        options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                        help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
+                                    ),
+                                    "Current Balance ($)": st.column_config.NumberColumn(
+                                        "Current Balance ($)",
+                                        min_value=0,
+                                        format="$%d",
+                                        help="Current account balance"
+                                    ),
+                                    "Annual Contribution ($)": st.column_config.NumberColumn(
+                                        "Annual Contribution ($)",
+                                        min_value=0,
+                                        format="$%d",
+                                        help="How much you contribute annually"
+                                    ),
+                                    "Growth Rate (%)": st.column_config.NumberColumn(
+                                        "Growth Rate (%)",
+                                        min_value=0.0,
+                                        max_value=20.0,
+                                        format="%.1f%%",
+                                        help="Expected annual growth rate"
+                                    ),
+                                    "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                        "Tax Rate on Gains (%)",
+                                        min_value=0.0,
+                                        max_value=50.0,
+                                        format="%.1f%%",
+                                        help="Tax rate on gains (capital gains or income tax)"
+                                    )
+                                }
+        
+                                # Add optional column configs if they exist in the data
+                                if "Income Eligibility" in df_table.columns:
+                                    column_config["Income Eligibility"] = st.column_config.TextColumn(
+                                        "Income Eligibility",
+                                        disabled=True,
+                                        help="Income restrictions for this account type",
+                                        width="small"
+                                    )
+                                if "Purpose" in df_table.columns:
+                                    column_config["Purpose"] = st.column_config.TextColumn(
+                                        "Purpose",
+                                        disabled=True,
+                                        help="Primary purpose of this account",
+                                        width="small"
+                                    )
+        
+                                # Display editable table with unique key for reload view
+                                edited_df = st.data_editor(
+                                    df_table,
+                                    column_config=column_config,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    num_rows="dynamic",
+                                    key="ai_table_reload_view"  # Unique key for this table
+                                )
+        
+                                # Save edited table to session state
+                                st.session_state.ai_edited_table = edited_df
+        
+                        # CRITICAL: Convert edited table to assets on every rerun
+                        # This ensures assets persist even when user changes personal info
+                        if st.session_state.ai_edited_table is not None:
+                            edited_df = st.session_state.ai_edited_table
                             try:
-                                updated_assets = []
+                                assets = []
                                 for _, row in edited_df.iterrows():
                                     # Parse tax treatment (from human-readable to enum)
                                     tax_treatment_str = row["Tax Treatment"]
@@ -2611,9 +1937,10 @@ if st.session_state.current_page == 'onboarding':
                                         asset_type = AssetType.POST_TAX
                                     else:
                                         raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-    
-                                    # Create updated asset
-                                    updated_asset = Asset(
+        
+                                    # Create asset - use actual DataFrame column names (without $ suffix)
+                                    # Note: column_config labels are just for display, DataFrame columns keep original names
+                                    asset = Asset(
                                         name=row["Account Name"],
                                         asset_type=asset_type,
                                         current_balance=float(row["Current Balance"]),
@@ -2621,609 +1948,2418 @@ if st.session_state.current_page == 'onboarding':
                                         growth_rate_pct=float(row["Growth Rate (%)"]),
                                         tax_rate_pct=float(row["Tax Rate on Gains (%)"])
                                     )
-                                    updated_assets.append(updated_asset)
-                                
-                                # Update the assets list
-                                assets = updated_assets
-                                st.success(f"✅ Assets updated! {len(assets)} assets ready for analysis.")
-                                
+                                    assets.append(asset)
+        
+                                st.info(f"📊 Using {len(assets)} AI-extracted accounts for retirement analysis")
+        
                             except Exception as e:
-                                st.error(f"❌ Error updating assets: {str(e)}")
-                                st.info("💡 Please check your input values and try again.")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error processing CSV file: {str(e)}")
-                    st.info("💡 **Tip**: Make sure your CSV has the correct format. Download the template and use it as a guide.")
-            
-        elif setup_option == "Configure Individual Assets":
-            st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
-            
-            num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=3, help="How many different accounts do you have?")
-            
-            for i in range(num_assets):
-                with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        asset_name = st.text_input(f"Asset Name {i+1}", value=f"Asset {i+1}", help="Name of your account")
-                        asset_type = st.selectbox(
-                            f"Asset Type {i+1}",
-                            options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
-                            format_func=lambda x: f"{x[0]} ({x[1].value})",
-                            help="Type of account for tax treatment"
+                                st.error(f"❌ Error loading AI-extracted accounts: {str(e)}")
+                                st.info("💡 Try clicking '🔄 Clear and Upload New Statements' and re-uploading.")
+        
+                    else:
+                        # Upload financial statement PDFs
+                        uploaded_files = st.file_uploader(
+                            "📤 Upload Financial Statement PDFs",
+                            type=['pdf'],
+                            accept_multiple_files=True,
+                            help="Upload 401(k), IRA, brokerage, or bank statements"
                         )
-                    with col2:
-                        current_balance = st.number_input(f"Current Balance {i+1} ($)", min_value=0, value=10000, step=1000, help="Current account balance")
-                        annual_contribution = st.number_input(f"Annual Contribution {i+1} ($)", min_value=0, value=5000, step=500, help="How much you contribute annually")
-                    with col3:
-                        growth_rate = st.slider(f"Growth Rate {i+1} (%)", 0, 20, int(7), help=f"Expected annual return (default: {7}%)")
-                        if asset_type[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
-                            tax_rate = st.slider(f"Capital Gains Rate {i+1} (%)", 0, 30, 15, help="Capital gains tax rate")
-                        else:
-                            tax_rate = 0
-                    
-                    assets.append(Asset(
-                        name=asset_name,
-                        asset_type=asset_type[1],
-                        current_balance=current_balance,
-                        annual_contribution=annual_contribution,
-                        growth_rate_pct=growth_rate,
-                        tax_rate_pct=tax_rate
-                    ))
+        
+                        if uploaded_files:
+                            if st.button("🚀 Extract Account Data", type="primary", use_container_width=True):
+                                import time
+        
+                                progress_bar = st.progress(0)
+                                status_text = st.empty()
+        
+                                try:
+                                    start_time = time.time()
+        
+                                    # Phase 1: Upload (0-30%)
+                                    status_text.markdown("**📤 Phase 1/2: Uploading Files**")
+                                    progress_bar.progress(10)
+        
+                                    # Initialize n8n client and prepare files
+                                    client = N8NClient()
+                                    files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
+        
+                                    status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(uploaded_files)} file(s) to AI processor...")
+                                    progress_bar.progress(25)
+        
+                                    # Phase 2: Processing (30-90%)
+                                    status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
+                                    progress_bar.progress(40)
+
+                                    # Create placeholder for timer that we can clear later
+                                    timer_placeholder = st.empty()
+
+                                    # Add live timer using components.html for immediate rendering
+                                    with timer_placeholder.container():
+                                        components.html("""
+                                            <div id="ai-timer" style="font-size: 1.2em; color: #0066CC; font-weight: 600; margin: 10px 0; font-family: 'Source Sans Pro', sans-serif;">
+                                                ⏱️ Processing time: <span id="timer-value">0s</span>
+                                            </div>
+                                            <script>
+                                                let startTime = Date.now();
+                                                setInterval(function() {
+                                                    let elapsed = Math.floor((Date.now() - startTime) / 1000);
+                                                    let timerElement = document.getElementById('timer-value');
+                                                    if (timerElement) {
+                                                        timerElement.textContent = elapsed + 's';
+                                                    }
+                                                }, 1000);
+                                            </script>
+                                        """, height=50)
+
+                                    # Make the actual API call (blocking)
+                                    ai_start_time = time.time()
+                                    result = client.upload_statements(files_to_upload)
+                                    ai_elapsed = time.time() - ai_start_time
+
+                                    # Hide the timer now that processing is complete
+                                    timer_placeholder.empty()
+
+                                    # Show completion with total time
+                                    total_time = time.time() - start_time
+                                    progress_bar.progress(90)
+        
+                                    if result['success']:
+                                        progress_bar.progress(100)
+                                        status_text.markdown(f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)")
+        
+                                        # Parse response (handle both JSON and CSV formats)
+                                        response_format = result.get('format', 'csv')
+                                        tax_buckets_by_account = {}
+        
+                                        if response_format == 'json':
+                                            # Split accounts with multiple tax sources BEFORE creating DataFrame
+                                            split_accounts = []
+                                            for account in result['data']:
+                                                # Check if account has multiple non-zero tax sources
+                                                raw_tax_sources = account.get('_raw_tax_sources', [])
+                                                non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
+        
+                                                if len(non_zero_sources) > 1:
+                                                    # Split into separate accounts
+                                                    for source in non_zero_sources:
+                                                        split_account = account.copy()
+                                                        source_label = source['label']
+                                                        source_balance = source['balance']
+        
+                                                        # Determine tax treatment from source label
+                                                        if 'roth' in source_label.lower():
+                                                            tax_treatment = 'tax_free'
+                                                            suffix = '- Roth'
+                                                        elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
+                                                            tax_treatment = 'post_tax'
+                                                            suffix = '- After-Tax'
+                                                        else:  # Employee Deferral, Traditional, etc.
+                                                            tax_treatment = 'tax_deferred'
+                                                            suffix = '- Traditional'
+        
+                                                        # Update split account
+                                                        split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
+                                                        split_account['ending_balance'] = source_balance
+                                                        split_account['tax_treatment'] = tax_treatment
+                                                        split_account['_tax_source_label'] = source_label
+                                                        # Remove _raw_tax_sources to avoid confusion
+                                                        split_account.pop('_raw_tax_sources', None)
+        
+                                                        split_accounts.append(split_account)
+                                                else:
+                                                    # Keep account as-is
+                                                    split_accounts.append(account)
+        
+                                            # Save tax_buckets or raw_tax_sources before converting to DataFrame
+                                            for idx, account in enumerate(split_accounts):
+                                                account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
+        
+                                                # Check for processed tax_buckets first
+                                                if 'tax_buckets' in account and account['tax_buckets']:
+                                                    tax_buckets_by_account[account_id] = account['tax_buckets']
+                                                # Fall back to raw_tax_sources if available
+                                                elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
+                                                    # Convert raw_tax_sources to bucket format for display
+                                                    raw_sources = account['_raw_tax_sources']
+                                                    buckets = []
+                                                    for source in raw_sources:
+                                                        if source.get('balance', 0) > 0:  # Only show non-zero balances
+                                                            # Map label to tax treatment
+                                                            label = source['label'].lower()
+                                                            if 'roth' in label:
+                                                                tax_treatment_bucket = 'tax_free'
+                                                            elif 'after tax' in label or 'after-tax' in label:
+                                                                tax_treatment_bucket = 'post_tax'
+                                                            else:  # Employee deferral, traditional, etc.
+                                                                tax_treatment_bucket = 'tax_deferred'
+        
+                                                            buckets.append({
+                                                                'bucket_type': source['label'],
+                                                                'tax_treatment': tax_treatment_bucket,
+                                                                'balance': source['balance']
+                                                            })
+                                                    if buckets:
+                                                        tax_buckets_by_account[account_id] = buckets
+        
+                                            # JSON format - already a list of dicts
+                                            df_extracted = pd.DataFrame(split_accounts)
+                                            # Rename JSON fields if needed
+                                            column_mapping = {
+                                                'account_name': 'label',
+                                                'ending_balance': 'value',
+                                                'balance_as_of_date': 'period_end',
+                                                'institution': 'document_type',
+                                                'account_id': 'account_id'
+                                            }
+                                            df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
+                                        else:
+                                            # CSV format
+                                            csv_content = result['data']
+                                            df_extracted = pd.read_csv(io.StringIO(csv_content))
+        
+                                        # Convert to numeric
+                                        if 'value' in df_extracted.columns:
+                                            df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
+                                        elif 'ending_balance' in df_extracted.columns:
+                                            df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
+        
+                                        # Store in session state for persistence across reruns
+                                        st.session_state.ai_extracted_accounts = df_extracted
+                                        st.session_state.ai_tax_buckets = tax_buckets_by_account
+                                        st.session_state.ai_warnings = result.get('warnings', [])
     
-        # Save assets to session state
-        st.session_state.assets = assets
+                                        # Track successful statement upload
+                                        track_statement_upload(
+                                            success=True,
+                                            num_statements=len(uploaded_files),
+                                            num_accounts=len(df_extracted)
+                                        )
     
-        # Navigation buttons for Step 2
+                                        st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
+                                        st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
+        
+                                        # Display warnings if any
+                                        warnings = st.session_state.ai_warnings
+                                        if warnings and len(warnings) > 0:
+                                            with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
+                                                for warning in warnings:
+                                                    st.warning(warning)
+        
+                                        # Map extracted data to Asset objects
+                                        with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
+                                            st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
+        
+                                            # Helper function to humanize account type
+                                            def humanize_account_type(account_type: str) -> str:
+                                                """Convert account_type codes to human-readable format."""
+                                                if not account_type:
+                                                    return 'Unknown'
+        
+                                                mappings = {
+                                                    '401k': '401(k)',
+                                                    'ira': 'IRA',
+                                                    'roth_ira': 'Roth IRA',
+                                                    'traditional_ira': 'Traditional IRA',
+                                                    'rollover_ira': 'Rollover IRA',
+                                                    'savings': 'Savings Account',
+                                                    'checking': 'Checking Account',
+                                                    'brokerage': 'Brokerage Account',
+                                                    'hsa': 'HSA (Health Savings Account)',
+                                                    'high yield savings': 'High Yield Savings',
+                                                    'stock_plan': 'Stock Plan',
+                                                    'roth': 'Roth IRA',
+                                                    '403b': '403(b)',
+                                                    '457': '457 Plan'
+                                                }
+                                                account_type_lower = str(account_type).lower().strip()
+        
+                                                # Check exact match first
+                                                if account_type_lower in mappings:
+                                                    return mappings[account_type_lower]
+        
+                                                # Check if it contains key patterns
+                                                for key, value in mappings.items():
+                                                    if key in account_type_lower:
+                                                        return value
+        
+                                                # Default: title case with underscores removed
+                                                return account_type.replace('_', ' ').title()
+        
+                                            # Check if we already have edited table data in session state
+                                            if st.session_state.ai_edited_table is not None:
+                                                # Use previously edited table
+                                                df_table = st.session_state.ai_edited_table
+                                            else:
+                                                # Create editable table from extracted data (first time)
+                                                table_data = []
+                                                for idx, row in df_extracted.iterrows():
+                                                    # Get account type first (we'll need it for inference)
+                                                    account_type_raw = row.get('account_type', '')
+                                                    account_type = humanize_account_type(account_type_raw)
+        
+                                                    # Map tax_treatment to AssetType (human-readable)
+                                                    # If tax_treatment is missing, infer from account_type
+                                                    tax_treatment = str(row.get('tax_treatment', '')).lower()
+            
+                                                    if not tax_treatment or tax_treatment == 'nan':
+                                                        # Infer from account_type
+                                                        account_type_lower = str(account_type_raw).lower()
+                                                        if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
+                                                            tax_treatment = 'tax_deferred'
+                                                        elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
+                                                            tax_treatment = 'tax_free'
+                                                        elif account_type_lower == 'hsa':
+                                                            tax_treatment = 'tax_deferred'  # HSA is tax-deferred
+                                                        else:
+                                                            tax_treatment = 'post_tax'  # brokerage, savings, checking
+            
+                                                    # Map to display value
+                                                    if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
+                                                        asset_type_display = 'Tax-Deferred'
+                                                    elif tax_treatment == 'post_tax':
+                                                        asset_type_display = 'Post-Tax'
+                                                    elif tax_treatment == 'tax_free':
+                                                        asset_type_display = 'Tax-Free'
+                                                    else:
+                                                        asset_type_display = 'Post-Tax'  # default
+            
+                                                    # Get account name and humanize it
+                                                    account_name_raw = str(row.get('label', f"Account {idx+1}"))
+            
+                                                    # Helper function to humanize account names
+                                                    def humanize_account_name(name: str) -> str:
+                                                        """Convert raw account names to human-readable format."""
+                                                        # Handle common patterns
+                                                        name_clean = name.strip()
+            
+                                                        # Stock plans - extract company and plan type
+                                                        if 'STOCK PLAN' in name_clean.upper():
+                                                            # "STOCK PLAN - MICROSOFT ESPP PLAN" → "Microsoft ESPP"
+                                                            # "STOCK PLAN - ORACLE STOCK OPTIONS" → "Oracle Stock Options"
+                                                            parts = name_clean.split('-')
+                                                            if len(parts) >= 2:
+                                                                plan_details = parts[1].strip()
+                                                                # Extract company name (first word) and plan type
+                                                                words = plan_details.split()
+                                                                if len(words) >= 2:
+                                                                    company = words[0].title()
+                                                                    if 'ESPP' in plan_details.upper():
+                                                                        return f"{company} ESPP"
+                                                                    elif 'STOCK OPTION' in plan_details.upper():
+                                                                        return f"{company} Stock Options"
+                                                                    elif 'RSU' in plan_details.upper():
+                                                                        return f"{company} RSUs"
+                                                                    else:
+                                                                        plan_type = ' '.join(words[1:]).title()
+                                                                        return f"{company} {plan_type}"
+            
+                                                        # Brokerage accounts
+                                                        if 'at Work Self-Directed' in name_clean:
+                                                            # "Morgan Stanley at Work Self-Directed Account" → "Morgan Stanley Brokerage"
+                                                            institution = name_clean.split(' at Work')[0]
+                                                            return f"{institution} Brokerage"
+            
+                                                        # Generic brokerage account shortening
+                                                        if name_clean.lower() == 'brokerage account':
+                                                            return 'Brokerage'
+            
+                                                        # Fix common formatting issues
+                                                        replacements = {
+                                                            'rollover_ira': 'Rollover IRA',
+                                                            'roth_ira': 'Roth IRA',
+                                                            'traditional_ira': 'Traditional IRA',
+                                                            'health_savings_account': 'HSA',
+                                                            '401k': '401(k)',
+                                                            '403b': '403(b)',
+                                                            '457': '457(b)',
+                                                        }
+            
+                                                        name_lower = name_clean.lower()
+                                                        for key, value in replacements.items():
+                                                            if key == name_lower:
+                                                                return value
+                                                            # Also handle patterns like "401k - Traditional"
+                                                            if name_lower.startswith(key):
+                                                                suffix = name_clean[len(key):].strip()
+                                                                return f"{value}{suffix}"
+            
+                                                        # Title case for all-caps names
+                                                        if name_clean.isupper():
+                                                            return name_clean.title()
+            
+                                                        # Return as-is if no pattern matches
+                                                        return name_clean
+            
+                                                    account_name = humanize_account_name(account_name_raw)
+            
+                                                    # Get institution and account number for display
+                                                    institution = str(row.get('document_type', ''))  # Institution is stored in document_type
+                                                    account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
+            
+                                                    # Get current balance
+                                                    current_balance = float(row.get('value', 0))
+            
+                                                    # Helper function to humanize income eligibility
+                                                    def humanize_eligibility(value: str) -> str:
+                                                        mappings = {
+                                                            'eligible': '✅ Eligible',
+                                                            'conditionally_eligible': '⚠️ Conditionally Eligible',
+                                                            'not_eligible': '❌ Not Eligible'
+                                                        }
+                                                        return mappings.get(str(value).lower(), value)
+            
+                                                    # Helper function to humanize purpose
+                                                    def humanize_purpose(value: str) -> str:
+                                                        mappings = {
+                                                            'income': 'Retirement Income',
+                                                            'general_income': 'General Income',
+                                                            'healthcare_only': 'Healthcare Only (HSA)',
+                                                            'education_only': 'Education Only (529)',
+                                                            'employment_compensation': 'Employment Compensation',
+                                                            'restricted_other': 'Restricted/Other'
+                                                        }
+                                                        return mappings.get(str(value).lower(), value)
+            
+                                                    # Get income eligibility and purpose if available
+                                                    income_eligibility = row.get('income_eligibility', '')
+                                                    purpose = row.get('purpose', '')
+            
+                                                    # Set default tax rate based on tax treatment
+                                                    if asset_type_display == 'Post-Tax':
+                                                        default_tax_rate = 15.0  # Capital gains tax
+                                                    else:
+                                                        default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
+            
+                                                    # Set default growth rate based on account type
+                                                    account_type_lower = str(account_type_raw).lower()
+                                                    if account_type_lower in ['savings', 'checking']:
+                                                        account_growth_rate = 3.0  # HYSA/Savings: conservative rate
+                                                    else:
+                                                        # Use the user's default growth rate for all investment accounts
+                                                        account_growth_rate = 7
+            
+                                                    table_row = {
+                                                        "#": f"#{idx+1}",
+                                                        "Institution": institution,
+                                                        "Account Name": account_name,
+                                                        "Last 4": account_number_last4,
+                                                        "Account Type": account_type,
+                                                        "Tax Treatment": asset_type_display,
+                                                        "Current Balance": current_balance,
+                                                        "Annual Contribution": 0.0,  # User needs to fill
+                                                        "Growth Rate (%)": account_growth_rate,
+                                                        "Tax Rate on Gains (%)": default_tax_rate
+                                                    }
+            
+                                                    # Add income eligibility if available
+                                                    if income_eligibility:
+                                                        table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
+            
+                                                    # Add purpose if available
+                                                    if purpose:
+                                                        table_row["Purpose"] = humanize_purpose(purpose)
+            
+                                                    table_data.append(table_row)
+        
+                                                # Create DataFrame from table_data
+                                                df_table = pd.DataFrame(table_data)
+        
+                                            # Define column configuration
+                                            column_config = {
+                                                "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                                                "Institution": st.column_config.TextColumn(
+                                                    "Institution",
+                                                    disabled=True,
+                                                    help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                                                    width="medium"
+                                                ),
+                                                "Account Name": st.column_config.TextColumn(
+                                                    "Account Name",
+                                                    help="Account name/description from statement",
+                                                    width="medium"
+                                                ),
+                                                "Last 4": st.column_config.TextColumn(
+                                                    "Last 4",
+                                                    disabled=True,
+                                                    help="Last 4 digits of account number",
+                                                    width="small"
+                                                ),
+                                                "Account Type": st.column_config.TextColumn(
+                                                    "Account Type",
+                                                    disabled=True,
+                                                    help="Type of account (401k, IRA, Savings, etc.) - extracted from statement",
+                                                    width="small"
+                                                ),
+                                                "Tax Treatment": st.column_config.SelectboxColumn(
+                                                    "Tax Treatment",
+                                                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                                    help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
+                                                ),
+                                                "Current Balance": st.column_config.NumberColumn(
+                                                    "Current Balance ($)",
+                                                    min_value=0,
+                                                    format="$%d",
+                                                    help="Current account balance (extracted from statements)"
+                                                ),
+                                                "Annual Contribution": st.column_config.NumberColumn(
+                                                    "Annual Contribution ($)",
+                                                    min_value=0,
+                                                    format="$%d",
+                                                    help="How much you contribute annually to this account"
+                                                ),
+                                                "Growth Rate (%)": st.column_config.NumberColumn(
+                                                    "Growth Rate (%)",
+                                                    min_value=0,
+                                                    max_value=50,
+                                                    format="%.1f%%",
+                                                    help=f"Expected annual growth rate (your default: {7}%)"
+                                                ),
+                                                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                                    "Tax Rate on Gains (%)",
+                                                    min_value=0,
+                                                    max_value=50,
+                                                    format="%.1f%%",
+                                                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
+                                                ),
+                                                "Income Eligibility": st.column_config.TextColumn(
+                                                    "Income Eligibility",
+                                                    disabled=True,
+                                                    help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
+                                                ),
+                                                "Purpose": st.column_config.TextColumn(
+                                                    "Purpose",
+                                                    disabled=True,
+                                                    help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
+                                                )
+                                            }
+        
+                                            # Use edited table from session state if it exists, otherwise use fresh data
+                                            # This prevents losing user edits on rerun
+                                            if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
+                                                # Preserve user edits across reruns
+                                                initial_data = st.session_state.ai_edited_table
+                                            else:
+                                                # First time showing the table
+                                                initial_data = df_table
+    
+                                            # Display editable table with unique key for fresh extraction view
+                                            edited_df = st.data_editor(
+                                                initial_data,
+                                                column_config=column_config,
+                                                use_container_width=True,
+                                                hide_index=True,
+                                                num_rows="dynamic",
+                                                key="ai_table_fresh_extraction"  # Unique key for this table
+                                            )
+    
+                                            # Save edited table to session state for persistence across reruns
+                                            st.session_state.ai_edited_table = edited_df
+        
+                                            # Extraction Quality Feedback Module
+                                            st.markdown("---")
+                                            st.markdown("#### 💬 Data Extraction Feedback")
+                                            st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
+        
+                                            feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
+        
+                                            with feedback_col1:
+                                                if st.button("👍 Looks Good", key="extraction_feedback_good", use_container_width=True, type="secondary"):
+                                                    # Positive feedback - send email
+                                                    subject = "AI Extraction Feedback - Accurate Data"
+                                                    body = f"""Hi Smart Retire AI team,
+        
+        The AI extraction worked great! Here are the details:
+        
+        Number of accounts extracted: {len(edited_df)}
+        Institution(s): {', '.join(edited_df['Institution'].unique())}
+        
+        The extracted data was accurate and saved me time.
+        
+        Thank you!
+        """
+                                                    # URL encode the body
+                                                    body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                                    email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                                    st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
+        
+                                            with feedback_col2:
+                                                if st.button("👎 Needs Work", key="extraction_feedback_bad", use_container_width=True, type="secondary"):
+                                                    # Negative feedback - show form
+                                                    st.session_state.show_extraction_feedback_form = True
+        
+                                            # Show detailed feedback form if user clicked "Needs Work"
+                                            if st.session_state.get('show_extraction_feedback_form', False):
+                                                st.markdown("---")
+                                                st.markdown("##### 📝 Tell us what went wrong")
+        
+                                                with st.form("extraction_feedback_form", clear_on_submit=True):
+                                                    issue_type = st.multiselect(
+                                                        "What issues did you encounter? (Select all that apply)",
+                                                        [
+                                                            "Wrong account balances",
+                                                            "Incorrect account types",
+                                                            "Wrong tax classification",
+                                                            "Missing accounts",
+                                                            "Duplicate accounts",
+                                                            "Wrong institution name",
+                                                            "Account numbers incorrect",
+                                                            "Other"
+                                                        ]
+                                                    )
+        
+                                                    specific_issues = st.text_area(
+                                                        "Specific details about the issue:",
+                                                        placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
+                                                        height=100
+                                                    )
+        
+                                                    statement_type = st.text_input(
+                                                        "Statement type/institution (optional):",
+                                                        placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
+                                                    )
+        
+                                                    submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary", use_container_width=True)
+        
+                                                    if submit_feedback:
+                                                        if issue_type and specific_issues:
+                                                            # Generate email
+                                                            subject = "AI Extraction Issue Report"
+                                                            issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
+                                                            body = f"""Hi Smart Retire AI team,
+        
+        I encountered issues with the AI extraction feature:
+        
+        ISSUES ENCOUNTERED:
+        {issues_list}
+        
+        SPECIFIC DETAILS:
+        {specific_issues}
+        
+        STATEMENT INFO:
+        {statement_type if statement_type else 'Not provided'}
+        
+        NUMBER OF ACCOUNTS: {len(edited_df)}
+        INSTITUTIONS: {', '.join(edited_df['Institution'].unique())}
+        
+        Please investigate and improve the extraction accuracy.
+        
+        Thank you!
+        """
+                                                            # URL encode the body
+                                                            body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                                            email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                                            st.success("✅ Thank you for the detailed feedback!")
+                                                            st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
+                                                            st.session_state.show_extraction_feedback_form = False
+                                                        else:
+                                                            st.error("⚠️ Please select at least one issue type and provide specific details.")
+        
+                                            # Display tax bucket breakdowns if available
+                                            if tax_buckets_by_account:
+                                                st.markdown("---")
+                                                st.markdown("#### 🔍 Tax Bucket Breakdown")
+                                                st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
+        
+                                                for account_id, buckets in tax_buckets_by_account.items():
+                                                    # Find account name in DataFrame
+                                                    account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
+                                                    if account_row is not None and not account_row.empty:
+                                                        account_name = account_row.iloc[0].get('label', account_id)
+                                                    else:
+                                                        account_name = account_id
+        
+                                                    with st.expander(f"📊 {account_name}"):
+                                                        # Create DataFrame for buckets
+                                                        bucket_df = pd.DataFrame(buckets)
+        
+                                                        # Humanize bucket_type and tax_treatment
+                                                        def humanize_bucket(value: str) -> str:
+                                                            mappings = {
+                                                                'traditional_401k': 'Traditional 401(k)',
+                                                                'roth_in_plan_conversion': 'Roth In-Plan Conversion',
+                                                                'after_tax_401k': 'After-Tax 401(k)',
+                                                                'tax_deferred': 'Tax-Deferred',
+                                                                'tax_free': 'Tax-Free',
+                                                                'post_tax': 'Post-Tax',
+                                                                'pre_tax': 'Pre-Tax'
+                                                            }
+                                                            return mappings.get(str(value).lower(), value)
+        
+                                                        if 'bucket_type' in bucket_df.columns:
+                                                            bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
+                                                        if 'tax_treatment' in bucket_df.columns:
+                                                            bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
+        
+                                                        # Format balance as currency
+                                                        if 'balance' in bucket_df.columns:
+                                                            total_bucket_balance = bucket_df['balance'].sum()
+                                                            bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
+        
+                                                        # Rename columns
+                                                        bucket_df = bucket_df.rename(columns={
+                                                            'bucket_type': 'Tax Bucket',
+                                                            'tax_treatment': 'Tax Treatment',
+                                                            'balance': 'Balance'
+                                                        })
+        
+                                                        st.dataframe(bucket_df, use_container_width=True, hide_index=True)
+        
+                                                        # Show total
+                                                        st.metric("Total", f"${total_bucket_balance:,.2f}")
+        
+                                            # Convert edited dataframe to Asset objects
+                                            if not edited_df.empty:
+                                                try:
+                                                    assets = []
+                                                    for _, row in edited_df.iterrows():
+                                                        # Parse tax treatment (from human-readable to enum)
+                                                        tax_treatment_str = row["Tax Treatment"]
+                                                        if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
+                                                            asset_type = AssetType.TAX_DEFERRED
+                                                        elif tax_treatment_str == "Post-Tax":
+                                                            asset_type = AssetType.POST_TAX
+                                                        elif tax_treatment_str == "Tax-Free":
+                                                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                                            asset_type = AssetType.POST_TAX
+                                                        else:
+                                                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+        
+                                                        # Create asset
+                                                        asset = Asset(
+                                                            name=row["Account Name"],
+                                                            asset_type=asset_type,
+                                                            current_balance=float(row["Current Balance"]),
+                                                            annual_contribution=float(row["Annual Contribution"]),
+                                                            growth_rate_pct=float(row["Growth Rate (%)"]),
+                                                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
+                                                        )
+                                                        assets.append(asset)
+        
+                                                    st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
+        
+                                                except Exception as e:
+                                                    st.error(f"❌ Error processing extracted data: {str(e)}")
+                                                    st.info("💡 Please check the values in the table.")
+        
+                                    else:
+                                        # Track failed statement upload
+                                        track_statement_upload(
+                                            success=False,
+                                            num_statements=len(uploaded_files),
+                                            num_accounts=0
+                                        )
+                                        track_error('statement_upload_failed', result.get('error', 'Unknown error'), {
+                                            'num_files': len(uploaded_files)
+                                        })
+    
+                                        progress_bar.progress(100)
+                                        status_text.text("✗ Extraction failed")
+                                        st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
+        
+                                except N8NError as e:
+                                    # Track N8N configuration error
+                                    track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                    track_error('statement_upload_n8n_error', str(e), {'num_files': len(uploaded_files)})
+    
+                                    progress_bar.progress(100)
+                                    status_text.text("✗ Configuration error")
+                                    st.error(f"Configuration Error: {str(e)}")
+                                    st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
+    
+                                except Exception as e:
+                                    # Track unexpected error
+                                    track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
+                                    track_error('statement_upload_error', str(e), {'num_files': len(uploaded_files)})
+    
+                                    progress_bar.progress(100)
+                                    status_text.text("✗ Unexpected error")
+                                    st.error(f"Error: {str(e)}")
+        
+            elif setup_option == "Upload CSV File":
+                st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
+                
+                # Download template button
+                csv_template = create_asset_template_csv()
+                st.download_button(
+                    label="📥 Download CSV Template",
+                    data=csv_template,
+                    file_name="asset_template.csv",
+                    mime="text/csv",
+                    help="Download a pre-filled template with example data"
+                )
+                
+                # Upload file
+                uploaded_file = st.file_uploader(
+                    "📤 Upload Your CSV File",
+                    type=['csv'],
+                    help="Upload your modified CSV file with your asset data"
+                )
+                
+                if uploaded_file is not None:
+                    try:
+                        # Read uploaded file
+                        csv_content = uploaded_file.read().decode('utf-8')
+                        assets = parse_uploaded_csv(csv_content)
+                        
+                        st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
+                        
+                        # Show uploaded assets in editable table format
+                        with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
+                            # Helper function to convert asset type to human-readable format
+                            def asset_type_to_display(asset: Asset) -> str:
+                                """Convert AssetType enum to human-readable display value."""
+                                if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
+                                    return "Tax-Deferred"
+                                elif asset.asset_type == AssetType.POST_TAX:
+                                    # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
+                                    if asset.tax_rate_pct == 0:
+                                        return "Tax-Free"
+                                    else:
+                                        return "Post-Tax"
+                                return "Post-Tax"  # default
+        
+                            # Create editable table data
+                            table_data = []
+                            for i, asset in enumerate(assets):
+                                row = {
+                                    "Index": i,
+                                    "Account Name": asset.name,
+                                    "Tax Treatment": asset_type_to_display(asset),
+                                    "Current Balance": asset.current_balance,
+                                    "Annual Contribution": asset.annual_contribution,
+                                    "Growth Rate (%)": asset.growth_rate_pct,
+                                    "Tax Rate on Gains (%)": asset.tax_rate_pct
+                                }
+                                table_data.append(row)
+                            
+                            # Create editable dataframe
+                            df = pd.DataFrame(table_data)
+                            
+                            # Define column configuration for editing
+                            column_config = {
+                                "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
+                                "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
+                                "Tax Treatment": st.column_config.SelectboxColumn(
+                                    "Tax Treatment",
+                                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                    help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
+                                ),
+                                "Current Balance": st.column_config.NumberColumn(
+                                    "Current Balance ($)",
+                                    min_value=0,
+                                    format="$%d",
+                                    help="Current account balance"
+                                ),
+                                "Annual Contribution": st.column_config.NumberColumn(
+                                    "Annual Contribution ($)",
+                                    min_value=0,
+                                    format="$%d",
+                                    help="Annual contribution amount"
+                                ),
+                                "Growth Rate (%)": st.column_config.NumberColumn(
+                                    "Growth Rate (%)",
+                                    min_value=0,
+                                    max_value=50,
+                                    format="%.1f%%",
+                                    help=f"Expected annual growth rate (your default: {7}%)"
+                                ),
+                                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                    "Tax Rate on Gains (%)",
+                                    min_value=0,
+                                    max_value=50,
+                                    format="%.1f%%",
+                                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
+                                )
+                            }
+                            
+                            # Display editable table
+                            st.info("💡 **Edit your assets directly in the table below. Changes will be applied when you run the analysis.**")
+                            edited_df = st.data_editor(
+                                df, 
+                                column_config=column_config,
+                                use_container_width=True, 
+                                hide_index=True,
+                                num_rows="dynamic"
+                            )
+                            
+                            # Convert edited dataframe back to Asset objects
+                            if not edited_df.empty:
+                                try:
+                                    updated_assets = []
+                                    for _, row in edited_df.iterrows():
+                                        # Parse tax treatment (from human-readable to enum)
+                                        tax_treatment_str = row["Tax Treatment"]
+                                        if tax_treatment_str == "Tax-Deferred":
+                                            asset_type = AssetType.TAX_DEFERRED
+                                        elif tax_treatment_str == "Post-Tax":
+                                            asset_type = AssetType.POST_TAX
+                                        elif tax_treatment_str == "Tax-Free":
+                                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
+                                            asset_type = AssetType.POST_TAX
+                                        else:
+                                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
+        
+                                        # Create updated asset
+                                        updated_asset = Asset(
+                                            name=row["Account Name"],
+                                            asset_type=asset_type,
+                                            current_balance=float(row["Current Balance"]),
+                                            annual_contribution=float(row["Annual Contribution"]),
+                                            growth_rate_pct=float(row["Growth Rate (%)"]),
+                                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
+                                        )
+                                        updated_assets.append(updated_asset)
+                                    
+                                    # Update the assets list
+                                    assets = updated_assets
+                                    st.success(f"✅ Assets updated! {len(assets)} assets ready for analysis.")
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ Error updating assets: {str(e)}")
+                                    st.info("💡 Please check your input values and try again.")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error processing CSV file: {str(e)}")
+                        st.info("💡 **Tip**: Make sure your CSV has the correct format. Download the template and use it as a guide.")
+                
+            elif setup_option == "Configure Individual Assets":
+                st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
+
+                # Use existing assets count if available, otherwise default to 3
+                default_num_assets = max(len(assets), 3) if len(assets) > 0 else 3
+                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=default_num_assets, help="How many different accounts do you have?")
+
+                # Clear assets list to rebuild from form
+                configured_assets: List[Asset] = []
+
+                for i in range(num_assets):
+                    # Get existing asset data if available
+                    existing_asset = assets[i] if i < len(assets) else None
+
+                    with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            asset_name = st.text_input(
+                                f"Asset Name {i+1}",
+                                value=existing_asset.name if existing_asset else f"Asset {i+1}",
+                                help="Name of your account"
+                            )
+
+                            # Find the index of the existing asset type in the options list
+                            default_type_index = 0
+                            if existing_asset:
+                                for idx, (name, atype) in enumerate(_DEF_ASSET_TYPES):
+                                    if atype == existing_asset.asset_type:
+                                        default_type_index = idx
+                                        break
+
+                            asset_type_selection: Tuple[str, AssetType] = st.selectbox(
+                                f"Asset Type {i+1}",
+                                options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
+                                index=default_type_index,
+                                format_func=lambda x: f"{x[0]} ({x[1].value})",
+                                help="Type of account for tax treatment"
+                            )
+                        with col2:
+                            current_balance = st.number_input(
+                                f"Current Balance {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.current_balance) if existing_asset else 10000,
+                                step=1000,
+                                help="Current account balance"
+                            )
+                            annual_contribution = st.number_input(
+                                f"Annual Contribution {i+1} ($)",
+                                min_value=0,
+                                value=int(existing_asset.annual_contribution) if existing_asset else 5000,
+                                step=500,
+                                help="How much you contribute annually"
+                            )
+                        with col3:
+                            growth_rate = st.slider(
+                                f"Growth Rate {i+1} (%)",
+                                0, 20,
+                                int(existing_asset.growth_rate_pct) if existing_asset else 7,
+                                help=f"Expected annual return (default: 7%)"
+                            )
+                            if asset_type_selection[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
+                                tax_rate = st.slider(
+                                    f"Capital Gains Rate {i+1} (%)",
+                                    0, 30,
+                                    int(existing_asset.tax_rate_pct) if existing_asset and existing_asset.tax_rate_pct > 0 else 15,
+                                    help="Capital gains tax rate"
+                                )
+                            else:
+                                tax_rate = 0
+
+                        configured_assets.append(Asset(
+                            name=asset_name,
+                            asset_type=asset_type_selection[1],
+                            current_balance=current_balance,
+                            annual_contribution=annual_contribution,
+                            growth_rate_pct=growth_rate,
+                            tax_rate_pct=tax_rate
+                        ))
+
+                # Replace assets with newly configured ones
+                assets = configured_assets
+    
+            st.markdown("---")
+
+
+            # Tax Rate Explanation - only show for CSV/AI upload methods when assets exist (not for manual configuration)
+            if setup_option != "Configure Individual Assets" and len(assets) > 0:
+                with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
+                    st.markdown("""
+                    ### 🎯 Tax Rate Column Explained
+
+                    The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
+
+                    #### **Pre-Tax Accounts (401k, Traditional IRA)**
+                    - **Tax Rate**: `0%` (not applicable here)
+                    - **Why**: The entire balance is taxed as ordinary income at withdrawal
+                    - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
+
+                    #### **Post-Tax Accounts**
+                    **Roth IRA:**
+                    - **Tax Rate**: `0%`
+                    - **Why**: No tax on withdrawals (contributions already taxed)
+                    - **Example**: Withdraw $100,000 tax-free
+
+                    **Brokerage Account:**
+                    - **Tax Rate**: `15%` (default capital gains rate)
+                    - **Why**: Only the **gains** are taxed, not original contributions
+                    - **Example**:
+                      - Contributed $50,000, grew to $100,000
+                      - Only $50,000 gain taxed at 15% = $7,500 tax
+                      - You keep $92,500
+
+                    #### **Tax-Deferred Accounts (HSA, Annuities)**
+                    - **Tax Rate**: Varies by account type
+                    - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
+                    - **Annuities**: Retirement tax rate on full amount
+
+                    💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
+                    """)
+
+                # Reference to Advanced Settings for default growth rate
+                st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
+        
+        
+            # Save assets to session state
+            st.session_state.assets = assets
+        
+            # Navigation buttons for Step 2
+            st.markdown("---")
+    
+            col1, col2, col3 = st.columns([1, 1, 1])
+            with col1:
+                if st.button("← Previous: Personal Info", use_container_width=True):
+                    st.session_state.onboarding_step = 1
+                    st.rerun()
+            with col3:
+                # Disable complete button if no assets configured
+                has_assets = len(assets) > 0
+                button_disabled = not has_assets
+    
+                if st.button(
+                    "Complete Setup → View Results",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=button_disabled,
+                    help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
+                ):
+                    # Check if user has set any meaningful contributions
+                    total_contributions = sum(asset.annual_contribution for asset in assets)
+                    has_contributions = total_contributions > 0
+    
+                    # Show reminder if no contributions and user hasn't dismissed it yet
+                    if not has_contributions and not st.session_state.get('contribution_reminder_dismissed', False):
+                        st.session_state.show_contribution_reminder = True
+                        st.rerun()
+                    else:
+                        # Track step 2 completed
+                        track_onboarding_step_completed(
+                            2,
+                            num_accounts=len(assets),
+                            setup_method=setup_option,
+                            total_balance=sum(asset.current_balance for asset in assets)
+                        )
+    
+                        # Save baseline values from onboarding
+                        st.session_state.baseline_retirement_age = st.session_state.retirement_age
+                        st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
+                        st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
+    
+                        # Initialize what-if values to match baseline
+                        st.session_state.whatif_retirement_age = st.session_state.retirement_age
+                        st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
+                        st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
+    
+                        # Mark onboarding as complete and navigate to results page
+                        st.session_state.onboarding_complete = True
+                        st.session_state.current_page = 'results'
+    
+                        # Track onboarding completed
+                        track_event('onboarding_completed', {
+                            'num_accounts': len(assets),
+                            'setup_method': setup_option,
+                            'has_retirement_goal': st.session_state.retirement_income_goal > 0
+                        })
+    
+                        st.rerun()
+        
+            # Show warning if no assets configured
+            if not has_assets:
+                st.warning("⚠️ Please configure at least one asset before completing onboarding.")
+    
+    elif st.session_state.current_page == 'results':
+        # Show analytics consent dialog on first load
+        if st.session_state.get('analytics_consent') is None:
+            analytics_consent_dialog()
+    
+        # ==========================================
+        # RESULTS & ANALYSIS PAGE
+        # ==========================================
+    
+        # Track page view
+        track_page_view('results')
+    
+        # Add navigation button to go back to onboarding
+        if st.button("← Back to Setup", use_container_width=False):
+            track_event('navigation_back_to_setup')
+            st.session_state.current_page = 'onboarding'
+            st.rerun()
+    
         st.markdown("---")
-        col1, col2, col3 = st.columns([1, 1, 1])
+    
+        # Header
+        st.header("📊 Retirement Projection & Analysis")
+        st.markdown("Explore your retirement projections and adjust scenarios with what-if analysis below.")
+    
+        st.markdown("---")
+    
+        # Fixed Facts Section (non-editable baseline data)
+        with st.expander("📋 Your Baseline Information (from setup)", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            current_year = datetime.now().year
+            baseline_age = current_year - st.session_state.birth_year
+    
+            with col1:
+                st.metric("Birth Year", st.session_state.birth_year)
+                st.metric("Current Age", f"{baseline_age} years")
+            with col2:
+                st.metric("Retirement Age (Baseline)", st.session_state.baseline_retirement_age)
+                st.metric("Life Expectancy (Baseline)", st.session_state.baseline_life_expectancy)
+            with col3:
+                st.metric("Accounts Configured", len(st.session_state.assets))
+                if st.session_state.baseline_retirement_income_goal > 0:
+                    st.metric("Income Goal (Baseline)", f"${st.session_state.baseline_retirement_income_goal:,.0f}/year")
+                else:
+                    st.metric("Income Goal (Baseline)", "Not set")
+    
+            st.info("💡 **To change these values, go back to Setup using the button above.**")
+    
+        st.markdown("---")
+    
+        # What-If Scenarios Section (editable)
+        st.subheader("🎯 What-If Scenario Adjustments")
+        st.markdown("Adjust the values below to explore different retirement scenarios. Changes update instantly.")
+    
+        col1, col2, col3 = st.columns(3)
+    
         with col1:
-            if st.button("← Previous: Personal Info", use_container_width=True):
-                st.session_state.onboarding_step = 1
-                st.rerun()
+            whatif_retirement_age = st.number_input(
+                "Retirement Age",
+                min_value=40,
+                max_value=80,
+                value=st.session_state.whatif_retirement_age,
+                help="Adjust retirement age to see impact on projections"
+            )
+    
+            whatif_life_expectancy = st.number_input(
+                "Life Expectancy",
+                min_value=whatif_retirement_age + 1,
+                max_value=120,
+                value=st.session_state.whatif_life_expectancy,
+                help="Adjust life expectancy to see impact on retirement duration"
+            )
+    
+        with col2:
+            whatif_retirement_income_goal = st.number_input(
+                "Annual Retirement Income Goal ($)",
+                min_value=0,
+                max_value=1000000,
+                value=st.session_state.whatif_retirement_income_goal,
+                step=5000,
+                help="Target annual income in retirement (0 = no goal set)"
+            )
+    
+            whatif_life_expenses = st.number_input(
+                "One-Time Life Expenses at Retirement ($)",
+                min_value=0,
+                max_value=10000000,
+                value=st.session_state.whatif_life_expenses,
+                step=10000,
+                help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
+            )
+    
         with col3:
-            # Disable complete button if no assets configured
-            has_assets = len(assets) > 0
-            button_disabled = not has_assets
+            whatif_inflation_rate = 3
     
-            if st.button(
-                "Complete Setup → View Results",
-                type="primary",
-                use_container_width=True,
-                disabled=button_disabled,
-                help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
-            ):
-                # Save baseline values from onboarding
-                st.session_state.baseline_retirement_age = st.session_state.retirement_age
-                st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
-                st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
+            whatif_retirement_growth_rate = st.slider(
+                "Portfolio Growth in Retirement (%)",
+                min_value=0.0,
+                max_value=10.0,
+                value=st.session_state.whatif_retirement_growth_rate,
+                step=0.5,
+                help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
+            )
     
-                # Initialize what-if values to match baseline
-                st.session_state.whatif_retirement_age = st.session_state.retirement_age
-                st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
-                st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
+            whatif_retirement_tax_rate = st.slider(
+                "Retirement Tax Rate (%)",
+                min_value=0,
+                max_value=50,
+                value=st.session_state.whatif_retirement_tax_rate,
+                help="Expected tax rate in retirement (used to calculate after-tax balance)"
+            )
     
-                # Mark onboarding as complete and navigate to results page
-                st.session_state.onboarding_complete = True
+    
+        # Update session state with current widget values
+        st.session_state.whatif_retirement_age = whatif_retirement_age
+        st.session_state.whatif_life_expectancy = whatif_life_expectancy
+        st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
+        st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
+        st.session_state.whatif_inflation_rate = whatif_inflation_rate
+        st.session_state.whatif_retirement_growth_rate = whatif_retirement_growth_rate
+        st.session_state.whatif_life_expenses = whatif_life_expenses
+    
+        # Reset button
+        if st.button("🔄 Reset to Baseline Values"):
+            # Track What-If reset
+            track_feature_usage('what_if_reset')
+    
+            st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
+            st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
+            st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
+            st.session_state.whatif_current_tax_rate = 22
+            st.session_state.whatif_retirement_tax_rate = 25
+            st.session_state.whatif_inflation_rate = 3
+            st.session_state.whatif_retirement_growth_rate = 4.0
+            st.session_state.whatif_life_expenses = 0
+            st.rerun()
+    
+        st.markdown("---")
+    
+        # Calculate values from what-if session state for results
+        current_year = datetime.now().year
+        age = current_year - st.session_state.birth_year
+        retirement_age = st.session_state.whatif_retirement_age
+        life_expectancy = st.session_state.whatif_life_expectancy
+        retirement_income_goal = st.session_state.whatif_retirement_income_goal
+        current_tax_rate = st.session_state.whatif_current_tax_rate
+        retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
+        inflation_rate = st.session_state.whatif_inflation_rate
+        retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
+        life_expenses = st.session_state.whatif_life_expenses
+        assets = st.session_state.assets
+        
+        try:
+            inputs = UserInputs(
+                age=int(age),
+                retirement_age=int(retirement_age),
+                life_expectancy=int(life_expectancy),
+                annual_income=0.0,  # Not used in calculations anymore
+                contribution_rate_pct=15.0,  # Not used in new system
+                expected_growth_rate_pct=7.0,  # Not used in new system
+                inflation_rate_pct=float(inflation_rate),
+                current_marginal_tax_rate_pct=float(current_tax_rate),
+                retirement_marginal_tax_rate_pct=float(retirement_tax_rate),
+                assets=assets
+            )
+        
+            result = project(inputs)
+    
+            # Save result to session state for Next Steps dialogs
+            st.session_state.last_result = result
+    
+            # Adjust after-tax balance for life expenses
+            total_after_tax_original = result['Total After-Tax Balance']
+    
+            # Validate life expenses don't exceed portfolio balance
+            if life_expenses > total_after_tax_original:
+                st.error(f"""
+                ⚠️ **Life Expenses Exceed Portfolio Balance**
+    
+                Your one-time life expenses at retirement (**${life_expenses:,.0f}**) exceed
+                your projected after-tax portfolio balance (**${total_after_tax_original:,.0f}**).
+    
+                Please either:
+                - Reduce life expenses, or
+                - Adjust your portfolio contributions/retirement age to build a larger balance
+                """)
+                st.stop()
+    
+            total_after_tax = total_after_tax_original - life_expenses
+    
+            # Key metrics in a prominent container
+            with st.container():
+                st.subheader("🎯 Key Metrics")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Years to Retirement", f"{result['Years Until Retirement']:.0f}")
+                with col2:
+                    st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
+                with col3:
+                    if life_expenses > 0:
+                        st.metric(
+                            "Total After-Tax Value",
+                            f"${total_after_tax:,.0f}",
+                            delta=f"-${life_expenses:,.0f} life expenses",
+                            delta_color="normal"
+                        )
+                    else:
+                        st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
+                with col4:
+                    st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
+    
+            # Income Analysis Section
+            st.markdown("---")
+            st.subheader("💰 Retirement Income Analysis")
+    
+            # Calculate retirement income from portfolio (using adjusted balance)
+            years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
+    
+            # Validate years in retirement
+            if years_in_retirement <= 0:
+                st.error(f"""
+                ⚠️ **Invalid Retirement Period**
+    
+                Your life expectancy (**{life_expectancy}**) must be greater than
+                your retirement age (**{retirement_age}**).
+    
+                Please adjust these values in the sliders above.
+                """)
+                st.stop()
+    
+            # Calculate inflation-adjusted annual withdrawal with portfolio growth
+            # This uses the inflation-adjusted annuity formula:
+            # PMT = PV × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+            # where portfolio grows at r% and withdrawals increase with i% inflation
+    
+            r = retirement_growth_rate / 100.0  # Convert to decimal
+            i = inflation_rate / 100.0  # Convert to decimal
+            n = years_in_retirement
+    
+            if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+                # Simple division when growth = inflation
+                annual_retirement_income = total_after_tax / n
+            elif r > i:  # Normal case: growth exceeds inflation
+                # Inflation-adjusted annuity formula
+                numerator = r - i
+                denominator = 1 - ((1 + i) / (1 + r)) ** n
+                annual_retirement_income = total_after_tax * (numerator / denominator)
+            else:  # r < i: inflation exceeds growth (portfolio losing real value)
+                # Still use the formula but result will be lower
+                numerator = r - i  # This will be negative
+                denominator = 1 - ((1 + i) / (1 + r)) ** n
+                annual_retirement_income = total_after_tax * (numerator / denominator)
+        
+            # Only show income goal comparison if user set a goal
+            if retirement_income_goal > 0:
+                # Calculate shortfall or surplus
+                income_shortfall = retirement_income_goal - annual_retirement_income
+                income_ratio = (annual_retirement_income / retirement_income_goal) * 100
+        
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Projected Annual Income",
+                        f"${annual_retirement_income:,.0f}",
+                        help=f"First year withdrawal from portfolio. Assumes {retirement_growth_rate:.1f}% growth during retirement with {inflation_rate}% inflation-adjusted increases annually. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})"
+                    )
+                with col2:
+                    st.metric(
+                        "Income Goal",
+                        f"${retirement_income_goal:,.0f}",
+                        help="Your desired retirement income"
+                    )
+                with col3:
+                    if income_shortfall > 0:
+                        st.metric(
+                            "Annual Shortfall",
+                            f"${income_shortfall:,.0f}",
+                            delta=f"-{income_ratio:.1f}%",
+                            delta_color="inverse"
+                        )
+                    else:
+                        surplus = -income_shortfall
+                        st.metric(
+                            "Annual Surplus",
+                            f"${surplus:,.0f}",
+                            delta=f"+{income_ratio:.1f}%",
+                            delta_color="normal"
+                        )
+        
+                # Income status analysis
+                if income_ratio >= 100:
+                    st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
+                elif income_ratio >= 80:
+                    st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
+                elif income_ratio >= 60:
+                    st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
+                else:
+                    st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
+            else:
+                # No income goal set - just show projected income
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        "Projected Annual Income",
+                        f"${annual_retirement_income:,.0f}",
+                        help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+                    )
+                with col2:
+                    st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
+    
+            # Explanation of retirement income calculation
+            with st.expander("📊 How Is Retirement Income Calculated?", expanded=False):
+                st.markdown(f"""
+                ### Inflation-Adjusted Annuity Calculation
+    
+                Your projected retirement income accounts for:
+                1. **Portfolio continuing to grow** during retirement ({retirement_growth_rate:.1f}% annually)
+                2. **Withdrawals increasing** with inflation ({inflation_rate}% annually)
+                3. Portfolio depleting to approximately $0 at end of retirement period
+    
+                **Formula Used:**
+                ```
+                Annual Income = Portfolio Balance × [(r - i) / (1 - ((1+i)/(1+r))^n)]
+                ```
+    
+                Where:
+                - **Portfolio Balance** = ${total_after_tax:,.0f} (after-tax, after life expenses)
+                - **r** (growth rate) = {retirement_growth_rate:.1f}% = {r:.4f}
+                - **i** (inflation rate) = {inflation_rate}% = {i:.4f}
+                - **n** (years) = {n} years (age {retirement_age} to {life_expectancy})
+    
+                ---
+    
+                ### Calculation Breakdown:
+    
+                **Step 1:** Calculate the real growth rate (growth minus inflation)
+                ```
+                Real Growth Rate = {retirement_growth_rate:.1f}% - {inflation_rate}% = {(r-i)*100:.2f}%
+                ```
+    
+                **Step 2:** Calculate the annuity factor
+                ```
+                Annuity Factor = [{r:.4f} - {i:.4f}] / [1 - ((1+{i:.4f})/(1+{r:.4f}))^{n}]
+                              = {r - i:.6f} / {1 - ((1+i)/(1+r))**n:.6f}
+                              = {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+                ```
+    
+                **Step 3:** Calculate first year withdrawal
+                ```
+                Annual Income = ${total_after_tax:,.0f} × {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
+                             = ${annual_retirement_income:,.0f}
+                ```
+    
+                ---
+    
+                ### What This Means:
+    
+                **First 10 Years of Withdrawals** (inflation-adjusted):
+                """)
+    
+                # Generate year-by-year withdrawal table
+                withdrawal_data = []
+                balance = total_after_tax
+                first_year_withdrawal = annual_retirement_income
+    
+                for year in range(1, min(11, n+1)):
+                    withdrawal = first_year_withdrawal * ((1 + i) ** (year - 1))
+                    balance_before = balance
+                    balance = balance * (1 + r) - withdrawal
+    
+                    withdrawal_data.append({
+                        "Year": year,
+                        "Age": retirement_age + year - 1,
+                        "Withdrawal": f"${withdrawal:,.0f}",
+                        "Start Balance": f"${balance_before:,.0f}",
+                        "End Balance": f"${max(0, balance):,.0f}"
+                    })
+    
+                import pandas as pd
+                df_withdrawals = pd.DataFrame(withdrawal_data)
+                st.dataframe(df_withdrawals, use_container_width=True, hide_index=True)
+    
+                st.markdown(f"""
+                **Key Points:**
+                - Year 1 withdrawal: **${first_year_withdrawal:,.0f}**
+                - Year 10 withdrawal: **${first_year_withdrawal * ((1 + i) ** 9):,.0f}**
+                - Total over {n} years: **${first_year_withdrawal * sum([(1+i)**j for j in range(n)]):,.0f}**
+                - Purchasing power stays constant (adjusts for inflation)
+    
+                ---
+                ### Why This Matters:
+    
+                Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
+                diversified portfolios with conservative allocations (bonds, dividend stocks, etc.) that
+                continue growing during retirement. This calculation reflects that reality.
+    
+                The {retirement_growth_rate:.1f}% growth rate is conservative for a balanced retirement portfolio,
+                and the inflation adjustments ensure your purchasing power remains constant throughout retirement.
+    
+                **Note:** You can adjust the "Portfolio Growth in Retirement" rate in the What-If section above
+                to see how different investment strategies affect your retirement income.
+                """)
+    
+            # Recommendations based on income analysis (only if goal is set)
+            if retirement_income_goal > 0:
+                # Use actionable heading when there's a shortfall
+                if income_shortfall > 0:
+                    expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
+                else:
+                    expander_title = "💡 Income Optimization Recommendations"
+    
+                with st.expander(expander_title, expanded=False):
+                    if income_shortfall > 0:
+                        # Calculate required after-tax balance to meet income goal
+                        # Use INVERSE annuity formula to account for growth during retirement
+                        # PV = PMT × [(1 - ((1+i)/(1+r))^n) / (r - i)]
+    
+                        if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
+                            # Simple multiplication when growth = inflation
+                            required_balance_for_income = retirement_income_goal * n
+                        else:
+                            # Inverse annuity formula
+                            numerator = 1 - ((1 + i) / (1 + r)) ** n
+                            denominator = r - i
+                            required_balance_for_income = retirement_income_goal * (numerator / denominator)
+    
+                        # Add life expenses back since they're deducted at retirement
+                        # We need: (balance to generate income) + (one-time life expenses)
+                        required_after_tax_balance = required_balance_for_income + life_expenses
+    
+                        additional_balance_needed = required_after_tax_balance - total_after_tax
+    
+                        # Helper function to calculate required contribution increase (NPV-based)
+                        def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed_aftertax, tax_efficiency_pct):
+                            """Calculate additional annual contribution needed using NPV formula.
+    
+                            Key insight: We need additional_balance_needed in AFTER-TAX dollars, but
+                            contributions grow PRE-TAX and then get taxed. So we must:
+                            1. Convert after-tax target to pre-tax target
+                            2. Calculate contributions needed for pre-tax target
+                            3. Return the contribution amount
+    
+                            For each asset, we need to solve for additional contribution C:
+                            FV_needed_pretax = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
+    
+                            Rearranging: C_additional = [FV_needed_pretax - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
+                            """
+                            # Convert after-tax target to pre-tax target
+                            # If tax efficiency is 85%, and we need $100k after-tax, we need $117.6k pre-tax
+                            additional_balance_needed_pretax = additional_balance_needed_aftertax / (tax_efficiency_pct / 100.0)
+    
+                            # Calculate weighted average growth rate
+                            weighted_avg_rate = 0
+                            total_balance = sum(a.current_balance for a in assets)
+                            if total_balance > 0:
+                                for asset in assets:
+                                    weight = asset.current_balance / total_balance
+                                    weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                            else:
+                                weighted_avg_rate = 0.07  # default 7%
+    
+                            # Solve for additional contribution using future value of annuity formula
+                            # FV = C * [((1+r)^t - 1)/r]
+                            # C = FV / [((1+r)^t - 1)/r]
+                            if weighted_avg_rate > 0 and years_to_retirement > 0:
+                                growth_factor = (1.0 + weighted_avg_rate) ** years_to_retirement
+                                annuity_factor = (growth_factor - 1.0) / weighted_avg_rate
+                                total_additional_contribution = additional_balance_needed_pretax / annuity_factor
+                            else:
+                                total_additional_contribution = additional_balance_needed_pretax / max(years_to_retirement, 1)
+    
+                            return total_additional_contribution, weighted_avg_rate * 100
+    
+                        # Helper function to calculate additional years needed
+                        def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses):
+                            """Calculate additional years needed to work.
+    
+                            Key insight: Working longer has TWO benefits:
+                            1. Portfolio grows longer (more years of contributions + growth)
+                            2. Retirement period is shorter (need less total balance)
+    
+                            Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
+                            where FV is calculated using INVERSE annuity formula to account for
+                            portfolio growth and inflation-adjusted withdrawals during retirement.
+    
+                            Must account for:
+                            - Taxes by converting pre-tax FV to after-tax FV
+                            - One-time life expenses deducted at retirement
+                            """
+                            # Calculate weighted average growth rate and total current contributions
+                            weighted_avg_rate = 0
+                            total_current_contribution = 0
+                            total_balance = sum(a.current_balance for a in assets)
+    
+                            if total_balance > 0:
+                                for asset in assets:
+                                    weight = asset.current_balance / total_balance
+                                    weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
+                                    total_current_contribution += asset.annual_contribution
+                            else:
+                                weighted_avg_rate = 0.07
+                                total_current_contribution = sum(a.annual_contribution for a in assets)
+    
+                            # Current projection data
+                            total_current_balance = total_balance
+    
+                            # Helper to calculate future value (pre-tax)
+                            def calculate_fv(years, principal, contribution, rate):
+                                if rate == 0:
+                                    return principal + contribution * years
+                                growth = (1.0 + rate) ** years
+                                return principal * growth + contribution * ((growth - 1.0) / rate)
+    
+                            # Iteratively test additional years with 0.1 year increments for precision
+                            # For each additional year, recalculate BOTH:
+                            # 1. Higher FV (more growth time)
+                            # 2. Lower required balance (fewer retirement years)
+                            for additional_tenths in range(0, 500):  # 0 to 50 years in 0.1 year increments
+                                additional_years = additional_tenths / 10.0
+                                test_retirement_age = retirement_age + additional_years
+                                test_years_to_retirement = test_retirement_age - current_age
+                                test_years_in_retirement = life_expectancy - test_retirement_age
+    
+                                # Skip if retirement age exceeds life expectancy
+                                if test_years_in_retirement <= 0:
+                                    continue
+    
+                                # Calculate what we'd have at this retirement age (PRE-TAX)
+                                test_fv_pretax = calculate_fv(test_years_to_retirement, total_current_balance,
+                                                      total_current_contribution, weighted_avg_rate)
+    
+                                # Convert to AFTER-TAX using tax efficiency ratio
+                                test_fv_aftertax = test_fv_pretax * (tax_efficiency_pct / 100.0)
+    
+                                # Subtract life expenses - this is the actual available balance for generating income
+                                available_balance_aftertax = test_fv_aftertax - life_expenses
+    
+                                # Calculate what we'd need for this shorter retirement period (AFTER-TAX)
+                                # This is just the amount needed to generate income via annuity
+                                # Use INVERSE annuity formula to account for growth during retirement
+                                r_ret = retirement_growth_rate / 100.0
+                                i_ret = inflation_rate / 100.0
+    
+                                if abs(r_ret - i_ret) < 0.0001:
+                                    # Simple multiplication when growth = inflation
+                                    required_balance_for_income = income_goal * test_years_in_retirement
+                                else:
+                                    # Inverse annuity formula
+                                    numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** test_years_in_retirement
+                                    denominator = r_ret - i_ret
+                                    required_balance_for_income = income_goal * (numerator / denominator)
+    
+                                # Total required = income-generating balance + life expenses
+                                required_balance_aftertax = required_balance_for_income + life_expenses
+    
+                                # Found solution? Compare available balance (after life expenses) to required balance for income
+                                if available_balance_aftertax >= required_balance_for_income:
+                                    return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
+    
+                            # If no solution found in 50 years, return 50
+                            # Calculate required balance using inverse annuity formula
+                            final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
+                            if final_years_in_retirement > 0:
+                                if abs(r_ret - i_ret) < 0.0001:
+                                    final_required_balance_for_income = income_goal * final_years_in_retirement
+                                else:
+                                    numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
+                                    denominator = r_ret - i_ret
+                                    final_required_balance_for_income = income_goal * (numerator / denominator)
+                                # Add life expenses to get total required balance
+                                final_required_balance = final_required_balance_for_income + life_expenses
+                            else:
+                                final_required_balance = life_expenses  # Still need life expenses even with 0 years in retirement
+    
+                            return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
+    
+                        # Calculate recommendations
+                        years_to_retirement = retirement_age - age
+                        tax_efficiency = result['Tax Efficiency (%)']
+    
+                        additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
+                            inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
+                        )
+                        additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
+                            inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses
+                        )
+    
+                        # Calculate new years in retirement for option 2
+                        new_years_in_retirement = life_expectancy - new_retirement_age
+    
+                        st.markdown(f"""
+                        **To close the ${income_shortfall:,.0f} annual shortfall:**
+    
+                        1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
+                           - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
+                           - Required total after-tax balance: ${required_after_tax_balance:,.0f}
+                        """)
+    
+                        # Add button to go back to setup to edit contributions
+                        if st.button("📝 Edit Portfolio Contributions", type="secondary", use_container_width=True):
+                            track_event('edit_contributions_from_recommendations')
+                            st.session_state.current_page = 'onboarding'
+                            st.rerun()
+    
+                        st.markdown(f"""
+                        2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {new_retirement_age:.0f})
+                           - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
+                           - Reduces retirement period to {new_years_in_retirement:.0f} years
+                           - Required total after-tax balance: ${required_balance_for_option2:,.0f}
+    
+                        3. **Optimize asset allocation**: Consider higher-growth investments
+    
+                        4. **Reduce retirement expenses**: Lower your income goal to ${retirement_income_goal - income_shortfall:,.0f}/year (reduce by ${income_shortfall:,.0f})
+    
+                        5. **Consider part-time work**: Supplement retirement income
+                        """)
+                    else:
+                        st.markdown("""
+                        **You're on track! Consider these optimizations:**
+        
+                        1. **Tax optimization**: Maximize Roth contributions
+                        2. **Asset allocation**: Balance growth vs. preservation
+                        3. **Estate planning**: Consider legacy goals
+                        4. **Lifestyle upgrades**: You may be able to increase retirement spending
+                        """)
+            
+            # Detailed breakdown in tabs
+            st.subheader("📈 Detailed Analysis")
+    
+            detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
+    
+            with detail_tab1:
+                st.write("**Individual Asset Values at Retirement**")
+        
+                # Helper function to humanize account names
+                def humanize_account_name(name: str) -> str:
+                    """Convert account names to human-readable format."""
+                    replacements = {
+                        'roth_ira': 'Roth IRA',
+                        'ira': 'IRA',
+                        '401k': '401(k)',
+                        'hsa': 'HSA (Health Savings Account)'
+                    }
+                    name_lower = name.lower()
+                    for key, value in replacements.items():
+                        if name_lower == key:
+                            return value
+                    return name  # Return original if no match
+        
+                # Create detailed asset breakdown with calculation explainability
+                if 'asset_results' in result and 'assets_input' in result:
+                    asset_data = []
+                    # Track totals for summary row
+                    total_current = 0
+                    total_contributions = 0
+                    total_growth = 0
+                    total_pre_tax = 0
+                    total_taxes = 0
+                    total_after_tax = 0
+        
+                    for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
+                        current_balance = asset_input.current_balance
+                        contributions = asset_result['total_contributions']
+                        pre_tax_value = asset_result['pre_tax_value']
+                        tax_liability = asset_result['tax_liability']
+                        after_tax_value = asset_result['after_tax_value']
+        
+                        # Calculate investment growth
+                        growth = pre_tax_value - current_balance - contributions
+        
+                        # Accumulate totals
+                        total_current += current_balance
+                        total_contributions += contributions
+                        total_growth += growth
+                        total_pre_tax += pre_tax_value
+                        total_taxes += tax_liability
+                        total_after_tax += after_tax_value
+        
+                        asset_data.append({
+                            "Account": humanize_account_name(asset_result['name']),
+                            "Current Balance": f"${current_balance:,.0f}",
+                            "Your Contributions": f"${contributions:,.0f}",
+                            "Investment Growth": f"${growth:,.0f}",
+                            "Pre-Tax Value": f"${pre_tax_value:,.0f}",
+                            "Est. Taxes": f"${tax_liability:,.0f}",
+                            "After-Tax Value": f"${after_tax_value:,.0f}"
+                        })
+        
+                    # Add totals row
+                    if asset_data:
+                        asset_data.append({
+                            "Account": "📊 TOTAL",
+                            "Current Balance": f"${total_current:,.0f}",
+                            "Your Contributions": f"${total_contributions:,.0f}",
+                            "Investment Growth": f"${total_growth:,.0f}",
+                            "Pre-Tax Value": f"${total_pre_tax:,.0f}",
+                            "Est. Taxes": f"${total_taxes:,.0f}",
+                            "After-Tax Value": f"${total_after_tax:,.0f}"
+                        })
+        
+                    if asset_data:
+                        st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
+                        st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+    
+                        # Note about brokerage account taxation limitation
+                        st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
+                    else:
+                        st.info("No individual asset breakdown available")
+                else:
+                    # Fallback to old format if detailed data not available
+                    asset_data = []
+                    for key, value in result.items():
+                        if "Asset" in key and "After-Tax" in key:
+                            asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+                            asset_data.append({
+                                "Account": humanize_account_name(asset_name),
+                                "After-Tax Value": f"${value:,.0f}"
+                            })
+        
+                    if asset_data:
+                        st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No individual asset breakdown available")
+    
+                # Calculation Explanation Section
+                st.markdown("---")
+                with st.expander("📊 How Are These Numbers Calculated?", expanded=False):
+                    st.markdown("""
+                    Click below to see a detailed breakdown of the calculation formula and methodology.
+                    """)
+    
+                    if st.button("🔍 Show Detailed Calculation Explanation", key="show_explanation_btn"):
+                        explanation = explain_projected_balance(inputs)
+                        st.text(explanation)
+    
+                        # Add download button for explanation
+                        st.download_button(
+                            label="📥 Download Explanation",
+                            data=explanation,
+                            file_name=f"retirement_calculation_explanation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            key="download_explanation_btn"
+                        )
+    
+            with detail_tab2:
+                tax_liability = result.get("Total Tax Liability", 0.0)
+                total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1.0)
+                tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0.0
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Tax Liability", f"${tax_liability:,.0f}")
+                    st.metric("Tax as % of Pre-Tax Value", f"{tax_percentage:.1f}%")
+                
+                with col2:
+                    if result["Tax Efficiency (%)"] > 85:
+                        st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized with minimal tax liability.")
+                    elif result["Tax Efficiency (%)"] > 75:
+                        st.warning(f"⚠️ **Good tax efficiency** ({tax_percentage:.1f}% tax burden), but there may be room for improvement. *Goal: Lower this percentage by shifting assets to tax-advantaged accounts.*")
+                        with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
+                            st.markdown("""
+                            ### 🎯 **Tax Optimization Strategies**
+                            
+                            **1. Asset Location Optimization:**
+                            - **Taxable accounts**: Hold tax-efficient index funds, municipal bonds
+                            - **401(k)/IRA**: Hold high-dividend stocks, REITs, bonds
+                            - **Roth IRA**: Hold high-growth stocks, international funds
+                            
+                            **2. Contribution Strategy:**
+                            - **Maximize employer 401(k) match** (free money!)
+                            - **Consider Roth vs Traditional** based on current vs future tax rates
+                            - **Backdoor Roth IRA** if income exceeds limits
+                            
+                            **3. Withdrawal Strategy:**
+                            - **Tax-loss harvesting** in taxable accounts
+                            - **Roth conversion** during low-income years
+                            - **Strategic withdrawal order**: Taxable → Traditional → Roth
+                            
+                            **4. Advanced Strategies:**
+                            - **HSA triple tax advantage** for medical expenses
+                            - **Municipal bonds** for high tax brackets
+                            - **Tax-efficient fund selection** (low turnover, index funds)
+                            
+                            💡 **Next Steps**: Consider consulting a tax professional for personalized advice based on your specific situation.
+                            """)
+                    else:
+                        st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
+                        with st.expander("🚨 **Urgent Tax Optimization Needed**", expanded=True):
+                            st.markdown("""
+                            ### ⚠️ **Your Tax Efficiency Needs Immediate Attention**
+                            
+                            **Priority Actions:**
+                            1. **Review asset allocation** across account types
+                            2. **Maximize tax-advantaged contributions** (401k, IRA, HSA)
+                            3. **Consider Roth conversions** if in lower tax bracket
+                            4. **Optimize fund selection** for tax efficiency
+                            
+                            **Quick Wins:**
+                            - Switch to index funds (lower turnover = less taxes)
+                            - Use tax-loss harvesting strategies
+                            - Consider municipal bonds for taxable accounts
+                            - Maximize HSA contributions if eligible
+                            
+                            📞 **Recommendation**: Consult a financial advisor for comprehensive tax optimization strategy.
+                            """)
+            
+                    with detail_tab3:
+                        # Summary table
+                        summary_data = {
+                            "Metric": [
+                                "Years Until Retirement",
+                                "Total Future Value (Pre-Tax)",
+                                "Total After-Tax Balance", 
+                                "Total Tax Liability",
+                                "Tax Efficiency (%)"
+                            ],
+                            "Value": [
+                                f"{result['Years Until Retirement']:.0f} years",
+                                f"${result['Total Future Value (Pre-Tax)']:,.0f}",
+                                f"${result['Total After-Tax Balance']:,.0f}",
+                                f"${result['Total Tax Liability']:,.0f}",
+                                f"{result['Tax Efficiency (%)']:.1f}%"
+                            ]
+                        }
+                        
+                        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+    
+            # Next Steps Section
+            st.markdown("---")
+            st.subheader("🎯 Next Steps")
+            st.markdown("Take your retirement planning to the next level:")
+    
+            # Create three columns for the Next Steps buttons
+            col1, col2, col3 = st.columns(3)
+    
+            with col1:
+                st.markdown("### 📄 Generate Report")
+                st.markdown("Create a comprehensive PDF report with your complete retirement analysis.")
+                if st.button("📥 Create PDF Report", use_container_width=True, type="primary", key="next_steps_report"):
+                    generate_report_dialog()
+    
+            with col2:
+                st.markdown("### 🎲 Scenario Analysis")
+                st.markdown("Explore thousands of scenarios and see how market volatility affects your plan.")
+                if st.button("🚀 Run Scenarios", use_container_width=True, type="primary", key="next_steps_monte_carlo"):
+                    monte_carlo_dialog()
+    
+            with col3:
+                st.markdown("### 📊 Cash Flow Projection")
+                st.markdown("Visualize year-by-year income and expenses throughout retirement.")
+                st.button("🔜 Coming Soon", use_container_width=True, disabled=True, key="next_steps_cashflow")
+    
+            # Share & Feedback section - Simple and clean
+            st.markdown("---")
+            with st.expander("💬 Share & Feedback", expanded=False):
+                # Create tabs for better organization
+                feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
+    
+                with feedback_tab1:
+                    st.markdown("**Share Smart Retire AI with others:** (Tip: Turn the pop-up blocker off for best results)")
+    
+                    app_url = "https://smartretireai.streamlit.app"
+    
+                    # Social share buttons - simple button layout
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        # Enhanced Twitter message with key features and value prop
+                        twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
+                        twitter_encoded = urllib.parse.quote(twitter_text)
+                        twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
+                        if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
+                            components.html(
+                                f"""<script>window.open("{twitter_url}", "_blank");</script>""",
+                                height=0
+                            )
+                            st.success("Opening Twitter in new tab...")
+
+                    with col2:
+                        # LinkedIn with professional messaging
+                        linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
+                        if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
+                            components.html(
+                                f"""<script>window.open("{linkedin_url}", "_blank");</script>""",
+                                height=0
+                            )
+                            st.success("Opening LinkedIn in new tab...")
+
+                    with col3:
+                        facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
+                        if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
+                            components.html(
+                                f"""<script>window.open("{facebook_url}", "_blank");</script>""",
+                                height=0
+                            )
+                            st.success("Opening Facebook in new tab...")
+
+                    with col4:
+                        if st.button("📧 Email", use_container_width=True, key="share_email"):
+                            # Enhanced email with detailed value proposition
+                            email_subject = "Powerful FREE Retirement Planning Tool - Smart Retire AI"
+                            email_body = (
+                                "Hi!%0A%0A"
+                                "I discovered Smart Retire AI and thought you might find it helpful for retirement planning.%0A%0A"
+                                "✨ What makes it special:%0A"
+                                "• AI-powered financial statement analysis%0A"
+                                "• Tax-optimized retirement projections%0A"
+                                "• Monte Carlo simulations for risk assessment%0A"
+                                "• Personalized recommendations based on your goals%0A"
+                                "• PDF reports with detailed breakdowns%0A"
+                                "• Completely FREE to use%0A%0A"
+                                "Check it out: " + app_url + "%0A%0A"
+                                "Best regards"
+                            )
+                            email_url = f"mailto:?subject={email_subject}&body={email_body}"
+                            components.html(
+                                f"""<script>window.location.href="{email_url}";</script>""",
+                                height=0
+                            )
+                            st.success("Opening email client...")
+    
+                    st.markdown("---")
+                    st.markdown("**Or copy and share the link:**")
+                    st.code(app_url, language=None)
+    
+                with feedback_tab2:
+                    st.markdown("**We'd love to hear from you!**")
+    
+                    # Quick rating
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("👍 Love it!", use_container_width=True, key="feedback_love"):
+                            st.success("Thank you! 💚")
+                            st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
+                    with col2:
+                        if st.button("👎 Could improve", use_container_width=True, key="feedback_improve"):
+                            st.info("Thanks for the feedback!")
+                            st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
+    
+                    st.markdown("---")
+    
+                    # Simple feedback form
+                    with st.form("simple_feedback_nextsteps"):
+                        feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
+                        if st.form_submit_button("📧 Send Feedback"):
+                            if feedback_msg:
+                                email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
+                                st.success("Ready to send!")
+                                st.markdown(f"[Click to open email →]({email_url})")
+    
+                with feedback_tab3:
+                    st.markdown("""
+                    **Get in touch:**
+    
+                    📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
+                    ⏱️ **Response time:** 24-48 hours
+                    🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
+    
+                    We're here to help with questions, bugs, or feature requests!
+                    """)
+    
+        except Exception as e:
+            st.error(f"❌ **Error in calculation**: {e}")
+            with st.expander("🔍 Error Details", expanded=False):
+                st.exception(e)
+    
+    elif st.session_state.current_page == 'monte_carlo':
+        # Show analytics consent dialog on first load
+        if st.session_state.get('analytics_consent') is None:
+            analytics_consent_dialog()
+    
+        # ==========================================
+        # MONTE CARLO SIMULATION PAGE
+        # ==========================================
+    
+        # Track page view
+        track_page_view('monte_carlo')
+    
+        # Add navigation buttons to go back
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("← Back to Results", use_container_width=True):
+                track_event('navigation_back_to_results')
                 st.session_state.current_page = 'results'
                 st.rerun()
     
-        # Show warning if no assets configured
-        if not has_assets:
-            st.warning("⚠️ Please configure at least one asset before completing onboarding.")
-
-elif st.session_state.current_page == 'results':
-    # ==========================================
-    # RESULTS & ANALYSIS PAGE
-    # ==========================================
-
-    # Add navigation button to go back to onboarding
-    if st.button("← Back to Setup", use_container_width=False):
-        st.session_state.current_page = 'onboarding'
-        st.rerun()
-
-    st.markdown("---")
-
-    # Header
-    st.header("📊 Retirement Projection & Analysis")
-    st.markdown("Explore your retirement projections and adjust scenarios with what-if analysis below.")
-
-    st.markdown("---")
-
-    # Fixed Facts Section (non-editable baseline data)
-    with st.expander("📋 Your Baseline Information (from setup)", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        current_year = datetime.now().year
-        baseline_age = current_year - st.session_state.birth_year
-
-        with col1:
-            st.metric("Birth Year", st.session_state.birth_year)
-            st.metric("Current Age", f"{baseline_age} years")
-        with col2:
-            st.metric("Retirement Age (Baseline)", st.session_state.baseline_retirement_age)
-            st.metric("Life Expectancy (Baseline)", st.session_state.baseline_life_expectancy)
-        with col3:
-            st.metric("Accounts Configured", len(st.session_state.assets))
-            if st.session_state.baseline_retirement_income_goal > 0:
-                st.metric("Income Goal (Baseline)", f"${st.session_state.baseline_retirement_income_goal:,.0f}/year")
-            else:
-                st.metric("Income Goal (Baseline)", "Not set")
-
-        st.info("💡 **To change these values, go back to Setup using the button above.**")
-
-    st.markdown("---")
-
-    # What-If Scenarios Section (editable)
-    st.subheader("🎯 What-If Scenario Adjustments")
-    st.markdown("Adjust the values below to explore different retirement scenarios. Changes update instantly.")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.session_state.whatif_retirement_age = st.number_input(
-            "Retirement Age",
-            min_value=40,
-            max_value=80,
-            value=st.session_state.whatif_retirement_age,
-            help="Adjust retirement age to see impact on projections",
-            key="whatif_retirement_age_input"
-        )
-
-        st.session_state.whatif_life_expectancy = st.number_input(
-            "Life Expectancy",
-            min_value=st.session_state.whatif_retirement_age + 1,
-            max_value=120,
-            value=st.session_state.whatif_life_expectancy,
-            help="Adjust life expectancy to see impact on retirement duration",
-            key="whatif_life_expectancy_input"
-        )
-
-    with col2:
-        st.session_state.whatif_retirement_income_goal = st.number_input(
-            "Annual Retirement Income Goal ($)",
-            min_value=0,
-            max_value=1000000,
-            value=st.session_state.whatif_retirement_income_goal,
-            step=5000,
-            help="Target annual income in retirement (0 = no goal set)",
-            key="whatif_income_goal_input"
-        )
-
-        st.session_state.whatif_current_tax_rate = st.slider(
-            "Current Tax Rate (%)",
-            min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_current_tax_rate,
-            help="Your current marginal tax rate",
-            key="whatif_current_tax_input"
-        )
-
-    with col3:
-        st.session_state.whatif_retirement_tax_rate = st.slider(
-            "Retirement Tax Rate (%)",
-            min_value=0,
-            max_value=50,
-            value=st.session_state.whatif_retirement_tax_rate,
-            help="Expected tax rate in retirement",
-            key="whatif_retirement_tax_input"
-        )
-
-        st.session_state.whatif_inflation_rate = st.slider(
-            "Inflation Rate (%)",
-            min_value=0,
-            max_value=10,
-            value=st.session_state.whatif_inflation_rate,
-            help="Expected long-term inflation rate",
-            key="whatif_inflation_input"
-        )
-
-    # Reset button
-    if st.button("🔄 Reset to Baseline Values"):
-        st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
-        st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
-        st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
-        st.session_state.whatif_current_tax_rate = 22
-        st.session_state.whatif_retirement_tax_rate = 25
-        st.session_state.whatif_inflation_rate = 3
-        st.rerun()
-
-    st.markdown("---")
-
-    # Calculate values from what-if session state for results
-    current_year = datetime.now().year
-    age = current_year - st.session_state.birth_year
-    retirement_age = st.session_state.whatif_retirement_age
-    life_expectancy = st.session_state.whatif_life_expectancy
-    retirement_income_goal = st.session_state.whatif_retirement_income_goal
-    current_tax_rate = st.session_state.whatif_current_tax_rate
-    retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
-    inflation_rate = st.session_state.whatif_inflation_rate
-    client_name = st.session_state.client_name
-    assets = st.session_state.assets
-    
-    try:
-        inputs = UserInputs(
-            age=int(age),
-            retirement_age=int(retirement_age),
-            life_expectancy=int(life_expectancy),
-            annual_income=0.0,  # Not used in calculations anymore
-            contribution_rate_pct=15.0,  # Not used in new system
-            expected_growth_rate_pct=7.0,  # Not used in new system
-            inflation_rate_pct=float(inflation_rate),
-            current_marginal_tax_rate_pct=float(current_tax_rate),
-            retirement_marginal_tax_rate_pct=float(retirement_tax_rate),
-            assets=assets
-        )
-    
-        result = project(inputs)
-    
-        # Key metrics in a prominent container
-        with st.container():
-            st.subheader("🎯 Key Metrics")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Years to Retirement", f"{result['Years Until Retirement']:.0f}")
-            with col2:
-                st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
-            with col3:
-                st.metric("Total After-Tax Value", f"${result['Total After-Tax Balance']:,.0f}")
-            with col4:
-                st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
-        
-        # Income Analysis Section
         st.markdown("---")
-        st.subheader("💰 Retirement Income Analysis")
     
-        # Calculate retirement income from portfolio
-        total_after_tax = result['Total After-Tax Balance']
-        years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
-        annual_retirement_income = total_after_tax / years_in_retirement
+        # Header
+        st.header("🎲 Monte Carlo Simulation")
+        st.markdown("Explore thousands of possible retirement scenarios with probabilistic analysis")
     
-        # Only show income goal comparison if user set a goal
-        if retirement_income_goal > 0:
-            # Calculate shortfall or surplus
-            income_shortfall = retirement_income_goal - annual_retirement_income
-            income_ratio = (annual_retirement_income / retirement_income_goal) * 100
+        st.markdown("---")
     
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric(
-                    "Projected Annual Income",
-                    f"${annual_retirement_income:,.0f}",
-                    help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+        # Educational explanation
+        with st.expander("📚 What is Monte Carlo Simulation?", expanded=False):
+            st.markdown("""
+            ### What is Monte Carlo Simulation?
+    
+            Monte Carlo simulation runs **thousands of possible market scenarios** to show you the range of
+            potential retirement outcomes, not just a single projection.
+    
+            **Why use it?**
+            - Markets don't deliver consistent returns every year
+            - See probability ranges (best case, worst case, most likely)
+            - Understand uncertainty in your retirement plan
+            - Make more informed decisions with probabilistic analysis
+    
+            **How it works:**
+            1. Runs 1,000+ simulations with varying market returns
+            2. Returns vary randomly around your expected growth rate
+            3. Shows distribution of possible outcomes
+            4. Calculates probability of meeting your retirement goals
+            5. **Shows projected annual income variation** (not just final balance)
+            """)
+    
+        st.markdown("---")
+    
+        # Configuration Section
+        st.subheader("⚙️ Simulation Settings")
+    
+        # Get default values from session state if coming from dialog
+        default_num_sims = 1000
+        default_volatility = 15.0
+        if 'monte_carlo_config' in st.session_state:
+            default_num_sims = st.session_state.monte_carlo_config.get('num_simulations', 1000)
+            default_volatility = st.session_state.monte_carlo_config.get('volatility', 15.0)
+            # Clear the config after using it
+            del st.session_state.monte_carlo_config
+    
+        col1, col2 = st.columns(2)
+    
+        with col1:
+            num_simulations = st.select_slider(
+                "Number of Simulations",
+                options=[100, 500, 1000, 5000, 10000],
+                value=default_num_sims,
+                help="More simulations = more accurate results (but slower)"
+            )
+    
+        with col2:
+            volatility = st.slider(
+                "Market Volatility (Standard Deviation %)",
+                min_value=5.0,
+                max_value=30.0,
+                value=default_volatility,
+                step=1.0,
+                help="Historical stock market volatility is ~15-20%. Higher = more uncertainty."
+            )
+    
+        st.markdown("---")
+    
+        # Run Simulation Button
+        if st.button("🎲 Run Monte Carlo Simulation", type="primary", use_container_width=True, key="run_monte_carlo_main"):
+            try:
+                from financialadvisor.core.monte_carlo import (
+                    run_monte_carlo_simulation,
+                    calculate_probability_of_goal,
+                    get_confidence_interval
                 )
-            with col2:
-                st.metric(
-                    "Income Goal",
-                    f"${retirement_income_goal:,.0f}",
-                    help="Your desired retirement income"
+    
+                # Prepare inputs for simulation
+                current_year_mc = datetime.now().year
+    
+                simulation_inputs = UserInputs(
+                    age=current_year_mc - st.session_state.birth_year,
+                    retirement_age=int(st.session_state.whatif_retirement_age),
+                    life_expectancy=int(st.session_state.whatif_life_expectancy),
+                    annual_income=0.0,
+                    contribution_rate_pct=15.0,
+                    expected_growth_rate_pct=7.0,
+                    inflation_rate_pct=float(st.session_state.whatif_inflation_rate),
+                    current_marginal_tax_rate_pct=float(st.session_state.whatif_current_tax_rate),
+                    retirement_marginal_tax_rate_pct=float(st.session_state.whatif_retirement_tax_rate),
+                    assets=st.session_state.assets
                 )
-            with col3:
-                if income_shortfall > 0:
-                    st.metric(
-                        "Annual Shortfall",
-                        f"${income_shortfall:,.0f}",
-                        delta=f"-{income_ratio:.1f}%",
-                        delta_color="inverse"
+    
+                with st.spinner(f"Running {num_simulations:,} simulations..."):
+                    results = run_monte_carlo_simulation(
+                        simulation_inputs,
+                        num_simulations=num_simulations,
+                        volatility=volatility
                     )
-                else:
-                    surplus = -income_shortfall
-                    st.metric(
-                        "Annual Surplus",
-                        f"${surplus:,.0f}",
-                        delta=f"+{income_ratio:.1f}%",
-                        delta_color="normal"
-                    )
     
-            # Income status analysis
-            if income_ratio >= 100:
-                st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
-            elif income_ratio >= 80:
-                st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
-            elif income_ratio >= 60:
-                st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
-            else:
-                st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
-        else:
-            # No income goal set - just show projected income
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    "Projected Annual Income",
-                    f"${annual_retirement_income:,.0f}",
-                    help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
-                )
-            with col2:
-                st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
-    
-        # Recommendations based on income analysis (only if goal is set)
-        if retirement_income_goal > 0:
-            # Use actionable heading when there's a shortfall
-            if income_shortfall > 0:
-                expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
-            else:
-                expander_title = "💡 Income Optimization Recommendations"
-    
-            with st.expander(expander_title, expanded=False):
-                if income_shortfall > 0:
-                    st.markdown(f"""
-                    **To close the ${income_shortfall:,.0f} annual shortfall:**
-    
-                    1. **Increase contributions**: Boost annual savings by ${income_shortfall * 0.1:,.0f} per year
-                    2. **Extend retirement age**: Work {income_shortfall / (annual_retirement_income * 0.05):.1f} additional years
-                    3. **Optimize asset allocation**: Consider higher-growth investments
-                    4. **Reduce retirement expenses**: Lower your income goal by ${income_shortfall * 0.2:,.0f}
-                    5. **Consider part-time work**: Supplement retirement income
-                    """)
-                else:
-                    st.markdown("""
-                    **You're on track! Consider these optimizations:**
-    
-                    1. **Tax optimization**: Maximize Roth contributions
-                    2. **Asset allocation**: Balance growth vs. preservation
-                    3. **Estate planning**: Consider legacy goals
-                    4. **Lifestyle upgrades**: You may be able to increase retirement spending
-                    """)
-        
-        # Detailed breakdown in tabs
-        st.subheader("📈 Detailed Analysis")
-
-        detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
-
-        with detail_tab1:
-            st.write("**Individual Asset Values at Retirement**")
-    
-            # Helper function to humanize account names
-            def humanize_account_name(name: str) -> str:
-                """Convert account names to human-readable format."""
-                replacements = {
-                    'roth_ira': 'Roth IRA',
-                    'ira': 'IRA',
-                    '401k': '401(k)',
-                    'hsa': 'HSA (Health Savings Account)'
-                }
-                name_lower = name.lower()
-                for key, value in replacements.items():
-                    if name_lower == key:
-                        return value
-                return name  # Return original if no match
-    
-            # Create detailed asset breakdown with calculation explainability
-            if 'asset_results' in result and 'assets_input' in result:
-                asset_data = []
-                # Track totals for summary row
-                total_current = 0
-                total_contributions = 0
-                total_growth = 0
-                total_pre_tax = 0
-                total_taxes = 0
-                total_after_tax = 0
-    
-                for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
-                    current_balance = asset_input.current_balance
-                    contributions = asset_result['total_contributions']
-                    pre_tax_value = asset_result['pre_tax_value']
-                    tax_liability = asset_result['tax_liability']
-                    after_tax_value = asset_result['after_tax_value']
-    
-                    # Calculate investment growth
-                    growth = pre_tax_value - current_balance - contributions
-    
-                    # Accumulate totals
-                    total_current += current_balance
-                    total_contributions += contributions
-                    total_growth += growth
-                    total_pre_tax += pre_tax_value
-                    total_taxes += tax_liability
-                    total_after_tax += after_tax_value
-    
-                    asset_data.append({
-                        "Account": humanize_account_name(asset_result['name']),
-                        "Current Balance": f"${current_balance:,.0f}",
-                        "Your Contributions": f"${contributions:,.0f}",
-                        "Investment Growth": f"${growth:,.0f}",
-                        "Pre-Tax Value": f"${pre_tax_value:,.0f}",
-                        "Est. Taxes": f"${tax_liability:,.0f}",
-                        "After-Tax Value": f"${after_tax_value:,.0f}"
-                    })
-    
-                # Add totals row
-                if asset_data:
-                    asset_data.append({
-                        "Account": "📊 TOTAL",
-                        "Current Balance": f"${total_current:,.0f}",
-                        "Your Contributions": f"${total_contributions:,.0f}",
-                        "Investment Growth": f"${total_growth:,.0f}",
-                        "Pre-Tax Value": f"${total_pre_tax:,.0f}",
-                        "Est. Taxes": f"${total_taxes:,.0f}",
-                        "After-Tax Value": f"${total_after_tax:,.0f}"
-                    })
-    
-                if asset_data:
-                    st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
-                    st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
-
-                    # Note about brokerage account taxation limitation
-                    st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
-                else:
-                    st.info("No individual asset breakdown available")
-            else:
-                # Fallback to old format if detailed data not available
-                asset_data = []
-                for key, value in result.items():
-                    if "Asset" in key and "After-Tax" in key:
-                        asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
-                        asset_data.append({
-                            "Account": humanize_account_name(asset_name),
-                            "After-Tax Value": f"${value:,.0f}"
-                        })
-    
-                if asset_data:
-                    st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No individual asset breakdown available")
-        
-        with detail_tab2:
-            tax_liability = result.get("Total Tax Liability", 0)
-            total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1)
-            tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Tax Liability", f"${tax_liability:,.0f}")
-                st.metric("Tax as % of Pre-Tax Value", f"{tax_percentage:.1f}%")
-            
-            with col2:
-                if result["Tax Efficiency (%)"] > 85:
-                    st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized with minimal tax liability.")
-                elif result["Tax Efficiency (%)"] > 75:
-                    st.warning(f"⚠️ **Good tax efficiency** ({tax_percentage:.1f}% tax burden), but there may be room for improvement. *Goal: Lower this percentage by shifting assets to tax-advantaged accounts.*")
-                    with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
-                        st.markdown("""
-                        ### 🎯 **Tax Optimization Strategies**
-                        
-                        **1. Asset Location Optimization:**
-                        - **Taxable accounts**: Hold tax-efficient index funds, municipal bonds
-                        - **401(k)/IRA**: Hold high-dividend stocks, REITs, bonds
-                        - **Roth IRA**: Hold high-growth stocks, international funds
-                        
-                        **2. Contribution Strategy:**
-                        - **Maximize employer 401(k) match** (free money!)
-                        - **Consider Roth vs Traditional** based on current vs future tax rates
-                        - **Backdoor Roth IRA** if income exceeds limits
-                        
-                        **3. Withdrawal Strategy:**
-                        - **Tax-loss harvesting** in taxable accounts
-                        - **Roth conversion** during low-income years
-                        - **Strategic withdrawal order**: Taxable → Traditional → Roth
-                        
-                        **4. Advanced Strategies:**
-                        - **HSA triple tax advantage** for medical expenses
-                        - **Municipal bonds** for high tax brackets
-                        - **Tax-efficient fund selection** (low turnover, index funds)
-                        
-                        💡 **Next Steps**: Consider consulting a tax professional for personalized advice based on your specific situation.
-                        """)
-                else:
-                    st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
-                    with st.expander("🚨 **Urgent Tax Optimization Needed**", expanded=True):
-                        st.markdown("""
-                        ### ⚠️ **Your Tax Efficiency Needs Immediate Attention**
-                        
-                        **Priority Actions:**
-                        1. **Review asset allocation** across account types
-                        2. **Maximize tax-advantaged contributions** (401k, IRA, HSA)
-                        3. **Consider Roth conversions** if in lower tax bracket
-                        4. **Optimize fund selection** for tax efficiency
-                        
-                        **Quick Wins:**
-                        - Switch to index funds (lower turnover = less taxes)
-                        - Use tax-loss harvesting strategies
-                        - Consider municipal bonds for taxable accounts
-                        - Maximize HSA contributions if eligible
-                        
-                        📞 **Recommendation**: Consult a financial advisor for comprehensive tax optimization strategy.
-                        """)
-        
-                with detail_tab3:
-                    # Summary table
-                    summary_data = {
-                        "Metric": [
-                            "Years Until Retirement",
-                            "Total Future Value (Pre-Tax)",
-                            "Total After-Tax Balance", 
-                            "Total Tax Liability",
-                            "Tax Efficiency (%)"
-                        ],
-                        "Value": [
-                            f"{result['Years Until Retirement']:.0f} years",
-                            f"${result['Total Future Value (Pre-Tax)']:,.0f}",
-                            f"${result['Total After-Tax Balance']:,.0f}",
-                            f"${result['Total Tax Liability']:,.0f}",
-                            f"{result['Tax Efficiency (%)']:.1f}%"
-                        ]
-                    }
-                    
-                    st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
-                    
-                    # PDF Report Download
-                    st.markdown("---")
-                    st.subheader("📄 Download Report")
-                    
-                    if _REPORTLAB_AVAILABLE:
-                        try:
-                            # Prepare user inputs for PDF
-                            # Note: sidebar variables (current_tax_rate, retirement_tax_rate, inflation_rate)
-                            # are defined in the sidebar section above and should always be accessible
-                            user_inputs = {
-                                'client_name': client_name if client_name else 'Client',
-                                'current_marginal_tax_rate_pct': current_tax_rate if 'current_tax_rate' in locals() else 22,
-                                'retirement_marginal_tax_rate_pct': retirement_tax_rate if 'retirement_tax_rate' in locals() else 25,
-                                'inflation_rate_pct': inflation_rate if 'inflation_rate' in locals() else 3,
-                                'age': age,
-                                'retirement_age': retirement_age,
-                                'life_expectancy': life_expectancy,
-                                'birth_year': st.session_state.birth_year,
-                                'retirement_income_goal': retirement_income_goal
-                            }
-                            
-                            # Generate PDF
-                            pdf_bytes = generate_pdf_report(result, assets, user_inputs)
-                            
-                            # Download button with personalized filename
-                            client_name_clean = client_name.replace(" ", "_").replace(",", "").replace(".", "") if client_name else "Client"
-                            filename = f"retirement_analysis_{client_name_clean}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                            
-                            st.download_button(
-                                label="📥 Download PDF Report",
-                                data=pdf_bytes,
-                                file_name=filename,
-                                mime="application/pdf",
-                                help="Download a comprehensive PDF report with all your retirement analysis details"
-                            )
-                            
-                            st.info("💡 **PDF Report includes:** Executive summary, portfolio breakdown, individual asset projections, tax analysis, and personalized recommendations.")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error generating PDF: {str(e)}")
-                            st.info("💡 Try refreshing the page and running the analysis again.")
+                    # Calculate probability of meeting income goal
+                    prob_success: Optional[float]
+                    if st.session_state.whatif_retirement_income_goal > 0:
+                        prob_success = calculate_probability_of_goal(
+                            results["outcomes"],
+                            int(st.session_state.whatif_retirement_age),
+                            int(st.session_state.whatif_life_expectancy),
+                            float(st.session_state.whatif_retirement_income_goal)
+                        )
                     else:
-                        st.warning("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
-                        st.code("pip install reportlab", language="bash")
-        
-    except Exception as e:
-        st.error(f"❌ **Error in calculation**: {e}")
-        with st.expander("🔍 Error Details", expanded=False):
-            st.exception(e)
+                        prob_success = None
     
-# Page footer with version, copyright, and contact information
-st.markdown("---")
-st.markdown(
-    f"""
-    <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
-        <div style='margin-bottom: 8px;'>
-            <strong style='color: #1f77b4;'>Smart Retire AI v{VERSION}</strong>
+                    # Get confidence interval
+                    ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
+                    ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+    
+                # Track successful Monte Carlo run
+                track_monte_carlo_run(num_simulations=num_simulations, volatility=volatility)
+    
+                # Display Results
+                st.success(f"✅ Completed {num_simulations:,} simulations!")
+    
+            except Exception as e:
+                # Track Monte Carlo error
+                track_error('monte_carlo_error', str(e), {
+                    'num_simulations': num_simulations,
+                    'volatility': volatility
+                })
+                st.error(f"❌ Error running Monte Carlo simulation: {str(e)}")
+                st.info("💡 Try reducing the number of simulations or refreshing the page.")
+                st.stop()
+    
+            st.markdown("---")
+    
+            # Key Metrics - Annual Income (Primary Focus)
+            st.markdown("### 💰 Projected Annual Income Distribution")
+            st.info("This shows how much annual income you could have in retirement across different market scenarios")
+    
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    
+            with metric_col1:
+                st.metric(
+                    "Median Annual Income",
+                    f"${results['income_percentiles']['50th']:,.0f}",
+                    help="50th percentile - half of outcomes above, half below"
+                )
+    
+            with metric_col2:
+                st.metric(
+                    "Mean Annual Income",
+                    f"${results['mean_annual_income']:,.0f}",
+                    help="Average annual income across all simulations"
+                )
+    
+            with metric_col3:
+                st.metric(
+                    "Best Case (90th %ile)",
+                    f"${results['income_percentiles']['90th']:,.0f}",
+                    help="90% of outcomes are below this annual income"
+                )
+    
+            with metric_col4:
+                st.metric(
+                    "Worst Case (10th %ile)",
+                    f"${results['income_percentiles']['10th']:,.0f}",
+                    help="Only 10% of outcomes are below this annual income"
+                )
+    
+            # Annual Income Percentile Breakdown
+            st.markdown("#### Annual Income Range (Percentiles)")
+    
+            income_percentile_data = {
+                "Percentile": ["10th", "25th", "50th (Median)", "75th", "90th"],
+                "Annual Income": [
+                    f"${results['income_percentiles']['10th']:,.0f}",
+                    f"${results['income_percentiles']['25th']:,.0f}",
+                    f"${results['income_percentiles']['50th']:,.0f}",
+                    f"${results['income_percentiles']['75th']:,.0f}",
+                    f"${results['income_percentiles']['90th']:,.0f}",
+                ]
+            }
+    
+            st.table(income_percentile_data)
+    
+            # 95% Confidence Interval for Income
+            st.markdown(f"""
+            **95% Confidence Interval for Annual Income:** ${ci_income_lower:,.0f} - ${ci_income_upper:,.0f}
+    
+            There's a 95% probability your annual retirement income will fall within this range.
+            """)
+    
+            # Probability of success
+            if prob_success is not None:
+                st.markdown("")
+                if prob_success >= 80:
+                    st.success(f"🎯 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+                elif prob_success >= 60:
+                    st.warning(f"⚠️ **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+                else:
+                    st.error(f"🚨 **{prob_success:.1f}% probability** of meeting your ${st.session_state.whatif_retirement_income_goal:,.0f}/year income goal")
+    
+            # Distribution visualization for Annual Income
+            st.markdown("#### Distribution of Annual Income Outcomes")
+    
+            # Create histogram data for income
+            import math
+            num_bins = 30
+            min_val = results['min_income']
+            max_val = results['max_income']
+            bin_width = (max_val - min_val) / num_bins
+    
+            # Store bins with numeric centers for proper sorting
+            bins_data: Dict[float, int] = {}
+            for outcome in results['annual_income_outcomes']:
+                bin_idx = min(int((outcome - min_val) / bin_width), num_bins - 1)
+                bin_center = min_val + (bin_idx + 0.5) * bin_width
+                bins_data[bin_center] = bins_data.get(bin_center, 0) + 1
+    
+            # Sort by bin_center and create labels
+            sorted_bins = sorted(bins_data.items())
+            bins_df = pd.DataFrame([
+                {"Income Range": f"${center/1000:.0f}K", "Count": count}
+                for center, count in sorted_bins
+            ])
+    
+            # Use categorical index to preserve sort order (prevent alphabetical re-sorting)
+            bins_df["Income Range"] = pd.Categorical(
+                bins_df["Income Range"],
+                categories=bins_df["Income Range"].tolist(),
+                ordered=True
+            )
+            bins_df = bins_df.set_index("Income Range")
+    
+            # Display as bar chart
+            st.bar_chart(bins_df)
+    
+            st.info("""
+            💡 **Interpretation Tips:**
+            - The median (50th percentile) is your most likely annual income
+            - The 10th-90th percentile range shows 80% of possible income outcomes
+            - Higher volatility = wider range of annual income outcomes
+            - Conservative planning often targets the 25th percentile or lower
+            """)
+    
+            st.markdown("---")
+    
+            # Secondary Metrics - Total Balance
+            st.markdown("### 📊 Total Retirement Balance Distribution")
+    
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    
+            with metric_col1:
+                st.metric(
+                    "Median Balance",
+                    f"${results['percentiles']['50th']:,.0f}",
+                    help="50th percentile - half of outcomes above, half below"
+                )
+    
+            with metric_col2:
+                st.metric(
+                    "Mean Balance",
+                    f"${results['mean']:,.0f}",
+                    help="Average of all simulated outcomes"
+                )
+    
+            with metric_col3:
+                st.metric(
+                    "Best Case (90th %ile)",
+                    f"${results['percentiles']['90th']:,.0f}",
+                    help="90% of outcomes are below this value"
+                )
+    
+            with metric_col4:
+                st.metric(
+                    "Worst Case (10th %ile)",
+                    f"${results['percentiles']['10th']:,.0f}",
+                    help="Only 10% of outcomes are below this value"
+                )
+    
+            # Percentile breakdown for balance
+            st.markdown("#### Total Balance Range (Percentiles)")
+    
+            percentile_data = {
+                "Percentile": ["10th", "25th", "50th (Median)", "75th", "90th"],
+                "After-Tax Balance": [
+                    f"${results['percentiles']['10th']:,.0f}",
+                    f"${results['percentiles']['25th']:,.0f}",
+                    f"${results['percentiles']['50th']:,.0f}",
+                    f"${results['percentiles']['75th']:,.0f}",
+                    f"${results['percentiles']['90th']:,.0f}",
+                ]
+            }
+    
+            st.table(percentile_data)
+    
+            # 95% Confidence Interval for Balance
+            st.markdown(f"""
+            **95% Confidence Interval for Total Balance:** ${ci_lower:,.0f} - ${ci_upper:,.0f}
+    
+            There's a 95% probability your retirement balance will fall within this range.
+            """)
+    
+            # Distribution visualization for Balance
+            st.markdown("#### Distribution of Balance Outcomes")
+    
+            # Create histogram data for balance
+            min_val_balance = results['min']
+            max_val_balance = results['max']
+            bin_width_balance = (max_val_balance - min_val_balance) / num_bins
+    
+            # Store bins with numeric centers for proper sorting
+            bins_balance_data: Dict[float, int] = {}
+            for outcome in results['outcomes']:
+                bin_idx = min(int((outcome - min_val_balance) / bin_width_balance), num_bins - 1)
+                bin_center = min_val_balance + (bin_idx + 0.5) * bin_width_balance
+                bins_balance_data[bin_center] = bins_balance_data.get(bin_center, 0) + 1
+    
+            # Sort by bin_center and create labels
+            sorted_bins_balance = sorted(bins_balance_data.items())
+            bins_balance_df = pd.DataFrame([
+                {"Balance Range": f"${center/1000:.0f}K", "Count": count}
+                for center, count in sorted_bins_balance
+            ])
+    
+            # Use categorical index to preserve sort order (prevent alphabetical re-sorting)
+            bins_balance_df["Balance Range"] = pd.Categorical(
+                bins_balance_df["Balance Range"],
+                categories=bins_balance_df["Balance Range"].tolist(),
+                ordered=True
+            )
+            bins_balance_df = bins_balance_df.set_index("Balance Range")
+    
+            # Display as bar chart
+            st.bar_chart(bins_balance_df)
+    
+    # Page footer with version, copyright, and contact information
+    st.markdown("---")
+    st.markdown(
+        f"""
+        <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
+            <div style='margin-bottom: 8px;'>
+                <strong style='color: #1f77b4;'>Smart Retire AI v{VERSION}</strong>
+            </div>
+            <div style='margin-bottom: 8px; color: #888;'>
+                Advanced Retirement Planning with Asset Classification & Tax Optimization
+            </div>
+            <div style='margin-bottom: 8px;'>
+                <span style='color: #555;'>© 2025-2026 Smart Retire AI. All rights reserved.</span>
+            </div>
+            <div>
+                <span style='color: #555;'>Questions? Contact us: </span>
+                <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4; text-decoration: none; font-weight: 500;'>
+                    smartretireai@gmail.com
+                </a>
+            </div>
+            <div style='margin-top: 12px; font-size: 0.75em; color: #999;'>
+                <em>Disclaimer: This tool provides estimates for educational purposes. Consult a financial advisor for personalized advice.</em>
+            </div>
         </div>
-        <div style='margin-bottom: 8px; color: #888;'>
-            Advanced Retirement Planning with Asset Classification & Tax Optimization
-        </div>
-        <div style='margin-bottom: 8px;'>
-            <span style='color: #555;'>© 2024-2025 Smart Retire AI. All rights reserved.</span>
-        </div>
-        <div>
-            <span style='color: #555;'>Questions? Contact us: </span>
-            <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4; text-decoration: none; font-weight: 500;'>
-                smartretireai@gmail.com
-            </a>
-        </div>
-        <div style='margin-top: 12px; font-size: 0.75em; color: #999;'>
-            <em>Disclaimer: This tool provides estimates for educational purposes. Consult a financial advisor for personalized advice.</em>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
+        """,
+        unsafe_allow_html=True
+    )
+    
+    
 # ---------------------------
 # Tests (unittest)
 # ---------------------------
@@ -3382,8 +4518,8 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and "--run-tests" in sys.argv:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestComputation)
-        result = unittest.TextTestRunner(verbosity=2).run(suite)
-        sys.exit(0 if result.wasSuccessful() else 1)
+        test_result = unittest.TextTestRunner(verbosity=2).run(suite)
+        sys.exit(0 if test_result.wasSuccessful() else 1)
     else:
         print("🚀 Smart Retire AI - Advanced Retirement Planning")
         print("=" * 60)
