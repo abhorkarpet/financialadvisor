@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 8.4.0
+Version: 9.0.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "8.4.0"
+VERSION = "9.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -827,7 +827,7 @@ if not _RUNNING_TESTS:
         page_title="Smart Retire AI",
         page_icon="💰",
         layout="wide",
-        initial_sidebar_state="auto"
+        initial_sidebar_state="collapsed"
     )
 
     # Initialize analytics
@@ -1152,9 +1152,130 @@ if not _RUNNING_TESTS:
     
         if st.button("Close", use_container_width=True, type="primary"):
             st.rerun()
-    
-    
-    
+
+
+    @st.dialog("✏️ Edit AI-Extracted Accounts", width="large")
+    def edit_ai_accounts_dialog():
+        """Modal for editing AI-extracted accounts with isolated context."""
+        # Custom CSS to maximize dialog width
+        st.markdown("""
+            <style>
+            [data-testid="stDialog"] {
+                width: 95vw !important;
+                max-width: 95vw !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.info("💡 **Make any adjustments to your extracted accounts below.**")
+
+        if st.session_state.ai_edited_table is not None:
+            df_display = st.session_state.ai_edited_table.copy()
+
+            # Define column configuration - same as reload view
+            column_config = {
+                "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                "Institution": st.column_config.TextColumn(
+                    "Institution",
+                    disabled=True,
+                    help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                    width="small"
+                ),
+                "Account Name": st.column_config.TextColumn(
+                    "Account Name",
+                    help="Account name/description from statement",
+                    width="small"
+                ),
+                "Last 4": st.column_config.TextColumn(
+                    "Last 4",
+                    disabled=True,
+                    help="Last 4 digits of account number",
+                    width="small"
+                ),
+                "Account Type": st.column_config.TextColumn(
+                    "Account Type",
+                    disabled=True,
+                    help="Type of account (401k, IRA, Savings, etc.)",
+                    width="small"
+                ),
+                "Tax Treatment": st.column_config.SelectboxColumn(
+                    "Tax Treatment",
+                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                    help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
+                ),
+                "Current Balance": st.column_config.NumberColumn(
+                    "Current Balance ($)",
+                    min_value=0,
+                    format="$%d",
+                    help="Current account balance"
+                ),
+                "Annual Contribution": st.column_config.NumberColumn(
+                    "Annual Contribution ($)",
+                    min_value=0,
+                    format="$%d",
+                    help="How much you contribute annually"
+                ),
+                "Growth Rate (%)": st.column_config.NumberColumn(
+                    "Growth Rate (%)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    format="%.1f%%",
+                    help="Expected annual growth rate"
+                ),
+                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                    "Tax Rate on Gains (%)",
+                    min_value=0.0,
+                    max_value=50.0,
+                    format="%.1f%%",
+                    help="Tax rate on gains (capital gains or income tax)"
+                )
+            }
+
+            # Add optional column configs if they exist
+            if "Income Eligibility" in df_display.columns:
+                column_config["Income Eligibility"] = st.column_config.TextColumn(
+                    "Income Eligibility",
+                    disabled=True,
+                    help="Income restrictions for this account type",
+                    width="small"
+                )
+            if "Purpose" in df_display.columns:
+                column_config["Purpose"] = st.column_config.TextColumn(
+                    "Purpose",
+                    disabled=True,
+                    help="Primary purpose of this account",
+                    width="small"
+                )
+
+            # Display editable table in modal
+            edited_df = st.data_editor(
+                df_display,
+                column_config=column_config,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic",
+                key="ai_table_modal_editor"
+            )
+
+            st.markdown("---")
+
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("✅ Save Changes", type="primary", use_container_width=True):
+                    st.session_state.ai_edited_table = edited_df
+                    st.session_state.dialog_open = False
+                    st.rerun()
+            with col2:
+                if st.button("❌ Cancel", use_container_width=True):
+                    st.session_state.dialog_open = False
+                    st.rerun()
+        else:
+            st.warning("No extracted data available to edit.")
+            if st.button("Close", use_container_width=True):
+                st.session_state.dialog_open = False
+                st.rerun()
+
+
     # Initialize session state for splash screen
     if 'splash_dismissed' not in st.session_state:
         st.session_state.splash_dismissed = False
@@ -1805,119 +1926,147 @@ if not _RUNNING_TESTS:
                             st.session_state.ai_tax_buckets = {}
                             st.session_state.ai_warnings = []
                             st.session_state.ai_edited_table = None
+                            # Clear widget states
+                            if 'ai_table_data' in st.session_state:
+                                del st.session_state.ai_table_data
+                            # Clear initialization flag
+                            if 'ai_table_initialized' in st.session_state:
+                                del st.session_state.ai_table_initialized
                             st.rerun()
-        
+
+                        # Add button to edit accounts in modal
+                        edit_accounts_clicked_existing = st.button("✏️ Edit Accounts", type="primary", key="edit_accounts_button")
+                        if edit_accounts_clicked_existing:
+                            edit_ai_accounts_dialog()
+
                         # Use existing data
                         df_extracted = st.session_state.ai_extracted_accounts
+
+                        # Filter out internal/debug columns (those starting with underscore) and store clean version
+                        if df_extracted is not None and hasattr(df_extracted, 'columns'):
+                            # Filter columns
+                            cols_to_keep = [col for col in df_extracted.columns if not col.startswith('_')]
+                            df_extracted = df_extracted[cols_to_keep]
+                            # Update session state with clean version to maintain same reference
+                            st.session_state.ai_extracted_accounts = df_extracted
+
                         tax_buckets_by_account = st.session_state.ai_tax_buckets
                         warnings = st.session_state.ai_warnings
-        
+
                         # Display warnings if any
                         if warnings and len(warnings) > 0:
                             with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
                                 for warning in warnings:
                                     st.warning(warning)
-        
+
                         # **NEW: Display the editable table for previously extracted data**
                         # This ensures the table persists when navigating between steps
                         if df_extracted is not None:
-                            with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
-                                st.info("💡 **Review and edit your account data. These are preserved even when you change personal info in Step 1.**")
-        
-                                # Display the editable table from session state
-                                if st.session_state.ai_edited_table is not None:
-                                    df_table = st.session_state.ai_edited_table
+                            # Check if we have a properly formatted edited table in session state
+                            # The edited table has the correct column structure for display
+                            if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
+                                # Check if it has the expected display columns (not raw extraction columns)
+                                # These are the key columns that indicate a properly formatted table
+                                expected_cols = ["Account Name", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Treatment"]
+                                if all(col in st.session_state.ai_edited_table.columns for col in expected_cols):
+                                    # Use the formatted table with all user edits preserved
+                                    df_display = st.session_state.ai_edited_table.copy()
                                 else:
-                                    # This shouldn't happen, but fallback to extracted data
-                                    df_table = df_extracted
-        
-                                # Define column configuration - MUST MATCH the original extraction config
-                                column_config = {
-                                    "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
-                                    "Institution": st.column_config.TextColumn(
-                                        "Institution",
-                                        disabled=True,
-                                        help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                        width="medium"
-                                    ),
-                                    "Account Name": st.column_config.TextColumn(
-                                        "Account Name",
-                                        help="Account name/description from statement",
-                                        width="medium"
-                                    ),
-                                    "Last 4": st.column_config.TextColumn(
-                                        "Last 4",
-                                        disabled=True,
-                                        help="Last 4 digits of account number",
-                                        width="small"
-                                    ),
-                                    "Account Type": st.column_config.TextColumn(
-                                        "Account Type",
-                                        disabled=True,
-                                        help="Type of account (401k, IRA, Savings, etc.)",
-                                        width="small"
-                                    ),
-                                    "Tax Treatment": st.column_config.SelectboxColumn(
-                                        "Tax Treatment",
-                                        options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
-                                        help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
-                                    ),
-                                    "Current Balance ($)": st.column_config.NumberColumn(
-                                        "Current Balance ($)",
-                                        min_value=0,
-                                        format="$%d",
-                                        help="Current account balance"
-                                    ),
-                                    "Annual Contribution ($)": st.column_config.NumberColumn(
-                                        "Annual Contribution ($)",
-                                        min_value=0,
-                                        format="$%d",
-                                        help="How much you contribute annually"
-                                    ),
-                                    "Growth Rate (%)": st.column_config.NumberColumn(
-                                        "Growth Rate (%)",
-                                        min_value=0.0,
-                                        max_value=20.0,
-                                        format="%.1f%%",
-                                        help="Expected annual growth rate"
-                                    ),
-                                    "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                        "Tax Rate on Gains (%)",
-                                        min_value=0.0,
-                                        max_value=50.0,
-                                        format="%.1f%%",
-                                        help="Tax rate on gains (capital gains or income tax)"
+                                    # Fall back to raw extraction (user needs to clear and re-extract)
+                                    df_display = None
+                            else:
+                                # No edited table yet (shouldn't happen in reload view)
+                                df_display = None
+
+                            if df_display is not None:
+                                with st.expander("📋 Extracted Accounts", expanded=True):
+
+                                    # Define column configuration - MUST MATCH the original extraction config
+                                    # Note: Column widths adjusted to emphasize amounts over names
+                                    column_config = {
+                                        "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
+                                        "Institution": st.column_config.TextColumn(
+                                            "Institution",
+                                            disabled=True,
+                                            help="Financial institution (e.g., Fidelity, Morgan Stanley)",
+                                            width="small"
+                                        ),
+                                        "Account Name": st.column_config.TextColumn(
+                                            "Account Name",
+                                            help="Account name/description from statement",
+                                            width="small"
+                                        ),
+                                        "Last 4": st.column_config.TextColumn(
+                                            "Last 4",
+                                            disabled=True,
+                                            help="Last 4 digits of account number",
+                                            width="small"
+                                        ),
+                                        "Account Type": st.column_config.TextColumn(
+                                            "Account Type",
+                                            disabled=True,
+                                            help="Type of account (401k, IRA, Savings, etc.)",
+                                            width="small"
+                                        ),
+                                        "Tax Treatment": st.column_config.SelectboxColumn(
+                                            "Tax Treatment",
+                                            options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                            help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
+                                        ),
+                                        "Current Balance": st.column_config.NumberColumn(
+                                            "Current Balance ($)",
+                                            min_value=0,
+                                            format="$%d",
+                                            help="Current account balance"
+                                        ),
+                                        "Annual Contribution": st.column_config.NumberColumn(
+                                            "Annual Contribution ($)",
+                                            min_value=0,
+                                            format="$%d",
+                                            help="How much you contribute annually"
+                                        ),
+                                        "Growth Rate (%)": st.column_config.NumberColumn(
+                                            "Growth Rate (%)",
+                                            min_value=0.0,
+                                            max_value=20.0,
+                                            format="%.1f%%",
+                                            help="Expected annual growth rate"
+                                        ),
+                                        "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+                                            "Tax Rate on Gains (%)",
+                                            min_value=0.0,
+                                            max_value=50.0,
+                                            format="%.1f%%",
+                                            help="Tax rate on gains (capital gains or income tax)"
+                                        )
+                                    }
+
+                                    # Add optional column configs if they exist in the data
+                                    if "Income Eligibility" in df_display.columns:
+                                        column_config["Income Eligibility"] = st.column_config.TextColumn(
+                                            "Income Eligibility",
+                                            disabled=True,
+                                            help="Income restrictions for this account type",
+                                            width="small"
+                                        )
+                                    if "Purpose" in df_display.columns:
+                                        column_config["Purpose"] = st.column_config.TextColumn(
+                                            "Purpose",
+                                            disabled=True,
+                                            help="Primary purpose of this account",
+                                            width="small"
+                                        )
+
+                                    # Display read-only table - use Edit button above to modify
+                                    st.dataframe(
+                                        df_display,
+                                        column_config=column_config,
+                                        use_container_width=True,
+                                        hide_index=True
                                     )
-                                }
-        
-                                # Add optional column configs if they exist in the data
-                                if "Income Eligibility" in df_table.columns:
-                                    column_config["Income Eligibility"] = st.column_config.TextColumn(
-                                        "Income Eligibility",
-                                        disabled=True,
-                                        help="Income restrictions for this account type",
-                                        width="small"
-                                    )
-                                if "Purpose" in df_table.columns:
-                                    column_config["Purpose"] = st.column_config.TextColumn(
-                                        "Purpose",
-                                        disabled=True,
-                                        help="Primary purpose of this account",
-                                        width="small"
-                                    )
-        
-                                # Display editable table with unique key for reload view
-                                edited_df = st.data_editor(
-                                    df_table,
-                                    column_config=column_config,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    num_rows="dynamic",
-                                    key="ai_table_reload_view"  # Unique key for this table
-                                )
-        
-                                # Save edited table to session state
-                                st.session_state.ai_edited_table = edited_df
+                            else:
+                                # No properly formatted table available - show message
+                                st.warning("⚠️ Please click '🔄 Clear and Upload New Statements' above and re-extract your data.")
         
                         # CRITICAL: Convert edited table to assets on every rerun
                         # This ensures assets persist even when user changes personal info
@@ -2112,11 +2261,14 @@ if not _RUNNING_TESTS:
                                                 'account_id': 'account_id'
                                             }
                                             df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
+
+                                            # Filter out internal/debug columns (those starting with underscore)
+                                            df_extracted = df_extracted[[col for col in df_extracted.columns if not col.startswith('_')]]
                                         else:
                                             # CSV format
                                             csv_content = result['data']
                                             df_extracted = pd.read_csv(io.StringIO(csv_content))
-        
+
                                         # Convert to numeric
                                         if 'value' in df_extracted.columns:
                                             df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
@@ -2138,16 +2290,21 @@ if not _RUNNING_TESTS:
                                         st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
                                         st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
         
+                                        # Edit button (outside expander for reliability)
+                                        edit_accounts_clicked_fresh = st.button("✏️ Edit Accounts", type="primary", key="edit_accounts_button")
+                                        if edit_accounts_clicked_fresh:
+                                            edit_ai_accounts_dialog()
+
                                         # Display warnings if any
                                         warnings = st.session_state.ai_warnings
                                         if warnings and len(warnings) > 0:
                                             with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
                                                 for warning in warnings:
                                                     st.warning(warning)
-        
+                                                                                     
                                         # Map extracted data to Asset objects
-                                        with st.expander("📋 Extracted Accounts (Editable)", expanded=True):
-                                            st.info("💡 **Review and edit the extracted data below. Add estimated annual contributions and expected growth rates.**")
+
+                                        with st.expander("📋 Extracted Accounts", expanded=True):
         
                                             # Helper function to humanize account type
                                             def humanize_account_type(account_type: str) -> str:
@@ -2363,20 +2520,29 @@ if not _RUNNING_TESTS:
         
                                                 # Create DataFrame from table_data
                                                 df_table = pd.DataFrame(table_data)
-        
+
+                                                # Initialize ai_edited_table ONLY on first extraction
+                                                # Use a flag to prevent overwriting user edits on reruns
+                                                if 'ai_table_initialized' not in st.session_state:
+                                                    st.session_state.ai_edited_table = df_table.copy()
+                                                    st.session_state.ai_table_initialized = True
+
+                                            #st.info("💡 **Edit your data in the table. Changes save automatically as you type.**")
+
                                             # Define column configuration
+                                            # Note: Column widths adjusted to emphasize amounts over names
                                             column_config = {
                                                 "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
                                                 "Institution": st.column_config.TextColumn(
                                                     "Institution",
                                                     disabled=True,
                                                     help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                                    width="medium"
+                                                    width="small"
                                                 ),
                                                 "Account Name": st.column_config.TextColumn(
                                                     "Account Name",
                                                     help="Account name/description from statement",
-                                                    width="medium"
+                                                    width="small"
                                                 ),
                                                 "Last 4": st.column_config.TextColumn(
                                                     "Last 4",
@@ -2432,29 +2598,20 @@ if not _RUNNING_TESTS:
                                                     help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
                                                 )
                                             }
-        
-                                            # Use edited table from session state if it exists, otherwise use fresh data
-                                            # This prevents losing user edits on rerun
-                                            if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
-                                                # Preserve user edits across reruns
-                                                initial_data = st.session_state.ai_edited_table
-                                            else:
-                                                # First time showing the table
-                                                initial_data = df_table
-    
-                                            # Display editable table with unique key for fresh extraction view
+
+                                            # Display editable table - auto-saves on every change
                                             edited_df = st.data_editor(
-                                                initial_data,
+                                                st.session_state.ai_edited_table if st.session_state.ai_edited_table is not None else df_table,
                                                 column_config=column_config,
                                                 use_container_width=True,
                                                 hide_index=True,
                                                 num_rows="dynamic",
-                                                key="ai_table_fresh_extraction"  # Unique key for this table
+                                                key="ai_table_data"
                                             )
-    
-                                            # Save edited table to session state for persistence across reruns
+
+                                            # Auto-save edited data to session state
                                             st.session_state.ai_edited_table = edited_df
-        
+
                                             # Extraction Quality Feedback Module
                                             st.markdown("---")
                                             st.markdown("#### 💬 Data Extraction Feedback")
@@ -2694,14 +2851,32 @@ if not _RUNNING_TESTS:
                     type=['csv'],
                     help="Upload your modified CSV file with your asset data"
                 )
-                
+
                 if uploaded_file is not None:
                     try:
-                        # Read uploaded file
-                        csv_content = uploaded_file.read().decode('utf-8')
-                        assets = parse_uploaded_csv(csv_content)
-                        
-                        st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
+                        # Check if this is a new file upload or the same file on rerun
+                        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+                        is_new_upload = ('csv_uploaded_file_id' not in st.session_state or
+                                        st.session_state.csv_uploaded_file_id != file_id)
+
+                        if is_new_upload:
+                            # This is a new file - parse it and reset everything
+                            csv_content = uploaded_file.read().decode('utf-8')
+                            assets = parse_uploaded_csv(csv_content)
+
+                            # Store file ID and assets in session state
+                            st.session_state.csv_uploaded_file_id = file_id
+                            st.session_state.csv_uploaded_assets = assets
+
+                            # Clear previous edits when a new file is uploaded
+                            if 'csv_uploaded_edited_table' in st.session_state:
+                                del st.session_state.csv_uploaded_edited_table
+
+                            st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
+                        else:
+                            # Same file on rerun - use assets from session state
+                            if 'csv_uploaded_assets' in st.session_state:
+                                assets = st.session_state.csv_uploaded_assets
                         
                         # Show uploaded assets in editable table format
                         with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
@@ -2734,7 +2909,7 @@ if not _RUNNING_TESTS:
                             
                             # Create editable dataframe
                             df = pd.DataFrame(table_data)
-                            
+
                             # Define column configuration for editing
                             column_config = {
                                 "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
@@ -2771,16 +2946,29 @@ if not _RUNNING_TESTS:
                                     help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
                                 )
                             }
-                            
+
+                            # Use edited table from session state if it exists, otherwise use fresh data
+                            # This prevents losing user edits on rerun
+                            if 'csv_uploaded_edited_table' in st.session_state and st.session_state.csv_uploaded_edited_table is not None:
+                                # Preserve user edits across reruns
+                                initial_data = st.session_state.csv_uploaded_edited_table
+                            else:
+                                # First time showing the table
+                                initial_data = df
+
                             # Display editable table
                             st.info("💡 **Edit your assets directly in the table below. Changes will be applied when you run the analysis.**")
                             edited_df = st.data_editor(
-                                df, 
+                                initial_data,
                                 column_config=column_config,
-                                use_container_width=True, 
+                                use_container_width=True,
                                 hide_index=True,
-                                num_rows="dynamic"
+                                num_rows="dynamic",
+                                key="csv_uploaded_assets_table"  # Unique key for this table
                             )
+
+                            # Save edited table to session state for persistence across reruns
+                            st.session_state.csv_uploaded_edited_table = edited_df
                             
                             # Convert edited dataframe back to Asset objects
                             if not edited_df.empty:
@@ -2810,8 +2998,9 @@ if not _RUNNING_TESTS:
                                         )
                                         updated_assets.append(updated_asset)
                                     
-                                    # Update the assets list
+                                    # Update the assets list in both local and session state
                                     assets = updated_assets
+                                    st.session_state.csv_uploaded_assets = updated_assets
                                     st.success(f"✅ Assets updated! {len(assets)} assets ready for analysis.")
                                     
                                 except Exception as e:
