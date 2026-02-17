@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 9.1.0
+Version: 9.0.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "9.1.0"
+VERSION = "9.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -3419,25 +3419,24 @@ if not _RUNNING_TESTS:
                 with col3:
                     if life_expenses > 0:
                         st.metric(
-                            "After-Tax Value",
+                            "Total After-Tax Value",
                             f"${total_after_tax:,.0f}",
                             delta=f"-${life_expenses:,.0f} life expenses",
                             delta_color="normal"
                         )
                     else:
-                        st.metric("After-Tax Value", f"${total_after_tax:,.0f}")
+                        st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
                 with col4:
                     st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
-                st.warning(
-                    "Important modeling note: This income estimate applies taxes as a one-time adjustment at retirement, "
-                    "then projects inflation-adjusted withdrawals from the after-tax balance. It does not yet model "
-                    "year-by-year withdrawal taxation, tax-bracket changes, or withdrawal sequencing."
-                )
-
     
             # Income Analysis Section
             st.markdown("---")
             st.subheader("💰 Retirement Income Analysis")
+            st.caption(
+                "Important modeling note: This income estimate applies taxes as a one-time adjustment at retirement, "
+                "then projects inflation-adjusted withdrawals from the after-tax balance. It does not yet model "
+                "year-by-year withdrawal taxation, tax-bracket changes, or withdrawal sequencing."
+            )
     
             # Calculate retirement income from portfolio (using adjusted balance)
             years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
