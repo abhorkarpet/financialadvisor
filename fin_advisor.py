@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 9.0.0
+Version: 9.1.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "9.0.0"
+VERSION = "9.1.0"
 
 # Streamlit import
 import streamlit as st
@@ -423,19 +423,18 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story.append(Paragraph("Asset Breakdown", heading_style))
 
     # Asset details table with proper formatting
-    asset_data = [["Account", "Tax\nTreatment", "Current\nBalance", "Annual\nContribution", "Growth\nRate", "Tax\nRate"]]
+    asset_data = [["Account", "Tax\nTreatment", "Current\nBalance", "Annual\nContribution", "Growth\nRate"]]
     for asset in assets:
         asset_data.append([
             asset.name,
             asset.asset_type.value.replace('_', ' ').title(),
             f"${asset.current_balance:,.0f}",
             f"${asset.annual_contribution:,.0f}",
-            f"{asset.growth_rate_pct}%",
-            f"{asset.tax_rate_pct}%" if asset.tax_rate_pct > 0 else "N/A"
+            f"{asset.growth_rate_pct}%"
         ])
 
     # Adjusted column widths for better spacing
-    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 0.8*inch, 0.7*inch])
+    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 0.8*inch])
     asset_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -546,6 +545,24 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     
     story.append(income_table)
     story.append(Spacer(1, 20))
+
+    # Model limitation note for retirement income projection
+    income_note_style = ParagraphStyle(
+        'IncomeNote',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.orangered,
+        borderWidth=1,
+        borderColor=colors.orangered,
+        borderPadding=6,
+        spaceAfter=20
+    )
+    story.append(Paragraph(
+        "<b>Important Modeling Note:</b> Retirement income is estimated from a one-time after-tax portfolio adjustment at retirement. "
+        "This model does not yet simulate year-by-year withdrawal taxation, tax bracket changes, or dynamic withdrawal sequencing.",
+        income_note_style
+    ))
+    story.append(Spacer(1, 12))
     
     # Tax Analysis
     story.append(Paragraph("Tax Analysis", heading_style))
@@ -3402,15 +3419,21 @@ if not _RUNNING_TESTS:
                 with col3:
                     if life_expenses > 0:
                         st.metric(
-                            "Total After-Tax Value",
+                            "After-Tax Value",
                             f"${total_after_tax:,.0f}",
                             delta=f"-${life_expenses:,.0f} life expenses",
                             delta_color="normal"
                         )
                     else:
-                        st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
+                        st.metric("After-Tax Value", f"${total_after_tax:,.0f}")
                 with col4:
                     st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
+                st.warning(
+                    "Important modeling note: This income estimate applies taxes as a one-time adjustment at retirement, "
+                    "then projects inflation-adjusted withdrawals from the after-tax balance. It does not yet model "
+                    "year-by-year withdrawal taxation, tax-bracket changes, or withdrawal sequencing."
+                )
+
     
             # Income Analysis Section
             st.markdown("---")
