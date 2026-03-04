@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 9.1.0
+Version: 10.0.0
 """
 
 from __future__ import annotations
@@ -27,12 +27,13 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "9.1.0"
+VERSION = "10.0.0"
 
 # Streamlit import
 import streamlit as st
 import streamlit.components.v1 as components
 import io
+import os
 import csv
 import time
 import urllib.parse
@@ -106,6 +107,20 @@ try:
     _REPORTLAB_AVAILABLE = True
 except ImportError:
     _REPORTLAB_AVAILABLE = False
+
+
+def load_release_notes() -> Optional[str]:
+    """Load release notes for the current version from file."""
+    notes_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        f"RELEASE_NOTES_v{VERSION}.md"
+    )
+    try:
+        with open(notes_path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
 
 # ---------------------------
 # Import refactored modules
@@ -185,7 +200,6 @@ def create_asset_template_csv() -> str:
             "Current Balance": 50000,
             "Annual Contribution": 12000,
             "Growth Rate (%)": 7.0,
-            "Tax Rate (%)": 0.0
         },
         {
             "Account Name": "Roth IRA",
@@ -193,7 +207,6 @@ def create_asset_template_csv() -> str:
             "Current Balance": 10000,
             "Annual Contribution": 6000,
             "Growth Rate (%)": 7.0,
-            "Tax Rate (%)": 0.0
         },
         {
             "Account Name": "Brokerage Account",
@@ -201,7 +214,6 @@ def create_asset_template_csv() -> str:
             "Current Balance": 15000,
             "Annual Contribution": 3000,
             "Growth Rate (%)": 7.0,
-            "Tax Rate (%)": 15.0
         },
         {
             "Account Name": "High-Yield Savings Account",
@@ -209,13 +221,12 @@ def create_asset_template_csv() -> str:
             "Current Balance": 25000,
             "Annual Contribution": 2000,
             "Growth Rate (%)": 4.5,
-            "Tax Rate (%)": 0.0
         }
     ]
 
     # Create CSV string
     output = io.StringIO()
-    fieldnames = ["Account Name", "Tax Treatment", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Rate (%)"]
+    fieldnames = ["Account Name", "Tax Treatment", "Current Balance", "Annual Contribution", "Growth Rate (%)"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(template_data)
@@ -223,9 +234,10 @@ def create_asset_template_csv() -> str:
     return output.getvalue()
 
 
-def parse_uploaded_csv(csv_content: str) -> List[Asset]:
-    """Parse uploaded CSV content into Asset objects."""
+def parse_uploaded_csv(csv_content: str) -> tuple:
+    """Parse uploaded CSV content into Asset objects. Returns (assets, warnings)."""
     assets = []
+    warnings = []
 
     try:
         # Read CSV content
@@ -272,18 +284,48 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
             try:
                 def parse_number(value_str):
                     """Parse a number string, removing commas and handling empty values."""
-                    if not value_str or value_str.strip() == '':
+                    if not value_str or str(value_str).strip() == '':
                         return 0.0
-                    # Remove commas and convert to float
-                    return float(value_str.replace(',', ''))
-                
-                current_balance = parse_number(row["Current Balance"])
-                annual_contribution = parse_number(row["Annual Contribution"])
-                growth_rate = parse_number(row["Growth Rate (%)"])
-                tax_rate = parse_number(row.get("Tax Rate (%)", 0))
+                    # Remove commas, dollar signs, and whitespace; strip % suffix
+                    cleaned = str(value_str).replace(',', '').replace('$', '').strip()
+                    is_percent = cleaned.endswith('%')
+                    cleaned = cleaned.rstrip('%').strip()
+                    return float(cleaned), is_percent
+
+                def parse_rate(value_str, field_name):
+                    """Parse a percentage field accepting 0.25, 25%, or 25 — always returns a value in 0-100 range."""
+                    val, is_percent = parse_number(value_str)
+                    # Decimal fraction (e.g. 0.25) → multiply to get percentage
+                    if not is_percent and 0.0 < val < 1.0:
+                        val *= 100
+                    # Exactly 0 stays 0; integers >= 1 are already percentages (e.g. 25 → 25%)
+                    # Edge case: bare "1" is ambiguous but almost certainly means 1%, not 100%
+                    if not is_percent and val == 1.0:
+                        warnings.append(
+                            f'"{value_str}" entered for {field_name} — assumed **1%** (not 100%). '
+                            f'Use "1%" to be explicit.'
+                        )
+                    return val
+
+                def parse_plain(value_str):
+                    val, _ = parse_number(value_str)
+                    return val
+
+                current_balance = parse_plain(row["Current Balance"])
+                annual_contribution = parse_plain(row["Annual Contribution"])
+                growth_rate = parse_rate(row["Growth Rate (%)"], "Growth Rate")
             except ValueError as e:
                 raise ValueError(f"Invalid numeric value in row: {e}")
-            
+
+            # Auto-derive capital gains tax rate from account type.
+            # Tax Rate (%) is no longer a user-supplied field — only brokerage (POST_TAX
+            # non-Roth) accounts carry a capital gains rate; all others are unused.
+            account_name_lower = row["Account Name"].strip().lower()
+            if asset_type == AssetType.POST_TAX and "roth" not in account_name_lower:
+                tax_rate = 15.0  # standard long-term capital gains rate for brokerage
+            else:
+                tax_rate = 0.0   # unused for pre-tax, Roth, and tax-deferred accounts
+
             # Validate ranges
             if current_balance < 0:
                 raise ValueError("Current Balance cannot be negative")
@@ -291,8 +333,6 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
                 raise ValueError("Annual Contribution cannot be negative")
             if growth_rate < 0 or growth_rate > 50:
                 raise ValueError("Growth Rate must be between 0% and 50%")
-            if tax_rate < 0 or tax_rate > 50:
-                raise ValueError("Tax Rate must be between 0% and 50%")
             
             # Create asset
             asset = Asset(
@@ -308,11 +348,233 @@ def parse_uploaded_csv(csv_content: str) -> List[Asset]:
         
         if not assets:
             raise ValueError("No valid assets found in CSV")
-        
-        return assets
+
+        return assets, warnings
         
     except Exception as e:
         raise ValueError(f"Error parsing CSV: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Retirement simulation — sequencing + RMD model
+# ---------------------------------------------------------------------------
+
+# IRS Uniform Lifetime Table (2024) — distribution periods for RMD calculation.
+# Source: IRS Publication 590-B.
+_IRS_UNIFORM_LIFETIME_TABLE: Dict[int, float] = {
+    73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1,
+    80: 20.2, 81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0, 86: 15.2,
+    87: 14.4, 88: 13.7, 89: 12.9, 90: 12.2, 91: 11.5, 92: 10.8, 93: 10.1,
+    94: 9.5,  95: 8.9,  96: 8.4,  97: 7.8,  98: 7.3,  99: 6.8, 100: 6.4,
+}
+
+
+def _rmd_distribution_period(age: int) -> float:
+    """Return IRS Uniform Lifetime Table distribution period for a given age.
+
+    Returns float('inf') for ages below 73 (no RMD required).
+    Uses a linear approximation beyond age 100.
+    """
+    if age < 73:
+        return float('inf')
+    if age in _IRS_UNIFORM_LIFETIME_TABLE:
+        return _IRS_UNIFORM_LIFETIME_TABLE[age]
+    # Linear extrapolation beyond age 100 (approx. -0.4 per year)
+    return max(1.9, 6.4 - (age - 100) * 0.4)
+
+
+def simulate_retirement(
+    pretax_bal: float,
+    roth_bal: float,
+    brokerage_bal: float,
+    brokerage_cost_basis: float,
+    first_year_aftertax_target: float,
+    retirement_age: int,
+    life_expectancy: int,
+    growth_rate: float,
+    inflation_rate: float,
+    retirement_tax_rate_pct: float,
+    capital_gains_rate_pct: float = 15.0,
+) -> list:
+    """Year-by-year retirement simulation with withdrawal sequencing and RMDs.
+
+    Withdrawal order each year:
+      1. RMD from pre-tax (forced at age >= 73; IRS Uniform Lifetime Table)
+      2. Brokerage (capital gains tax on gains portion only)
+      3. Roth IRA (tax-free)
+      4. Additional pre-tax if still short (ordinary income tax)
+
+    Excess RMD beyond spending need is reinvested into brokerage after tax.
+
+    Args:
+        pretax_bal: Pre-tax (401k / Trad IRA / TAX_DEFERRED) balance at retirement
+        roth_bal: Roth balance at retirement (tax-free)
+        brokerage_bal: Taxable brokerage balance at retirement
+        brokerage_cost_basis: Cost basis for brokerage account (contributions + original balance)
+        first_year_aftertax_target: Desired after-tax income in year 1
+        retirement_age: Age at retirement
+        life_expectancy: Age at end of retirement
+        growth_rate: Annual portfolio growth rate (decimal, e.g. 0.04)
+        inflation_rate: Annual inflation rate (decimal, e.g. 0.03)
+        retirement_tax_rate_pct: Ordinary income tax rate in retirement (percentage, e.g. 25.0)
+        capital_gains_rate_pct: Long-term capital gains rate for brokerage (percentage, e.g. 15.0)
+
+    Returns:
+        List of dicts, one per year, with detailed withdrawal and balance data.
+    """
+    n = life_expectancy - retirement_age
+    t_ord = retirement_tax_rate_pct / 100.0
+    t_cg = capital_gains_rate_pct / 100.0
+    year_data = []
+
+    for year in range(1, n + 1):
+        age = retirement_age + year - 1
+        annual_target = first_year_aftertax_target * ((1.0 + inflation_rate) ** (year - 1))
+
+        # --- 1. Grow all balances ---
+        pretax_bal    *= (1.0 + growth_rate)
+        roth_bal      *= (1.0 + growth_rate)
+        brokerage_bal *= (1.0 + growth_rate)
+        # Cost basis does not grow (only the market value does)
+
+        # --- 2. RMD from pre-tax (forced) ---
+        rmd = 0.0
+        rmd_tax = 0.0
+        rmd_aftertax = 0.0
+        if age >= 73 and pretax_bal > 0:
+            dist_period = _rmd_distribution_period(age)
+            rmd = min(pretax_bal, pretax_bal / dist_period)
+            rmd_tax = rmd * t_ord
+            rmd_aftertax = rmd - rmd_tax
+            pretax_bal -= rmd
+
+        # --- 3. Determine remaining after-tax needed ---
+        brokerage_withdrawal = 0.0
+        brokerage_tax = 0.0
+        roth_withdrawal = 0.0
+        extra_pretax_withdrawal = 0.0
+        extra_pretax_tax = 0.0
+        reinvested_excess = 0.0
+
+        if rmd_aftertax >= annual_target:
+            # RMD covers spending; reinvest excess after-tax into brokerage
+            reinvested_excess = rmd_aftertax - annual_target
+            brokerage_bal += reinvested_excess
+            brokerage_cost_basis += reinvested_excess  # after-tax dollars = full cost basis
+            actual_spend = annual_target
+        else:
+            actual_spend = rmd_aftertax
+            remaining = annual_target - actual_spend
+
+            # Draw from brokerage (capital gains on gains fraction only)
+            if remaining > 0 and brokerage_bal > 0:
+                gains_fraction = max(0.0, (brokerage_bal - brokerage_cost_basis) / brokerage_bal)
+                effective_cg = gains_fraction * t_cg
+                # Solve: withdrawal * (1 - effective_cg) = remaining
+                needed_gross = remaining / (1.0 - effective_cg) if effective_cg < 1.0 else remaining
+                brokerage_withdrawal = min(brokerage_bal, needed_gross)
+                brokerage_tax = brokerage_withdrawal * effective_cg
+                brokerage_aftertax = brokerage_withdrawal - brokerage_tax
+                # Update cost basis proportionally
+                basis_fraction = brokerage_withdrawal / brokerage_bal if brokerage_bal > 0 else 0
+                brokerage_cost_basis = max(0.0, brokerage_cost_basis * (1.0 - basis_fraction))
+                brokerage_bal -= brokerage_withdrawal
+                actual_spend += brokerage_aftertax
+                remaining -= brokerage_aftertax
+
+            # Draw from Roth (tax-free)
+            if remaining > 0 and roth_bal > 0:
+                roth_withdrawal = min(roth_bal, remaining)
+                roth_bal -= roth_withdrawal
+                actual_spend += roth_withdrawal
+                remaining -= roth_withdrawal
+
+            # Draw additional from pre-tax if still short
+            if remaining > 0 and pretax_bal > 0:
+                needed_gross = remaining / (1.0 - t_ord) if t_ord < 1.0 else remaining
+                extra_pretax_withdrawal = min(pretax_bal, needed_gross)
+                extra_pretax_tax = extra_pretax_withdrawal * t_ord
+                pretax_bal -= extra_pretax_withdrawal
+                actual_spend += (extra_pretax_withdrawal - extra_pretax_tax)
+
+        # --- 4. Clamp balances ---
+        pretax_bal    = max(0.0, pretax_bal)
+        roth_bal      = max(0.0, roth_bal)
+        brokerage_bal = max(0.0, brokerage_bal)
+
+        total_tax = rmd_tax + brokerage_tax + extra_pretax_tax
+        total_portfolio_end = pretax_bal + roth_bal + brokerage_bal
+
+        year_data.append({
+            "year": year,
+            "age": age,
+            "rmd": rmd,
+            "brokerage_withdrawal": brokerage_withdrawal,
+            "roth_withdrawal": roth_withdrawal,
+            "extra_pretax_withdrawal": extra_pretax_withdrawal,
+            "reinvested_excess": reinvested_excess,
+            "total_tax": total_tax,
+            "actual_aftertax": actual_spend,
+            "pretax_bal_end": pretax_bal,
+            "roth_bal_end": roth_bal,
+            "brokerage_bal_end": brokerage_bal,
+            "total_portfolio_end": total_portfolio_end,
+        })
+
+    return year_data
+
+
+def find_sustainable_withdrawal(
+    pretax_bal: float,
+    roth_bal: float,
+    brokerage_bal: float,
+    brokerage_cost_basis: float,
+    retirement_age: int,
+    life_expectancy: int,
+    growth_rate: float,
+    inflation_rate: float,
+    retirement_tax_rate_pct: float,
+    capital_gains_rate_pct: float = 15.0,
+    legacy_goal: float = 0.0,
+) -> tuple:
+    """Binary search for the maximum first-year after-tax withdrawal that leaves
+    `legacy_goal` in the portfolio at life_expectancy (default ≈ $0).
+
+    Returns:
+        (sustainable_withdrawal, year_data) where year_data is the full simulation
+        for the found withdrawal amount.
+    """
+    total = pretax_bal + roth_bal + brokerage_bal
+    if total <= 0:
+        return 0.0, []
+
+    low = 0.0
+    high = total  # theoretical upper bound
+
+    for _ in range(50):  # 50 iterations → sub-cent precision
+        mid = (low + high) / 2.0
+        data = simulate_retirement(
+            pretax_bal, roth_bal, brokerage_bal, brokerage_cost_basis,
+            mid, retirement_age, life_expectancy,
+            growth_rate, inflation_rate,
+            retirement_tax_rate_pct, capital_gains_rate_pct,
+        )
+        final_balance = data[-1]["total_portfolio_end"] if data else 0.0
+        if final_balance > legacy_goal + 1.0:
+            # Portfolio has money left above target — can afford a higher withdrawal
+            low = mid
+        else:
+            # Portfolio fell below legacy target — withdrawal too high
+            high = mid
+
+    # Run one final simulation with the converged value to get clean year_data
+    final_data = simulate_retirement(
+        pretax_bal, roth_bal, brokerage_bal, brokerage_cost_basis,
+        low, retirement_age, life_expectancy,
+        growth_rate, inflation_rate,
+        retirement_tax_rate_pct, capital_gains_rate_pct,
+    )
+    return low, final_data
 
 
 def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inputs: Dict) -> bytes:
@@ -351,6 +613,29 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
         fontSize=14,
         spaceAfter=8,
         textColor=colors.darkgreen
+    )
+
+    table_header_style = ParagraphStyle(
+        'TableHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=8,
+        leading=10,
+        alignment=TA_CENTER,
+        wordWrap='CJK',
+    )
+    table_cell_style = ParagraphStyle(
+        'TableCell',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        alignment=TA_LEFT,
+        wordWrap='CJK',
+    )
+    table_cell_right_style = ParagraphStyle(
+        'TableCellRight',
+        parent=table_cell_style,
+        alignment=TA_RIGHT,
     )
     
     # Build PDF content
@@ -423,18 +708,24 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story.append(Paragraph("Asset Breakdown", heading_style))
 
     # Asset details table with proper formatting
-    asset_data = [["Account", "Tax\nTreatment", "Current\nBalance", "Annual\nContribution", "Growth\nRate"]]
+    asset_data = [[
+        Paragraph("Account", table_header_style),
+        Paragraph("Tax Treatment", table_header_style),
+        Paragraph("Current Balance", table_header_style),
+        Paragraph("Annual Contribution", table_header_style),
+        Paragraph("Growth Rate", table_header_style),
+    ]]
     for asset in assets:
         asset_data.append([
-            asset.name,
-            asset.asset_type.value.replace('_', ' ').title(),
-            f"${asset.current_balance:,.0f}",
-            f"${asset.annual_contribution:,.0f}",
-            f"{asset.growth_rate_pct}%"
+            Paragraph(asset.name, table_cell_style),
+            Paragraph(asset.asset_type.value.replace('_', ' ').title(), table_cell_style),
+            Paragraph(f"${asset.current_balance:,.0f}", table_cell_right_style),
+            Paragraph(f"${asset.annual_contribution:,.0f}", table_cell_right_style),
+            Paragraph(f"{asset.growth_rate_pct}%", table_cell_right_style),
         ])
 
-    # Adjusted column widths for better spacing
-    asset_table = Table(asset_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 0.8*inch])
+    # Wider account/tax columns and wrapped paragraphs prevent clipped text.
+    asset_table = Table(asset_data, colWidths=[2.2*inch, 1.15*inch, 0.95*inch, 1.05*inch, 0.65*inch], repeatRows=1)
     asset_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -492,7 +783,6 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     # Retirement Income Analysis
     story.append(Paragraph("Retirement Income Analysis", heading_style))
 
-    total_after_tax = result.get("Total After-Tax Balance", 0)
     life_expectancy = user_inputs.get('life_expectancy', 85)
     retirement_age = user_inputs.get('retirement_age', 65)
     years_in_retirement = life_expectancy - retirement_age
@@ -501,23 +791,37 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     if years_in_retirement <= 0:
         raise ValueError(f"Life expectancy ({life_expectancy}) must be greater than retirement age ({retirement_age})")
 
-    # Use inflation-adjusted annuity formula (same as What-If section)
+    # Use the same sequencing + RMD simulation as the What-If section.
     retirement_growth_rate = user_inputs.get('retirement_growth_rate', 4.0)
     inflation_rate = user_inputs.get('inflation_rate', 3)
-    r = retirement_growth_rate / 100.0
-    i = inflation_rate / 100.0
-    n = years_in_retirement
 
-    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
-        annual_retirement_income = total_after_tax / n
-    elif r > i:  # Normal case: growth exceeds inflation
-        numerator = r - i
-        denominator = 1 - ((1 + i) / (1 + r)) ** n
-        annual_retirement_income = total_after_tax * (numerator / denominator)
-    else:  # r < i: inflation exceeds growth
-        numerator = r - i  # This will be negative
-        denominator = 1 - ((1 + i) / (1 + r)) ** n
-        annual_retirement_income = total_after_tax * (numerator / denominator)
+    pdf_pretax_fv = sum(
+        ar['pre_tax_value']
+        for ar, ai in zip(result.get('asset_results', []), result.get('assets_input', []))
+        if ai.asset_type in (AssetType.PRE_TAX, AssetType.TAX_DEFERRED)
+    )
+    pdf_roth_fv = sum(
+        ar['pre_tax_value']
+        for ar, ai in zip(result.get('asset_results', []), result.get('assets_input', []))
+        if ai.asset_type == AssetType.POST_TAX and 'roth' in ai.name.lower()
+    )
+    pdf_brok_fv = sum(
+        ar['pre_tax_value']
+        for ar, ai in zip(result.get('asset_results', []), result.get('assets_input', []))
+        if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+    )
+    pdf_brok_basis = sum(
+        ar['total_contributions'] + ai.current_balance
+        for ar, ai in zip(result.get('asset_results', []), result.get('assets_input', []))
+        if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+    )
+
+    annual_retirement_income, cashflow_data = find_sustainable_withdrawal(
+        pdf_pretax_fv, pdf_roth_fv, pdf_brok_fv, pdf_brok_basis,
+        int(retirement_age), int(life_expectancy),
+        retirement_growth_rate / 100.0, inflation_rate / 100.0,
+        float(user_inputs.get('retirement_marginal_tax_rate_pct', 25.0)),
+    )
 
     retirement_income_goal = user_inputs.get('retirement_income_goal', 0)
     income_shortfall = retirement_income_goal - annual_retirement_income
@@ -623,6 +927,59 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
         story.append(Spacer(1, 6))
     
     story.append(Spacer(1, 20))
+
+    # Cash Flow Table (year-by-year) at bottom of report.
+    story.append(PageBreak())
+    story.append(Paragraph("Cash Flow Projection (Year-by-Year)", heading_style))
+
+    cashflow_header = [
+        Paragraph("Year", table_header_style),
+        Paragraph("Age", table_header_style),
+        Paragraph("RMD", table_header_style),
+        Paragraph("Brokerage W/D", table_header_style),
+        Paragraph("Roth W/D", table_header_style),
+        Paragraph("Extra Pre-Tax", table_header_style),
+        Paragraph("Tax Paid", table_header_style),
+        Paragraph("After-Tax Income", table_header_style),
+        Paragraph("Total Portfolio", table_header_style),
+    ]
+    cashflow_rows = [cashflow_header]
+
+    for row in cashflow_data:
+        cashflow_rows.append([
+            Paragraph(str(int(row["year"])), table_cell_right_style),
+            Paragraph(str(int(row["age"])), table_cell_right_style),
+            Paragraph(f"${row['rmd']:,.0f}" if row["rmd"] > 0 else "-", table_cell_right_style),
+            Paragraph(f"${row['brokerage_withdrawal']:,.0f}" if row["brokerage_withdrawal"] > 0 else "-", table_cell_right_style),
+            Paragraph(f"${row['roth_withdrawal']:,.0f}" if row["roth_withdrawal"] > 0 else "-", table_cell_right_style),
+            Paragraph(f"${row['extra_pretax_withdrawal']:,.0f}" if row["extra_pretax_withdrawal"] > 0 else "-", table_cell_right_style),
+            Paragraph(f"${row['total_tax']:,.0f}", table_cell_right_style),
+            Paragraph(f"${row['actual_aftertax']:,.0f}", table_cell_right_style),
+            Paragraph(f"${row['total_portfolio_end']:,.0f}", table_cell_right_style),
+        ])
+
+    cashflow_table = Table(
+        cashflow_rows,
+        colWidths=[0.35*inch, 0.35*inch, 0.55*inch, 0.7*inch, 0.55*inch, 0.7*inch, 0.55*inch, 0.85*inch, 0.85*inch],
+        repeatRows=1,
+    )
+    cashflow_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, 0), 6),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    story.append(cashflow_table)
+    story.append(Spacer(1, 12))
 
     # Footer Disclaimer
     story.append(Paragraph("DISCLAIMER: This report is for educational purposes only and does not constitute professional financial advice. Consult qualified professionals before making financial decisions.",
@@ -792,6 +1149,54 @@ def monte_carlo_dialog():
             st.rerun()
 
 
+@st.dialog("📊 Cash Flow Projection", width="large")
+def cashflow_dialog():
+    """Dialog showing the year-by-year retirement cash flow table."""
+    sim_data = st.session_state.get("cashflow_sim_data")
+
+    if not sim_data:
+        st.info("Run a retirement analysis first to see the cash flow projection.")
+        return
+
+    import pandas as pd
+
+    _col_cfg = {
+        "Year":          st.column_config.NumberColumn("Year",          format="%d"),
+        "Age":           st.column_config.NumberColumn("Age",           format="%d"),
+        "RMD":           st.column_config.NumberColumn("RMD",           format="$%d"),
+        "Brokerage W/D": st.column_config.NumberColumn("Brokerage W/D", format="$%d"),
+        "Roth W/D":      st.column_config.NumberColumn("Roth W/D",      format="$%d"),
+        "Extra Pre-Tax": st.column_config.NumberColumn("Extra Pre-Tax", format="$%d"),
+        "Tax Paid":      st.column_config.NumberColumn("Tax Paid",      format="$%d"),
+        "After-Tax Income (adjusted for inflation)": st.column_config.NumberColumn(
+            "After-Tax Income (adjusted for inflation)",
+            format="$%d",
+            help="Each year the model grows all account pots, pays any forced RMD, then draws from brokerage → pre-tax → Roth until the target income is met. The target is the maximum first-year withdrawal that fully depletes the portfolio by your life expectancy.",
+        ),
+        "Total Portfolio": st.column_config.NumberColumn("Total Portfolio", format="$%d"),
+    }
+
+    withdrawal_data = []
+    for row in sim_data:
+        withdrawal_data.append({
+            "Year":          row["year"],
+            "Age":           row["age"],
+            "RMD":           row["rmd"]                     if row["rmd"] > 0                     else None,
+            "Brokerage W/D": row["brokerage_withdrawal"]    if row["brokerage_withdrawal"] > 0    else None,
+            "Roth W/D":      row["roth_withdrawal"]         if row["roth_withdrawal"] > 0         else None,
+            "Extra Pre-Tax": row["extra_pretax_withdrawal"] if row["extra_pretax_withdrawal"] > 0 else None,
+            "Tax Paid":      row["total_tax"],
+            "After-Tax Income (adjusted for inflation)": row["actual_aftertax"],
+            "Total Portfolio": row["total_portfolio_end"],
+        })
+
+    df_withdrawals = pd.DataFrame(withdrawal_data)
+    st.dataframe(df_withdrawals, use_container_width=True, hide_index=True, column_config=_col_cfg)
+
+    if st.button("Close", use_container_width=True):
+        st.rerun()
+
+
 @st.dialog("💡 Reminder: Adjust Annual Contributions")
 def contribution_reminder_dialog():
     """Dialog to remind users to adjust contributions before finishing onboarding."""
@@ -834,6 +1239,24 @@ def contribution_reminder_dialog():
             st.rerun()
 
 
+
+@st.dialog(f"🆕 What's New in v{VERSION}", width="large")
+def whats_new_dialog():
+    """Display the Release Overview section of the current version's release notes."""
+    content = load_release_notes()
+    if content:
+        marker = "## 🎯 Release Overview"
+        start = content.find(marker)
+        end = content.find("\n---", start) if start != -1 else -1
+        overview = content[start:end] if start != -1 and end != -1 else content
+        st.markdown(overview)
+    else:
+        st.info(f"Release notes for v{VERSION} are not yet available.")
+    st.markdown("---")
+    if st.button("Close", use_container_width=True, type="primary", key="close_whats_new"):
+        st.rerun()
+
+
 # Streamlit UI - this runs when using 'streamlit run fin_advisor.py'
 # Skip UI code if running tests
 import sys
@@ -866,11 +1289,8 @@ if not _RUNNING_TESTS:
         <style>
         /* Ensure tooltips use consistent sans-serif font */
         [role="tooltip"],
-        [role="tooltip"] *,
         [data-baseweb="tooltip"],
-        [data-baseweb="tooltip"] *,
-        div[data-baseweb="popover"],
-        div[data-baseweb="popover"] * {
+        div[data-baseweb="popover"] {
             font-family: "Source Sans Pro", sans-serif !important;
         }
         </style>
@@ -1293,6 +1713,18 @@ if not _RUNNING_TESTS:
                 st.rerun()
 
 
+    # Initialize What's New dialog state — auto-show once per session
+    if 'whats_new_shown' not in st.session_state:
+        st.session_state.whats_new_shown = True
+        st.session_state.show_whats_new = True
+    if 'show_whats_new' not in st.session_state:
+        st.session_state.show_whats_new = False
+
+    # Trigger What's New dialog if flagged
+    if st.session_state.get('show_whats_new', False):
+        st.session_state.show_whats_new = False
+        whats_new_dialog()
+
     # Initialize session state for splash screen
     if 'splash_dismissed' not in st.session_state:
         st.session_state.splash_dismissed = False
@@ -1316,6 +1748,10 @@ if not _RUNNING_TESTS:
         st.session_state.baseline_life_expectancy = 85
     if 'baseline_retirement_income_goal' not in st.session_state:
         st.session_state.baseline_retirement_income_goal = 0  # Optional field
+    if 'baseline_life_expenses' not in st.session_state:
+        st.session_state.baseline_life_expenses = 0
+    if 'baseline_legacy_goal' not in st.session_state:
+        st.session_state.baseline_legacy_goal = 0
     if 'client_name' not in st.session_state:
         st.session_state.client_name = ""
     if 'assets' not in st.session_state:
@@ -1361,7 +1797,7 @@ if not _RUNNING_TESTS:
                 - **Pessimistic**: 5-10% higher (if tax rates increase)
                 """)
     
-            retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 25, help="Expected tax rate in retirement")
+            retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 22, help="Expected tax rate in retirement")
     
             st.markdown("---")
             st.markdown("### Growth Rate Assumptions")
@@ -1466,7 +1902,9 @@ if not _RUNNING_TESTS:
     if 'whatif_inflation_rate' not in st.session_state:
         st.session_state.whatif_inflation_rate = 3
     if 'whatif_life_expenses' not in st.session_state:
-        st.session_state.whatif_life_expenses = 0
+        st.session_state.whatif_life_expenses = st.session_state.baseline_life_expenses
+    if 'whatif_legacy_goal' not in st.session_state:
+        st.session_state.whatif_legacy_goal = st.session_state.baseline_legacy_goal
     if 'whatif_retirement_growth_rate' not in st.session_state:
         st.session_state.whatif_retirement_growth_rate = 4.0
     
@@ -1739,8 +2177,6 @@ if not _RUNNING_TESTS:
                 )
                 st.session_state.retirement_age = retirement_age
                 st.info(f"⏰ **Years to Retirement**: {retirement_age - age} years")
-    
-            with col2:
                 # Life expectancy input with tooltip help
                 life_expectancy = st.number_input(
                     "Life Expectancy (Age)",
@@ -1764,6 +2200,8 @@ if not _RUNNING_TESTS:
                 st.session_state.life_expectancy = life_expectancy
                 years_in_retirement = life_expectancy - retirement_age
                 st.info(f"⏳ **Years in Retirement**: {years_in_retirement} years")
+
+            with col2:
     
                 # Retirement income goal with tooltip help
                 retirement_income_goal = st.number_input(
@@ -1794,7 +2232,56 @@ if not _RUNNING_TESTS:
                     st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
                 else:
                     st.info("💡 **No target set** - Analysis will show your projected value")
-    
+
+                life_expenses = st.number_input(
+                    "One-Time Expenses at Retirement ($) — Optional",
+                    min_value=0,
+                    max_value=10_000_000,
+                    value=st.session_state.get('life_expenses', 0),
+                    step=10_000,
+                    help="""A lump-sum amount deducted from your portfolio at the moment you retire.
+
+Examples:
+• Paying off a remaining mortgage
+• Large medical or long-term care costs
+• Down payment on a retirement home
+
+💡 Common range: $50,000–$300,000
+   (e.g., $150,000 to clear a remaining mortgage)
+
+This amount is subtracted from your portfolio before calculating sustainable income.""",
+                    key="life_expenses_input"
+                )
+                st.session_state.life_expenses = life_expenses
+
+                if life_expenses > 0:
+                    st.info(f"💸 **One-Time Deduction**: ${life_expenses:,.0f} at retirement")
+                else:                    
+                    st.info("💡 **No one-time expenses set** - No deduction at retirement")
+
+                legacy_goal = st.number_input(
+                    "Legacy Goal — Money to Leave Behind ($) — Optional",
+                    min_value=0,
+                    max_value=10_000_000,
+                    value=st.session_state.get('legacy_goal', 0),
+                    step=10_000,
+                    help="""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
+
+The withdrawal simulation will preserve this amount so it can be passed on.
+
+💡 Common range: $50,000–$500,000
+   (e.g., $200,000 as an inheritance for your family)
+
+Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance.""",
+                    key="legacy_goal_input"
+                )
+                st.session_state.legacy_goal = legacy_goal
+
+                if legacy_goal > 0:
+                    st.info(f"🎯 **Legacy Goal**: ${legacy_goal:,.0f} remaining at end of life")
+                else:
+                    st.info("💡 **No legacy goal set** - Portfolio can be fully depleted at end of life")
+
             # Navigation button for Step 1
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 1, 1])
@@ -2879,7 +3366,9 @@ if not _RUNNING_TESTS:
                         if is_new_upload:
                             # This is a new file - parse it and reset everything
                             csv_content = uploaded_file.read().decode('utf-8')
-                            assets = parse_uploaded_csv(csv_content)
+                            assets, csv_warnings = parse_uploaded_csv(csv_content)
+                            for w in csv_warnings:
+                                st.info(f"ℹ️ {w}")
 
                             # Store file ID and assets in session state
                             st.session_state.csv_uploaded_file_id = file_id
@@ -3196,11 +3685,15 @@ if not _RUNNING_TESTS:
                         st.session_state.baseline_retirement_age = st.session_state.retirement_age
                         st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
                         st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
-    
+                        st.session_state.baseline_life_expenses = st.session_state.get('life_expenses', 0)
+                        st.session_state.baseline_legacy_goal = st.session_state.get('legacy_goal', 0)
+
                         # Initialize what-if values to match baseline
                         st.session_state.whatif_retirement_age = st.session_state.retirement_age
                         st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
                         st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
+                        st.session_state.whatif_life_expenses = st.session_state.get('life_expenses', 0)
+                        st.session_state.whatif_legacy_goal = st.session_state.get('legacy_goal', 0)
     
                         # Mark onboarding as complete and navigate to results page
                         st.session_state.onboarding_complete = True
@@ -3268,95 +3761,6 @@ if not _RUNNING_TESTS:
     
         st.markdown("---")
     
-        # What-If Scenarios Section (editable)
-        st.subheader("🎯 What-If Scenario Adjustments")
-        st.markdown("Adjust the values below to explore different retirement scenarios. Changes update instantly.")
-    
-        col1, col2, col3 = st.columns(3)
-    
-        with col1:
-            whatif_retirement_age = st.number_input(
-                "Retirement Age",
-                min_value=40,
-                max_value=80,
-                value=st.session_state.whatif_retirement_age,
-                help="Adjust retirement age to see impact on projections"
-            )
-    
-            whatif_life_expectancy = st.number_input(
-                "Life Expectancy",
-                min_value=whatif_retirement_age + 1,
-                max_value=120,
-                value=st.session_state.whatif_life_expectancy,
-                help="Adjust life expectancy to see impact on retirement duration"
-            )
-    
-        with col2:
-            whatif_retirement_income_goal = st.number_input(
-                "Annual Retirement Income Goal ($)",
-                min_value=0,
-                max_value=1000000,
-                value=st.session_state.whatif_retirement_income_goal,
-                step=5000,
-                help="Target annual income in retirement (0 = no goal set)"
-            )
-    
-            whatif_life_expenses = st.number_input(
-                "One-Time Life Expenses at Retirement ($)",
-                min_value=0,
-                max_value=10000000,
-                value=st.session_state.whatif_life_expenses,
-                step=10000,
-                help="Large one-time expenses at retirement (e.g., paying off mortgage, buying retirement home, medical expenses)"
-            )
-    
-        with col3:
-            whatif_inflation_rate = 3
-    
-            whatif_retirement_growth_rate = st.slider(
-                "Portfolio Growth in Retirement (%)",
-                min_value=0.0,
-                max_value=10.0,
-                value=st.session_state.whatif_retirement_growth_rate,
-                step=0.5,
-                help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
-            )
-    
-            whatif_retirement_tax_rate = st.slider(
-                "Retirement Tax Rate (%)",
-                min_value=0,
-                max_value=50,
-                value=st.session_state.whatif_retirement_tax_rate,
-                help="Expected tax rate in retirement (used to calculate after-tax balance)"
-            )
-    
-    
-        # Update session state with current widget values
-        st.session_state.whatif_retirement_age = whatif_retirement_age
-        st.session_state.whatif_life_expectancy = whatif_life_expectancy
-        st.session_state.whatif_retirement_income_goal = whatif_retirement_income_goal
-        st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
-        st.session_state.whatif_inflation_rate = whatif_inflation_rate
-        st.session_state.whatif_retirement_growth_rate = whatif_retirement_growth_rate
-        st.session_state.whatif_life_expenses = whatif_life_expenses
-    
-        # Reset button
-        if st.button("🔄 Reset to Baseline Values"):
-            # Track What-If reset
-            track_feature_usage('what_if_reset')
-    
-            st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
-            st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
-            st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
-            st.session_state.whatif_current_tax_rate = 22
-            st.session_state.whatif_retirement_tax_rate = 25
-            st.session_state.whatif_inflation_rate = 3
-            st.session_state.whatif_retirement_growth_rate = 4.0
-            st.session_state.whatif_life_expenses = 0
-            st.rerun()
-    
-        st.markdown("---")
-    
         # Calculate values from what-if session state for results
         current_year = datetime.now().year
         age = current_year - st.session_state.birth_year
@@ -3368,6 +3772,7 @@ if not _RUNNING_TESTS:
         inflation_rate = st.session_state.whatif_inflation_rate
         retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
         life_expenses = st.session_state.whatif_life_expenses
+        legacy_goal = st.session_state.get('whatif_legacy_goal', 0)
         assets = st.session_state.assets
         
         try:
@@ -3386,8 +3791,9 @@ if not _RUNNING_TESTS:
         
             result = project(inputs)
     
-            # Save result to session state for Next Steps dialogs
+            # Save result and inputs to session state for Next Steps dialogs
             st.session_state.last_result = result
+            st.session_state.last_inputs = inputs
     
             # Adjust after-tax balance for life expenses
             total_after_tax_original = result['Total After-Tax Balance']
@@ -3395,13 +3801,13 @@ if not _RUNNING_TESTS:
             # Validate life expenses don't exceed portfolio balance
             if life_expenses > total_after_tax_original:
                 st.error(f"""
-                ⚠️ **Life Expenses Exceed Portfolio Balance**
-    
-                Your one-time life expenses at retirement (**${life_expenses:,.0f}**) exceed
+                ⚠️ **One-Time Expenses Exceed Portfolio Balance**
+
+                Your one-time expenses at retirement (**${life_expenses:,.0f}**) exceed
                 your projected after-tax portfolio balance (**${total_after_tax_original:,.0f}**).
-    
+
                 Please either:
-                - Reduce life expenses, or
+                - Reduce one-time expenses, or
                 - Adjust your portfolio contributions/retirement age to build a larger balance
                 """)
                 st.stop()
@@ -3417,64 +3823,96 @@ if not _RUNNING_TESTS:
                 with col2:
                     st.metric("Total Pre-Tax Value", f"${result['Total Future Value (Pre-Tax)']:,.0f}")
                 with col3:
+                    _atv_help = "Estimated using a year-by-year simulation: each year all account pots grow, forced RMDs are paid first, then withdrawals follow brokerage → pre-tax → Roth order. The annual withdrawal is the maximum that sustains the portfolio through your life expectancy."
                     if life_expenses > 0:
                         st.metric(
                             "Total After-Tax Value",
                             f"${total_after_tax:,.0f}",
-                            delta=f"-${life_expenses:,.0f} life expenses",
-                            delta_color="normal"
+                            delta=f"-${life_expenses:,.0f} one-time expense",
+                            delta_color="normal",
+                            help=_atv_help,
                         )
                     else:
-                        st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}")
+                        st.metric("Total After-Tax Value", f"${total_after_tax:,.0f}", help=_atv_help)
                 with col4:
                     st.metric("Tax Efficiency", f"{result['Tax Efficiency (%)']:.1f}%")
+
+            if legacy_goal > 0:
+                st.metric(
+                    "Legacy Goal",
+                    f"${legacy_goal:,.0f}",
+                    help="Target portfolio balance at end of life — the withdrawal simulation ensures this amount remains for your heirs. Unlike a one-time expense, this is not deducted at retirement; it reduces the sustainable withdrawal rate instead.",
+                )
     
             # Income Analysis Section
             st.markdown("---")
             st.subheader("💰 Retirement Income Analysis")
             st.caption(
-                "Important modeling note: This income estimate applies taxes as a one-time adjustment at retirement, "
-                "then projects inflation-adjusted withdrawals from the after-tax balance. It does not yet model "
-                "year-by-year withdrawal taxation, tax-bracket changes, or withdrawal sequencing."
+                "Income is modeled with a year-by-year simulation using optimal withdrawal sequencing "
+                "(taxable → pre-tax → Roth) and IRS Required Minimum Distributions (RMDs) starting at age 73. "
+                "Social Security income and tax brackets are not modeled — see the note below."
             )
-    
+
             # Calculate retirement income from portfolio (using adjusted balance)
             years_in_retirement = life_expectancy - retirement_age  # Use actual life expectancy
-    
+
             # Validate years in retirement
             if years_in_retirement <= 0:
                 st.error(f"""
                 ⚠️ **Invalid Retirement Period**
-    
+
                 Your life expectancy (**{life_expectancy}**) must be greater than
                 your retirement age (**{retirement_age}**).
-    
+
                 Please adjust these values in the sliders above.
                 """)
                 st.stop()
-    
-            # Calculate inflation-adjusted annual withdrawal with portfolio growth
-            # This uses the inflation-adjusted annuity formula:
-            # PMT = PV × [(r - i) / (1 - ((1+i)/(1+r))^n)]
-            # where portfolio grows at r% and withdrawals increase with i% inflation
-    
-            r = retirement_growth_rate / 100.0  # Convert to decimal
-            i = inflation_rate / 100.0  # Convert to decimal
+
+            # --- Retirement income: year-by-year simulation with sequencing + RMDs ---
+            # Split projected FVs into three pots by account type.
+            pretax_fv = sum(
+                ar['pre_tax_value']
+                for ar, ai in zip(result['asset_results'], result['assets_input'])
+                if ai.asset_type in (AssetType.PRE_TAX, AssetType.TAX_DEFERRED)
+            )
+            roth_fv = sum(
+                ar['pre_tax_value']
+                for ar, ai in zip(result['asset_results'], result['assets_input'])
+                if ai.asset_type == AssetType.POST_TAX and 'roth' in ai.name.lower()
+            )
+            brok_fv = sum(
+                ar['pre_tax_value']
+                for ar, ai in zip(result['asset_results'], result['assets_input'])
+                if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+            )
+            brok_cost_basis = sum(
+                ar['total_contributions'] + ai.current_balance
+                for ar, ai in zip(result['asset_results'], result['assets_input'])
+                if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+            )
+
+            # Deduct life expenses proportionally across all three pots
+            total_fv_all = pretax_fv + roth_fv + brok_fv
+            if life_expenses > 0 and total_fv_all > 0:
+                frac = life_expenses / total_fv_all
+                pretax_fv       = max(0.0, pretax_fv       * (1.0 - frac))
+                roth_fv         = max(0.0, roth_fv         * (1.0 - frac))
+                brok_fv         = max(0.0, brok_fv         * (1.0 - frac))
+                brok_cost_basis = max(0.0, brok_cost_basis * (1.0 - frac))
+
+            annual_retirement_income, sim_data = find_sustainable_withdrawal(
+                pretax_fv, roth_fv, brok_fv, brok_cost_basis,
+                int(retirement_age), int(life_expectancy),
+                retirement_growth_rate / 100.0, inflation_rate / 100.0,
+                float(retirement_tax_rate),
+                legacy_goal=legacy_goal,
+            )
+            st.session_state.cashflow_sim_data = sim_data
+
+            # r, i, n still needed by the recommendations section (inverse annuity formula)
+            r = retirement_growth_rate / 100.0
+            i = inflation_rate / 100.0
             n = years_in_retirement
-    
-            if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
-                # Simple division when growth = inflation
-                annual_retirement_income = total_after_tax / n
-            elif r > i:  # Normal case: growth exceeds inflation
-                # Inflation-adjusted annuity formula
-                numerator = r - i
-                denominator = 1 - ((1 + i) / (1 + r)) ** n
-                annual_retirement_income = total_after_tax * (numerator / denominator)
-            else:  # r < i: inflation exceeds growth (portfolio losing real value)
-                # Still use the formula but result will be lower
-                numerator = r - i  # This will be negative
-                denominator = 1 - ((1 + i) / (1 + r)) ** n
-                annual_retirement_income = total_after_tax * (numerator / denominator)
         
             # Only show income goal comparison if user set a goal
             if retirement_income_goal > 0:
@@ -3487,7 +3925,7 @@ if not _RUNNING_TESTS:
                     st.metric(
                         "Projected Annual Income",
                         f"${annual_retirement_income:,.0f}",
-                        help=f"First year withdrawal from portfolio. Assumes {retirement_growth_rate:.1f}% growth during retirement with {inflation_rate}% inflation-adjusted increases annually. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})"
+                        help=f"First-year after-tax income. Modeled with optimal withdrawal sequencing (taxable → pre-tax → Roth) and IRS RMDs starting at age 73. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})."
                     )
                 with col2:
                     st.metric(
@@ -3528,103 +3966,164 @@ if not _RUNNING_TESTS:
                     st.metric(
                         "Projected Annual Income",
                         f"${annual_retirement_income:,.0f}",
-                        help=f"Based on {years_in_retirement}-year retirement period (age {retirement_age} to {life_expectancy})"
+                        help=f"First-year after-tax income. Modeled with optimal withdrawal sequencing (taxable → pre-tax → Roth) and IRS RMDs starting at age 73. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})."
                     )
                 with col2:
                     st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
     
+            # Social Security notice
+            st.info(
+                "ℹ️ **Social Security income is not included in this projection.** "
+                "Your estimated SS benefit can significantly reduce the amount your portfolio needs to cover. "
+                "Expand the section below to find your projected benefit and learn how to factor it in."
+            )
+            with st.expander("💡 Social Security Income Not Included — How to Factor It In", expanded=False):
+                st.markdown("""
+                ### This Tool Models Portfolio Income Only
+
+                The projected retirement income shown above comes entirely from your **investment accounts**
+                (401k, IRA, Roth, brokerage). It does **not** include Social Security benefits, pensions,
+                rental income, or any other income source.
+
+                Most retirees are entitled to Social Security — and for many it's $20,000–$40,000+ per year.
+                Leaving it out of your planning can make your situation look worse than it actually is.
+
+                ---
+
+                ### How to Factor It Into This Tool
+
+                The simplest approach: **subtract your expected SS benefit from your income goal.**
+
+                > **Example:** You need $70,000/year in retirement. You expect $24,000/year from Social Security.
+                > Set your income goal here to **$46,000/year** — the amount your portfolio needs to cover.
+
+                ---
+
+                ### How to Find Your Projected Social Security Benefit
+
+                **Option 1 — my Social Security account (most accurate):**
+                1. Go to [ssa.gov/myaccount](https://www.ssa.gov/myaccount/) and create a free account
+                2. View your **Social Security Statement** — it shows your projected monthly benefit
+                   at ages 62, 67 (full retirement age), and 70
+                3. Your statement also shows your full earnings history and disability/survivor benefits
+
+                **Option 2 — SSA Retirement Estimator:**
+                - Use the quick estimator at
+                  [ssa.gov/benefits/retirement/estimator.html](https://www.ssa.gov/benefits/retirement/estimator.html)
+                - No account needed; based on your reported earnings
+
+                ---
+
+                ### Typical Social Security Benefit Amounts (2025)
+
+                | Scenario | Monthly | Annual |
+                |---|---|---|
+                | Average retired worker | ~$1,900 | ~$22,800 |
+                | Maximum at full retirement age (67) | ~$4,018 | ~$48,216 |
+                | Maximum at age 70 (delayed) | ~$4,873 | ~$58,476 |
+
+                > 💡 **Tip:** Delaying Social Security to age 70 increases your benefit by ~8% per year
+                > beyond full retirement age — often worth considering if your portfolio can bridge the gap.
+                """)
+
             # Explanation of retirement income calculation
             with st.expander("📊 How Is Retirement Income Calculated?", expanded=False):
+                rmd_start_year = max(0, 73 - int(retirement_age))
                 st.markdown(f"""
-                ### Inflation-Adjusted Annuity Calculation
-    
-                Your projected retirement income accounts for:
-                1. **Portfolio continuing to grow** during retirement ({retirement_growth_rate:.1f}% annually)
-                2. **Withdrawals increasing** with inflation ({inflation_rate}% annually)
-                3. Portfolio depleting to approximately $0 at end of retirement period
-    
-                **Formula Used:**
-                ```
-                Annual Income = Portfolio Balance × [(r - i) / (1 - ((1+i)/(1+r))^n)]
-                ```
-    
-                Where:
-                - **Portfolio Balance** = ${total_after_tax:,.0f} (after-tax, after life expenses)
-                - **r** (growth rate) = {retirement_growth_rate:.1f}% = {r:.4f}
-                - **i** (inflation rate) = {inflation_rate}% = {i:.4f}
-                - **n** (years) = {n} years (age {retirement_age} to {life_expectancy})
-    
-                ---
-    
-                ### Calculation Breakdown:
-    
-                **Step 1:** Calculate the real growth rate (growth minus inflation)
-                ```
-                Real Growth Rate = {retirement_growth_rate:.1f}% - {inflation_rate}% = {(r-i)*100:.2f}%
-                ```
-    
-                **Step 2:** Calculate the annuity factor
-                ```
-                Annuity Factor = [{r:.4f} - {i:.4f}] / [1 - ((1+{i:.4f})/(1+{r:.4f}))^{n}]
-                              = {r - i:.6f} / {1 - ((1+i)/(1+r))**n:.6f}
-                              = {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
-                ```
-    
-                **Step 3:** Calculate first year withdrawal
-                ```
-                Annual Income = ${total_after_tax:,.0f} × {(r-i) / (1 - ((1+i)/(1+r))**n):.6f}
-                             = ${annual_retirement_income:,.0f}
-                ```
-    
-                ---
-    
-                ### What This Means:
-    
-                **First 10 Years of Withdrawals** (inflation-adjusted):
+                ### Retirement Simulation: Sequencing + RMDs
+
+                Income is calculated using a **year-by-year simulation** across your {n}-year retirement
+                (age {retirement_age}–{life_expectancy}), not a simple formula. Each year the model:
+
+                1. **Grows** all three account pots at {retirement_growth_rate:.1f}% annually
+                2. **Forces RMDs** from pre-tax accounts starting at age 73 (IRS Uniform Lifetime Table)
+                3. **Sequences remaining withdrawals** optimally: taxable brokerage → Roth (last)
+                4. **Taxes each withdrawal** at the appropriate rate (ordinary income for pre-tax, capital
+                   gains on brokerage gains, tax-free for Roth)
+
+                **Starting balances at retirement** (after life expenses):
+                - Pre-Tax (401k / Trad IRA / Tax-Deferred): **${pretax_fv:,.0f}**
+                - Roth IRA: **${roth_fv:,.0f}**
+                - Taxable Brokerage: **${brok_fv:,.0f}**
+                {f"- RMDs begin: **Year {rmd_start_year + 1} (age 73)**" if int(retirement_age) < 73 else "- **RMDs begin immediately (age 73+)**"}
+
+                **Sustainable first-year after-tax income: ${annual_retirement_income:,.0f}**
+                *(binary search result: maximum first-year withdrawal that depletes portfolio at age {life_expectancy})*
                 """)
-    
-                # Generate year-by-year withdrawal table
-                withdrawal_data = []
-                balance = total_after_tax
-                first_year_withdrawal = annual_retirement_income
-    
-                for year in range(1, min(11, n+1)):
-                    withdrawal = first_year_withdrawal * ((1 + i) ** (year - 1))
-                    balance_before = balance
-                    balance = balance * (1 + r) - withdrawal
-    
-                    withdrawal_data.append({
-                        "Year": year,
-                        "Age": retirement_age + year - 1,
-                        "Withdrawal": f"${withdrawal:,.0f}",
-                        "Start Balance": f"${balance_before:,.0f}",
-                        "End Balance": f"${max(0, balance):,.0f}"
-                    })
-    
+
+                # Build year-by-year table from sim_data
                 import pandas as pd
-                df_withdrawals = pd.DataFrame(withdrawal_data)
-                st.dataframe(df_withdrawals, use_container_width=True, hide_index=True)
-    
-                st.markdown(f"""
-                **Key Points:**
-                - Year 1 withdrawal: **${first_year_withdrawal:,.0f}**
-                - Year 10 withdrawal: **${first_year_withdrawal * ((1 + i) ** 9):,.0f}**
-                - Total over {n} years: **${first_year_withdrawal * sum([(1+i)**j for j in range(n)]):,.0f}**
-                - Purchasing power stays constant (adjusts for inflation)
-    
-                ---
-                ### Why This Matters:
-    
-                Retirees typically don't convert their entire portfolio to cash. Instead, they maintain
-                diversified portfolios with conservative allocations (bonds, dividend stocks, etc.) that
-                continue growing during retirement. This calculation reflects that reality.
-    
-                The {retirement_growth_rate:.1f}% growth rate is conservative for a balanced retirement portfolio,
-                and the inflation adjustments ensure your purchasing power remains constant throughout retirement.
-    
-                **Note:** You can adjust the "Portfolio Growth in Retirement" rate in the What-If section above
-                to see how different investment strategies affect your retirement income.
-                """)
+                if sim_data:
+                    _col_cfg = {
+                        "Year":          st.column_config.NumberColumn("Year",          format="%d"),
+                        "Age":           st.column_config.NumberColumn("Age",           format="%d"),
+                        "RMD":           st.column_config.NumberColumn("RMD",           format="$%d"),
+                        "Brokerage W/D": st.column_config.NumberColumn("Brokerage W/D", format="$%d"),
+                        "Roth W/D":      st.column_config.NumberColumn("Roth W/D",      format="$%d"),
+                        "Extra Pre-Tax": st.column_config.NumberColumn("Extra Pre-Tax", format="$%d"),
+                        "Tax Paid":      st.column_config.NumberColumn("Tax Paid",      format="$%d"),
+                        "After-Tax Income (adjusted for inflation)": st.column_config.NumberColumn(
+                            "After-Tax Income (adjusted for inflation)",
+                            format="$%d"),
+                        "Total Portfolio": st.column_config.NumberColumn("Total Portfolio", format="$%d"),
+                    }
+
+                    withdrawal_data = []
+                    for row in sim_data:
+                        withdrawal_data.append({
+                            "Year":          row["year"],
+                            "Age":           row["age"],
+                            "RMD":           row["rmd"]                     if row["rmd"] > 0                     else None,
+                            "Brokerage W/D": row["brokerage_withdrawal"]    if row["brokerage_withdrawal"] > 0    else None,
+                            "Roth W/D":      row["roth_withdrawal"]         if row["roth_withdrawal"] > 0         else None,
+                            "Extra Pre-Tax": row["extra_pretax_withdrawal"] if row["extra_pretax_withdrawal"] > 0 else None,
+                            "Tax Paid":      row["total_tax"],
+                            "After-Tax Income (adjusted for inflation)": row["actual_aftertax"],
+                            "Total Portfolio": row["total_portfolio_end"],
+                        })
+
+                    df_withdrawals = pd.DataFrame(withdrawal_data)
+                    st.dataframe(df_withdrawals, use_container_width=True, hide_index=True, column_config=_col_cfg)
+
+                    # Detect when each pot depletes
+                    brok_depletion = next((r["year"] for r in sim_data if r["brokerage_bal_end"] < 1), None)
+                    pretax_depletion = next((r["year"] for r in sim_data if r["pretax_bal_end"] < 1), None)
+                    roth_depletion = next((r["year"] for r in sim_data if r["roth_bal_end"] < 1), None)
+
+                    depletion_notes = []
+                    if brok_depletion:
+                        depletion_notes.append(f"Brokerage depletes at year {brok_depletion} (age {int(retirement_age) + brok_depletion - 1})")
+                    if pretax_depletion:
+                        depletion_notes.append(f"Pre-tax depletes at year {pretax_depletion} (age {int(retirement_age) + pretax_depletion - 1})")
+                    if roth_depletion:
+                        depletion_notes.append(f"Roth depletes at year {roth_depletion} (age {int(retirement_age) + roth_depletion - 1})")
+
+                    year10_income = sim_data[9]["actual_aftertax"] if len(sim_data) >= 10 else annual_retirement_income
+                    total_aftertax = sum(r["actual_aftertax"] for r in sim_data)
+                    total_tax_paid = sum(r["total_tax"] for r in sim_data)
+
+                    notes_md = "\n".join(f"- {note}" for note in depletion_notes) if depletion_notes else "- All accounts last the full retirement period"
+                    key_points_lines = [
+                        "**Key Points:**",
+                        f"- Year 1 after-tax income: **${annual_retirement_income:,.0f}**",
+                        f"- Year 10 after-tax income: **${year10_income:,.0f}** (inflation-adjusted)",
+                        f"- Total lifetime after-tax income: **${total_aftertax:,.0f}**",
+                        f"- Total taxes paid in retirement: **${total_tax_paid:,.0f}**",
+                        "",
+                        "**Account depletion order:**",
+                        notes_md,
+                        "",
+                        "---",
+                        "### Why Sequencing and RMDs Matter",
+                        "",
+                        "Withdrawing from taxable accounts first lets Roth funds compound tax-free longer,",
+                        "reducing lifetime taxes. RMDs force pre-tax withdrawals regardless of your preference,",
+                        "so large pre-tax balances can push you into higher brackets - a key reason Roth",
+                        "conversions before age 73 are often beneficial.",
+                        "",
+                        "**Note:** Tax brackets, Social Security benefit taxation, and state taxes are not modeled.",
+                    ]
+                    st.markdown("\n".join(key_points_lines))
     
             # Recommendations based on income analysis (only if goal is set)
             if retirement_income_goal > 0:
@@ -3649,9 +4148,10 @@ if not _RUNNING_TESTS:
                             denominator = r - i
                             required_balance_for_income = retirement_income_goal * (numerator / denominator)
     
-                        # Add life expenses back since they're deducted at retirement
-                        # We need: (balance to generate income) + (one-time life expenses)
-                        required_after_tax_balance = required_balance_for_income + life_expenses
+                        # Add life expenses (one-time deduction at retirement) and legacy goal
+                        # (present value of holding `legacy_goal` at end of retirement)
+                        legacy_goal_pv = legacy_goal / ((1 + r) ** n) if n > 0 else legacy_goal
+                        required_after_tax_balance = required_balance_for_income + life_expenses + legacy_goal_pv
     
                         additional_balance_needed = required_after_tax_balance - total_after_tax
     
@@ -3697,20 +4197,21 @@ if not _RUNNING_TESTS:
                             return total_additional_contribution, weighted_avg_rate * 100
     
                         # Helper function to calculate additional years needed
-                        def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses):
+                        def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses, legacy_goal=0.0):
                             """Calculate additional years needed to work.
-    
+
                             Key insight: Working longer has TWO benefits:
                             1. Portfolio grows longer (more years of contributions + growth)
                             2. Retirement period is shorter (need less total balance)
-    
+
                             Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
                             where FV is calculated using INVERSE annuity formula to account for
                             portfolio growth and inflation-adjusted withdrawals during retirement.
-    
+
                             Must account for:
                             - Taxes by converting pre-tax FV to after-tax FV
                             - One-time life expenses deducted at retirement
+                            - Legacy goal (present value of terminal portfolio target)
                             """
                             # Calculate weighted average growth rate and total current contributions
                             weighted_avg_rate = 0
@@ -3775,13 +4276,14 @@ if not _RUNNING_TESTS:
                                     denominator = r_ret - i_ret
                                     required_balance_for_income = income_goal * (numerator / denominator)
     
-                                # Total required = income-generating balance + life expenses
-                                required_balance_aftertax = required_balance_for_income + life_expenses
-    
+                                # Total required = income-generating balance + life expenses + legacy PV
+                                legacy_goal_pv_iter = legacy_goal / ((1 + r_ret) ** test_years_in_retirement) if test_years_in_retirement > 0 else legacy_goal
+                                required_balance_aftertax = required_balance_for_income + life_expenses + legacy_goal_pv_iter
+
                                 # Found solution? Compare available balance (after life expenses) to required balance for income
-                                if available_balance_aftertax >= required_balance_for_income:
+                                if available_balance_aftertax >= required_balance_for_income + legacy_goal_pv_iter:
                                     return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
-    
+
                             # If no solution found in 50 years, return 50
                             # Calculate required balance using inverse annuity formula
                             final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
@@ -3792,10 +4294,10 @@ if not _RUNNING_TESTS:
                                     numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
                                     denominator = r_ret - i_ret
                                     final_required_balance_for_income = income_goal * (numerator / denominator)
-                                # Add life expenses to get total required balance
-                                final_required_balance = final_required_balance_for_income + life_expenses
+                                legacy_goal_pv_final = legacy_goal / ((1 + r_ret) ** final_years_in_retirement) if final_years_in_retirement > 0 else legacy_goal
+                                final_required_balance = final_required_balance_for_income + life_expenses + legacy_goal_pv_final
                             else:
-                                final_required_balance = life_expenses  # Still need life expenses even with 0 years in retirement
+                                final_required_balance = life_expenses + legacy_goal  # Still need both even with 0 years in retirement
     
                             return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
     
@@ -3807,7 +4309,7 @@ if not _RUNNING_TESTS:
                             inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
                         )
                         additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
-                            inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses
+                            inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses, legacy_goal
                         )
     
                         # Calculate new years in retirement for option 2
@@ -3832,13 +4334,22 @@ if not _RUNNING_TESTS:
                            - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
                            - Reduces retirement period to {new_years_in_retirement:.0f} years
                            - Required total after-tax balance: ${required_balance_for_option2:,.0f}
-    
+
                         3. **Optimize asset allocation**: Consider higher-growth investments
-    
+
                         4. **Reduce retirement expenses**: Lower your income goal to ${retirement_income_goal - income_shortfall:,.0f}/year (reduce by ${income_shortfall:,.0f})
-    
+
                         5. **Consider part-time work**: Supplement retirement income
                         """)
+                        if legacy_goal > 0:
+                            annuity_factor = (total_after_tax / annual_retirement_income) if annual_retirement_income > 0 else 1
+                            legacy_reduction_needed = min(income_shortfall * annuity_factor, legacy_goal)
+                            new_legacy = legacy_goal - legacy_reduction_needed
+                            st.info(
+                                f"💡 **Alternatively**, reducing your legacy goal from **${legacy_goal:,.0f}** to "
+                                f"**${new_legacy:,.0f}** (−${legacy_reduction_needed:,.0f}) would free up enough "
+                                f"portfolio to close the income gap."
+                            )
                     else:
                         st.markdown("""
                         **You're on track! Consider these optimizations:**
@@ -3849,207 +4360,100 @@ if not _RUNNING_TESTS:
                         4. **Lifestyle upgrades**: You may be able to increase retirement spending
                         """)
             
-            # Detailed breakdown in tabs
-            st.subheader("📈 Detailed Analysis")
-    
-            detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
-    
-            with detail_tab1:
-                st.write("**Individual Asset Values at Retirement**")
-        
-                # Helper function to humanize account names
-                def humanize_account_name(name: str) -> str:
-                    """Convert account names to human-readable format."""
-                    replacements = {
-                        'roth_ira': 'Roth IRA',
-                        'ira': 'IRA',
-                        '401k': '401(k)',
-                        'hsa': 'HSA (Health Savings Account)'
-                    }
-                    name_lower = name.lower()
-                    for key, value in replacements.items():
-                        if name_lower == key:
-                            return value
-                    return name  # Return original if no match
-        
-                # Create detailed asset breakdown with calculation explainability
-                if 'asset_results' in result and 'assets_input' in result:
-                    asset_data = []
-                    # Track totals for summary row
-                    total_current = 0
-                    total_contributions = 0
-                    total_growth = 0
-                    total_pre_tax = 0
-                    total_taxes = 0
-                    total_after_tax = 0
-        
-                    for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
-                        current_balance = asset_input.current_balance
-                        contributions = asset_result['total_contributions']
-                        pre_tax_value = asset_result['pre_tax_value']
-                        tax_liability = asset_result['tax_liability']
-                        after_tax_value = asset_result['after_tax_value']
-        
-                        # Calculate investment growth
-                        growth = pre_tax_value - current_balance - contributions
-        
-                        # Accumulate totals
-                        total_current += current_balance
-                        total_contributions += contributions
-                        total_growth += growth
-                        total_pre_tax += pre_tax_value
-                        total_taxes += tax_liability
-                        total_after_tax += after_tax_value
-        
-                        asset_data.append({
-                            "Account": humanize_account_name(asset_result['name']),
-                            "Current Balance": f"${current_balance:,.0f}",
-                            "Your Contributions": f"${contributions:,.0f}",
-                            "Investment Growth": f"${growth:,.0f}",
-                            "Pre-Tax Value": f"${pre_tax_value:,.0f}",
-                            "Est. Taxes": f"${tax_liability:,.0f}",
-                            "After-Tax Value": f"${after_tax_value:,.0f}"
-                        })
-        
-                    # Add totals row
-                    if asset_data:
-                        asset_data.append({
-                            "Account": "📊 TOTAL",
-                            "Current Balance": f"${total_current:,.0f}",
-                            "Your Contributions": f"${total_contributions:,.0f}",
-                            "Investment Growth": f"${total_growth:,.0f}",
-                            "Pre-Tax Value": f"${total_pre_tax:,.0f}",
-                            "Est. Taxes": f"${total_taxes:,.0f}",
-                            "After-Tax Value": f"${total_after_tax:,.0f}"
-                        })
-        
-                    if asset_data:
-                        st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
-                        st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
-    
-                        # Note about brokerage account taxation limitation
-                        st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
-                    else:
-                        st.info("No individual asset breakdown available")
-                else:
-                    # Fallback to old format if detailed data not available
-                    asset_data = []
-                    for key, value in result.items():
-                        if "Asset" in key and "After-Tax" in key:
-                            asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
-                            asset_data.append({
-                                "Account": humanize_account_name(asset_name),
-                                "After-Tax Value": f"${value:,.0f}"
-                            })
-        
-                    if asset_data:
-                        st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No individual asset breakdown available")
-    
-                # Calculation Explanation Section
-                st.markdown("---")
-                with st.expander("📊 How Are These Numbers Calculated?", expanded=False):
-                    st.markdown("""
-                    Click below to see a detailed breakdown of the calculation formula and methodology.
-                    """)
-    
-                    if st.button("🔍 Show Detailed Calculation Explanation", key="show_explanation_btn"):
-                        explanation = explain_projected_balance(inputs)
-                        st.text(explanation)
-    
-                        # Add download button for explanation
-                        st.download_button(
-                            label="📥 Download Explanation",
-                            data=explanation,
-                            file_name=f"retirement_calculation_explanation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                            mime="text/plain",
-                            key="download_explanation_btn"
-                        )
-    
-            with detail_tab2:
-                tax_liability = result.get("Total Tax Liability", 0.0)
-                total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1.0)
-                tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0.0
-                
-                col1, col2 = st.columns(2)
+            # Navigate to Detailed Analysis page
+            st.markdown("---")
+            if st.button("📈 View Detailed Analysis", use_container_width=True, type="primary", key="go_detailed_analysis"):
+                st.session_state.current_page = 'detailed_analysis'
+                st.rerun()
+
+            with st.expander("🎯 What-If Scenario Adjustments", expanded=False):
+                st.markdown("Adjust the values below to explore different retirement scenarios. Changes update instantly.")
+
+                col1, col2, col3 = st.columns(3)
+
                 with col1:
-                    st.metric("Total Tax Liability", f"${tax_liability:,.0f}")
-                    st.metric("Tax as % of Pre-Tax Value", f"{tax_percentage:.1f}%")
-                
+                    whatif_retirement_age = st.number_input(
+                        "Retirement Age",
+                        min_value=40,
+                        max_value=80,
+                        key="whatif_retirement_age",
+                        help="Adjust retirement age to see impact on projections"
+                    )
+
+                    whatif_life_expectancy = st.number_input(
+                        "Life Expectancy",
+                        min_value=whatif_retirement_age + 1,
+                        max_value=120,
+                        key="whatif_life_expectancy",
+                        help="Adjust life expectancy to see impact on retirement duration"
+                    )
+
                 with col2:
-                    if result["Tax Efficiency (%)"] > 85:
-                        st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized with minimal tax liability.")
-                    elif result["Tax Efficiency (%)"] > 75:
-                        st.warning(f"⚠️ **Good tax efficiency** ({tax_percentage:.1f}% tax burden), but there may be room for improvement. *Goal: Lower this percentage by shifting assets to tax-advantaged accounts.*")
-                        with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
-                            st.markdown("""
-                            ### 🎯 **Tax Optimization Strategies**
-                            
-                            **1. Asset Location Optimization:**
-                            - **Taxable accounts**: Hold tax-efficient index funds, municipal bonds
-                            - **401(k)/IRA**: Hold high-dividend stocks, REITs, bonds
-                            - **Roth IRA**: Hold high-growth stocks, international funds
-                            
-                            **2. Contribution Strategy:**
-                            - **Maximize employer 401(k) match** (free money!)
-                            - **Consider Roth vs Traditional** based on current vs future tax rates
-                            - **Backdoor Roth IRA** if income exceeds limits
-                            
-                            **3. Withdrawal Strategy:**
-                            - **Tax-loss harvesting** in taxable accounts
-                            - **Roth conversion** during low-income years
-                            - **Strategic withdrawal order**: Taxable → Traditional → Roth
-                            
-                            **4. Advanced Strategies:**
-                            - **HSA triple tax advantage** for medical expenses
-                            - **Municipal bonds** for high tax brackets
-                            - **Tax-efficient fund selection** (low turnover, index funds)
-                            
-                            💡 **Next Steps**: Consider consulting a tax professional for personalized advice based on your specific situation.
-                            """)
-                    else:
-                        st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
-                        with st.expander("🚨 **Urgent Tax Optimization Needed**", expanded=True):
-                            st.markdown("""
-                            ### ⚠️ **Your Tax Efficiency Needs Immediate Attention**
-                            
-                            **Priority Actions:**
-                            1. **Review asset allocation** across account types
-                            2. **Maximize tax-advantaged contributions** (401k, IRA, HSA)
-                            3. **Consider Roth conversions** if in lower tax bracket
-                            4. **Optimize fund selection** for tax efficiency
-                            
-                            **Quick Wins:**
-                            - Switch to index funds (lower turnover = less taxes)
-                            - Use tax-loss harvesting strategies
-                            - Consider municipal bonds for taxable accounts
-                            - Maximize HSA contributions if eligible
-                            
-                            📞 **Recommendation**: Consult a financial advisor for comprehensive tax optimization strategy.
-                            """)
-            
-                    with detail_tab3:
-                        # Summary table
-                        summary_data = {
-                            "Metric": [
-                                "Years Until Retirement",
-                                "Total Future Value (Pre-Tax)",
-                                "Total After-Tax Balance", 
-                                "Total Tax Liability",
-                                "Tax Efficiency (%)"
-                            ],
-                            "Value": [
-                                f"{result['Years Until Retirement']:.0f} years",
-                                f"${result['Total Future Value (Pre-Tax)']:,.0f}",
-                                f"${result['Total After-Tax Balance']:,.0f}",
-                                f"${result['Total Tax Liability']:,.0f}",
-                                f"{result['Tax Efficiency (%)']:.1f}%"
-                            ]
-                        }
-                        
-                        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
-    
+                    whatif_retirement_income_goal = st.number_input(
+                        "Annual Retirement Income Goal ($)",
+                        min_value=0,
+                        max_value=1000000,
+                        key="whatif_retirement_income_goal",
+                        step=5000,
+                        help="Target annual income in retirement (0 = no goal set)"
+                    )
+
+                    whatif_life_expenses = st.number_input(
+                        "One-Time Expenses at Retirement ($)",
+                        min_value=0,
+                        max_value=10000000,
+                        key="whatif_life_expenses",
+                        step=10000,
+                        help="Lump-sum deducted at retirement (e.g., paying off mortgage, medical costs, down payment on retirement home)"
+                    )
+
+                    whatif_legacy_goal = st.number_input(
+                        "Legacy Goal — Money to Leave Behind ($)",
+                        min_value=0,
+                        max_value=10000000,
+                        key="whatif_legacy_goal",
+                        step=10000,
+                        help="Target portfolio balance to leave at end of life (future-value target, not deducted at retirement — reduces sustainable withdrawal rate)"
+                    )
+
+                with col3:
+                    whatif_inflation_rate = 3
+
+                    whatif_retirement_growth_rate = st.slider(
+                        "Portfolio Growth in Retirement (%)",
+                        min_value=0.0,
+                        max_value=10.0,
+                        value=st.session_state.whatif_retirement_growth_rate,
+                        step=0.5,
+                        help="Expected portfolio growth rate during retirement (typically 3-5% for conservative allocations)"
+                    )
+
+                    whatif_retirement_tax_rate = st.slider(
+                        "Retirement Tax Rate (%)",
+                        min_value=0,
+                        max_value=50,
+                        value=st.session_state.whatif_retirement_tax_rate,
+                        help="Expected tax rate in retirement (used to calculate after-tax balance)"
+                    )
+
+                # Update session state for widgets without key= binding (sliders)
+                st.session_state.whatif_retirement_tax_rate = whatif_retirement_tax_rate
+                st.session_state.whatif_inflation_rate = whatif_inflation_rate
+                st.session_state.whatif_retirement_growth_rate = whatif_retirement_growth_rate
+
+                if st.button("🔄 Reset to Baseline Values"):
+                    track_feature_usage('what_if_reset')
+                    st.session_state.whatif_retirement_age = st.session_state.baseline_retirement_age
+                    st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
+                    st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
+                    st.session_state.whatif_current_tax_rate = 22
+                    st.session_state.whatif_retirement_tax_rate = 25
+                    st.session_state.whatif_inflation_rate = 3
+                    st.session_state.whatif_retirement_growth_rate = 4.0
+                    st.session_state.whatif_life_expenses = st.session_state.baseline_life_expenses
+                    st.session_state.whatif_legacy_goal = st.session_state.baseline_legacy_goal
+                    st.rerun()
+
             # Next Steps Section
             st.markdown("---")
             st.subheader("🎯 Next Steps")
@@ -4073,7 +4477,8 @@ if not _RUNNING_TESTS:
             with col3:
                 st.markdown("### 📊 Cash Flow Projection")
                 st.markdown("Visualize year-by-year income and expenses throughout retirement.")
-                st.button("🔜 Coming Soon", use_container_width=True, disabled=True, key="next_steps_cashflow")
+                if st.button("📊 View Cash Flow", use_container_width=True, type="primary", key="next_steps_cashflow"):
+                    cashflow_dialog()
     
             # Share & Feedback section - Simple and clean
             st.markdown("---")
@@ -4189,15 +4594,212 @@ if not _RUNNING_TESTS:
             with st.expander("🔍 Error Details", expanded=False):
                 st.exception(e)
     
+    elif st.session_state.current_page == 'detailed_analysis':
+        # ==========================================
+        # DETAILED ANALYSIS PAGE
+        # ==========================================
+
+        track_page_view('detailed_analysis')
+
+        if st.button("← Back to Results", use_container_width=False):
+            st.session_state.current_page = 'results'
+            st.rerun()
+
+        st.markdown("---")
+        st.header("📈 Detailed Analysis")
+
+        result = st.session_state.get('last_result')
+        inputs = st.session_state.get('last_inputs')
+
+        if not result:
+            st.warning("No analysis data found. Please run a retirement analysis first.")
+            st.stop()
+
+        detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
+
+        with detail_tab1:
+            st.write("**Individual Asset Values at Retirement**")
+
+            def humanize_account_name(name: str) -> str:
+                """Convert account names to human-readable format."""
+                replacements = {
+                    'roth_ira': 'Roth IRA',
+                    'ira': 'IRA',
+                    '401k': '401(k)',
+                    'hsa': 'HSA (Health Savings Account)'
+                }
+                name_lower = name.lower()
+                for key, value in replacements.items():
+                    if name_lower == key:
+                        return value
+                return name
+
+            if 'asset_results' in result and 'assets_input' in result:
+                asset_data = []
+                total_current = 0
+                total_contributions = 0
+                total_growth = 0
+                total_pre_tax = 0
+                total_taxes = 0
+                total_after_tax = 0
+
+                for i, (asset_result, asset_input) in enumerate(zip(result['asset_results'], result['assets_input'])):
+                    current_balance = asset_input.current_balance
+                    contributions = asset_result['total_contributions']
+                    pre_tax_value = asset_result['pre_tax_value']
+                    tax_liability = asset_result['tax_liability']
+                    after_tax_value = asset_result['after_tax_value']
+                    growth = pre_tax_value - current_balance - contributions
+
+                    total_current += current_balance
+                    total_contributions += contributions
+                    total_growth += growth
+                    total_pre_tax += pre_tax_value
+                    total_taxes += tax_liability
+                    total_after_tax += after_tax_value
+
+                    asset_data.append({
+                        "Account": humanize_account_name(asset_result['name']),
+                        "Current Balance": f"${current_balance:,.0f}",
+                        "Your Contributions": f"${contributions:,.0f}",
+                        "Investment Growth": f"${growth:,.0f}",
+                        "Pre-Tax Value": f"${pre_tax_value:,.0f}",
+                        "Est. Taxes": f"${tax_liability:,.0f}",
+                        "After-Tax Value": f"${after_tax_value:,.0f}"
+                    })
+
+                if asset_data:
+                    asset_data.append({
+                        "Account": "📊 TOTAL",
+                        "Current Balance": f"${total_current:,.0f}",
+                        "Your Contributions": f"${total_contributions:,.0f}",
+                        "Investment Growth": f"${total_growth:,.0f}",
+                        "Pre-Tax Value": f"${total_pre_tax:,.0f}",
+                        "Est. Taxes": f"${total_taxes:,.0f}",
+                        "After-Tax Value": f"${total_after_tax:,.0f}"
+                    })
+                    st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
+                    st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+                    st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
+                else:
+                    st.info("No individual asset breakdown available")
+            else:
+                asset_data = []
+                for key, value in result.items():
+                    if "Asset" in key and "After-Tax" in key:
+                        asset_name = key.split(" - ")[1].replace(" (After-Tax)", "")
+                        asset_data.append({
+                            "Account": humanize_account_name(asset_name),
+                            "After-Tax Value": f"${value:,.0f}"
+                        })
+                if asset_data:
+                    st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No individual asset breakdown available")
+
+            st.markdown("---")
+            with st.expander("📊 How Are These Numbers Calculated?", expanded=False):
+                st.markdown("Click below to see a detailed breakdown of the calculation formula and methodology.")
+                if st.button("🔍 Show Detailed Calculation Explanation", key="show_explanation_btn"):
+                    explanation = explain_projected_balance(inputs)
+                    st.text(explanation)
+                    st.download_button(
+                        label="📥 Download Explanation",
+                        data=explanation,
+                        file_name=f"retirement_calculation_explanation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain",
+                        key="download_explanation_btn"
+                    )
+
+        with detail_tab2:
+            tax_liability = result.get("Total Tax Liability", 0.0)
+            total_pre_tax = result.get("Total Future Value (Pre-Tax)", 1.0)
+            tax_percentage = (tax_liability / total_pre_tax * 100) if total_pre_tax > 0 else 0.0
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Tax Liability", f"${tax_liability:,.0f}")
+                st.metric("Tax as % of Pre-Tax Value", f"{tax_percentage:.1f}%")
+            with col2:
+                if result["Tax Efficiency (%)"] > 85:
+                    st.success("🎉 **Excellent tax efficiency!** Your portfolio is well-optimized with minimal tax liability.")
+                elif result["Tax Efficiency (%)"] > 75:
+                    st.warning(f"⚠️ **Good tax efficiency** ({tax_percentage:.1f}% tax burden), but there may be room for improvement. *Goal: Lower this percentage by shifting assets to tax-advantaged accounts.*")
+                    with st.expander("💡 **Get Tax Optimization Advice**", expanded=False):
+                        st.markdown("""
+                        ### 🎯 **Tax Optimization Strategies**
+
+                        **1. Asset Location Optimization:**
+                        - **Taxable accounts**: Hold tax-efficient index funds, municipal bonds
+                        - **401(k)/IRA**: Hold high-dividend stocks, REITs, bonds
+                        - **Roth IRA**: Hold high-growth stocks, international funds
+
+                        **2. Contribution Strategy:**
+                        - **Maximize employer 401(k) match** (free money!)
+                        - **Consider Roth vs Traditional** based on current vs future tax rates
+                        - **Backdoor Roth IRA** if income exceeds limits
+
+                        **3. Withdrawal Strategy:**
+                        - **Tax-loss harvesting** in taxable accounts
+                        - **Roth conversion** during low-income years
+                        - **Strategic withdrawal order**: Taxable → Traditional → Roth
+
+                        **4. Advanced Strategies:**
+                        - **HSA triple tax advantage** for medical expenses
+                        - **Municipal bonds** for high tax brackets
+                        - **Tax-efficient fund selection** (low turnover, index funds)
+
+                        💡 **Next Steps**: Consider consulting a tax professional for personalized advice based on your specific situation.
+                        """)
+                else:
+                    st.error("🚨 **Consider tax optimization** strategies to improve efficiency.")
+                    with st.expander("🚨 **Urgent Tax Optimization Needed**", expanded=True):
+                        st.markdown("""
+                        ### ⚠️ **Your Tax Efficiency Needs Immediate Attention**
+
+                        **Priority Actions:**
+                        1. **Review asset allocation** across account types
+                        2. **Maximize tax-advantaged contributions** (401k, IRA, HSA)
+                        3. **Consider Roth conversions** if in lower tax bracket
+                        4. **Optimize fund selection** for tax efficiency
+
+                        **Quick Wins:**
+                        - Switch to index funds (lower turnover = less taxes)
+                        - Use tax-loss harvesting strategies
+                        - Consider municipal bonds for taxable accounts
+                        - Maximize HSA contributions if eligible
+
+                        📞 **Recommendation**: Consult a financial advisor for comprehensive tax optimization strategy.
+                        """)
+
+        with detail_tab3:
+            summary_data = {
+                "Metric": [
+                    "Years Until Retirement",
+                    "Total Future Value (Pre-Tax)",
+                    "Total After-Tax Balance",
+                    "Total Tax Liability",
+                    "Tax Efficiency (%)"
+                ],
+                "Value": [
+                    f"{result['Years Until Retirement']:.0f} years",
+                    f"${result['Total Future Value (Pre-Tax)']:,.0f}",
+                    f"${result['Total After-Tax Balance']:,.0f}",
+                    f"${result['Total Tax Liability']:,.0f}",
+                    f"{result['Tax Efficiency (%)']:.1f}%"
+                ]
+            }
+            st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+
     elif st.session_state.current_page == 'monte_carlo':
         # Show analytics consent dialog on first load
         if st.session_state.get('analytics_consent') is None:
             analytics_consent_dialog()
-    
+
         # ==========================================
         # MONTE CARLO SIMULATION PAGE
         # ==========================================
-    
+
         # Track page view
         track_page_view('monte_carlo')
     
@@ -4322,6 +4924,10 @@ if not _RUNNING_TESTS:
                     # Get confidence interval
                     ci_lower, ci_upper = get_confidence_interval(results["outcomes"], confidence=0.95)
                     ci_income_lower, ci_income_upper = get_confidence_interval(results["annual_income_outcomes"], confidence=0.95)
+
+                # Escape currency for markdown so "$...$" is not parsed as LaTeX/math.
+                def md_currency(v):
+                    return f"\\${v:,.0f}"
     
                 # Track successful Monte Carlo run
                 track_monte_carlo_run(num_simulations=num_simulations, volatility=volatility)
@@ -4392,11 +4998,12 @@ if not _RUNNING_TESTS:
             st.table(income_percentile_data)
     
             # 95% Confidence Interval for Income
-            st.markdown(f"""
-            **95% Confidence Interval for Annual Income:** ${ci_income_lower:,.0f} - ${ci_income_upper:,.0f}
-    
-            There's a 95% probability your annual retirement income will fall within this range.
-            """)
+            ci_lines = [
+                f"**95% Confidence Interval for Annual Income:** {md_currency(ci_income_lower)} - {md_currency(ci_income_upper)}",
+                "",
+                "There's a 95% probability your annual retirement income will fall within this range.",
+            ]
+            st.markdown("\n".join(ci_lines))
     
             # Probability of success
             if prob_success is not None:
@@ -4503,11 +5110,12 @@ if not _RUNNING_TESTS:
             st.table(percentile_data)
     
             # 95% Confidence Interval for Balance
-            st.markdown(f"""
-            **95% Confidence Interval for Total Balance:** ${ci_lower:,.0f} - ${ci_upper:,.0f}
-    
-            There's a 95% probability your retirement balance will fall within this range.
-            """)
+            ci_balance_lines = [
+                f"**95% Confidence Interval for Total Balance:** {md_currency(ci_lower)} - {md_currency(ci_upper)}",
+                "",
+                "There's a 95% probability your retirement balance will fall within this range.",
+            ]
+            st.markdown("\n".join(ci_balance_lines))
     
             # Distribution visualization for Balance
             st.markdown("#### Distribution of Balance Outcomes")
@@ -4544,6 +5152,11 @@ if not _RUNNING_TESTS:
     
     # Page footer with version, copyright, and contact information
     st.markdown("---")
+    _, col_center, _ = st.columns([3, 2, 3])
+    with col_center:
+        if st.button(f"📋 What's new in v{VERSION}", use_container_width=True):
+            st.session_state.show_whats_new = True
+            st.rerun()
     st.markdown(
         f"""
         <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
