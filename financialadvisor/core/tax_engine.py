@@ -105,8 +105,9 @@ def apply_tax_logic(
             tax_liability = 0.0
         else:
             # Brokerage: only capital gains are taxed
-            # Ensure gains are non-negative (can't have negative tax on losses in this model)
-            gains = max(0, future_value - total_contributions)
+            # Cost basis = initial balance + all contributions (money actually put in)
+            cost_basis = asset.current_balance + total_contributions
+            gains = max(0, future_value - cost_basis)
             tax_liability = gains * (asset.tax_rate_pct / 100.0)
             after_tax_value = future_value - tax_liability
 

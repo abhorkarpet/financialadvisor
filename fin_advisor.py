@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 10.0.0
+Version: 10.1.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "10.0.0"
+VERSION = "10.1.0"
 
 # Streamlit import
 import streamlit as st
@@ -743,12 +743,6 @@ def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inpu
     story.append(asset_table)
     story.append(Spacer(1, 12))
 
-    # Note about brokerage account taxation
-    note_style = ParagraphStyle('Note', parent=styles['Normal'], fontSize=9, textColor=colors.orangered,
-                                borderWidth=1, borderColor=colors.orangered, borderPadding=6, spaceAfter=20)
-    story.append(Paragraph("<b>Note on Brokerage Accounts:</b> Current analysis assumes the entire balance is taxable at withdrawal. "
-                          "In reality, only the gains portion should be taxed. This will be corrected in a future version "
-                          "to provide more accurate projections for brokerage accounts.", note_style))
     story.append(Spacer(1, 20))
 
     # Individual Asset Results
@@ -1163,17 +1157,16 @@ def cashflow_dialog():
     _col_cfg = {
         "Year":          st.column_config.NumberColumn("Year",          format="%d"),
         "Age":           st.column_config.NumberColumn("Age",           format="%d"),
-        "RMD":           st.column_config.NumberColumn("RMD",           format="$%d"),
-        "Brokerage W/D": st.column_config.NumberColumn("Brokerage W/D", format="$%d"),
-        "Roth W/D":      st.column_config.NumberColumn("Roth W/D",      format="$%d"),
-        "Extra Pre-Tax": st.column_config.NumberColumn("Extra Pre-Tax", format="$%d"),
-        "Tax Paid":      st.column_config.NumberColumn("Tax Paid",      format="$%d"),
-        "After-Tax Income (adjusted for inflation)": st.column_config.NumberColumn(
+        "RMD":           st.column_config.TextColumn("RMD"),
+        "Brokerage W/D": st.column_config.TextColumn("Brokerage W/D"),
+        "Roth W/D":      st.column_config.TextColumn("Roth W/D"),
+        "Extra Pre-Tax": st.column_config.TextColumn("Extra Pre-Tax"),
+        "Tax Paid":      st.column_config.TextColumn("Tax Paid"),
+        "After-Tax Income (adjusted for inflation)": st.column_config.TextColumn(
             "After-Tax Income (adjusted for inflation)",
-            format="$%d",
             help="Each year the model grows all account pots, pays any forced RMD, then draws from brokerage → pre-tax → Roth until the target income is met. The target is the maximum first-year withdrawal that fully depletes the portfolio by your life expectancy.",
         ),
-        "Total Portfolio": st.column_config.NumberColumn("Total Portfolio", format="$%d"),
+        "Total Portfolio": st.column_config.TextColumn("Total Portfolio"),
     }
 
     withdrawal_data = []
@@ -1181,13 +1174,13 @@ def cashflow_dialog():
         withdrawal_data.append({
             "Year":          row["year"],
             "Age":           row["age"],
-            "RMD":           row["rmd"]                     if row["rmd"] > 0                     else None,
-            "Brokerage W/D": row["brokerage_withdrawal"]    if row["brokerage_withdrawal"] > 0    else None,
-            "Roth W/D":      row["roth_withdrawal"]         if row["roth_withdrawal"] > 0         else None,
-            "Extra Pre-Tax": row["extra_pretax_withdrawal"] if row["extra_pretax_withdrawal"] > 0 else None,
-            "Tax Paid":      row["total_tax"],
-            "After-Tax Income (adjusted for inflation)": row["actual_aftertax"],
-            "Total Portfolio": row["total_portfolio_end"],
+            "RMD":           f"${row['rmd']:,.0f}"                     if row["rmd"] > 0                     else None,
+            "Brokerage W/D": f"${row['brokerage_withdrawal']:,.0f}"    if row["brokerage_withdrawal"] > 0    else None,
+            "Roth W/D":      f"${row['roth_withdrawal']:,.0f}"         if row["roth_withdrawal"] > 0         else None,
+            "Extra Pre-Tax": f"${row['extra_pretax_withdrawal']:,.0f}" if row["extra_pretax_withdrawal"] > 0 else None,
+            "Tax Paid":      f"${row['total_tax']:,.0f}",
+            "After-Tax Income (adjusted for inflation)": f"${row['actual_aftertax']:,.0f}",
+            "Total Portfolio": f"${row['total_portfolio_end']:,.0f}",
         })
 
     df_withdrawals = pd.DataFrame(withdrawal_data)
@@ -1880,6 +1873,13 @@ if not _RUNNING_TESTS:
             st.markdown("---")
             st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
     
+    # Home button — visible from sub-pages so users can always return to Results
+    if st.session_state.get('current_page') in ('detailed_analysis', 'monte_carlo'):
+        st.sidebar.markdown("---")
+        if st.sidebar.button("🏠 Results Dashboard", use_container_width=True, type="primary"):
+            st.session_state.current_page = 'results'
+            st.rerun()
+
     # Reset button (only show if onboarding is complete)
     if st.session_state.onboarding_complete:
         st.sidebar.markdown("---")
@@ -2310,9 +2310,14 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                 contribution_reminder_dialog()
     
             # Simplified setup options (removed Default Portfolio and Legacy Mode)
+            # Pre-select "Configure Individual Assets" if the user previously used it
+            if 'setup_method_radio' not in st.session_state and 'num_assets_manual' in st.session_state:
+                st.session_state.setup_method_radio = "Configure Individual Assets"
+
             setup_option = st.radio(
                 "Choose how to configure your accounts:",
                 ["**Upload Financial Statements (AI) - Recommended**", "Upload CSV File", "Configure Individual Assets"],
+                key="setup_method_radio",
                 help="Select how you want to add your retirement accounts"
             )
     
@@ -3520,12 +3525,19 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             elif setup_option == "Configure Individual Assets":
                 st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
 
-                # Use existing assets count if available, otherwise default to 3
-                default_num_assets = max(len(assets), 3) if len(assets) > 0 else 3
-                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, value=default_num_assets, help="How many different accounts do you have?")
+                # Seed session state with asset count the first time (or when switching from another mode)
+                if 'num_assets_manual' not in st.session_state:
+                    st.session_state.num_assets_manual = max(len(assets), 1) if assets else 3
+                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, key="num_assets_manual", help="How many different accounts do you have?")
 
                 # Clear assets list to rebuild from form
                 configured_assets: List[Asset] = []
+
+                _ASSET_TYPE_LABELS = {
+                    AssetType.PRE_TAX: "Pre-Tax",
+                    AssetType.POST_TAX: "After-Tax",
+                    AssetType.TAX_DEFERRED: "Tax-Deferred",
+                }
 
                 for i in range(num_assets):
                     # Get existing asset data if available
@@ -3552,7 +3564,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                                 f"Asset Type {i+1}",
                                 options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
                                 index=default_type_index,
-                                format_func=lambda x: f"{x[0]} ({x[1].value})",
+                                format_func=lambda x: f"{x[0]} — {_ASSET_TYPE_LABELS.get(x[1], x[1].value)}",
                                 help="Type of account for tax treatment"
                             )
                         with col2:
@@ -4030,13 +4042,13 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             with st.expander("📊 How Is Retirement Income Calculated?", expanded=False):
                 rmd_start_year = max(0, 73 - int(retirement_age))
                 st.markdown(f"""
-                ### Retirement Simulation: Sequencing + RMDs
+                ### Retirement Simulation: Sequencing with Required Minimum Distributions (RMDs)
 
                 Income is calculated using a **year-by-year simulation** across your {n}-year retirement
                 (age {retirement_age}–{life_expectancy}), not a simple formula. Each year the model:
 
                 1. **Grows** all three account pots at {retirement_growth_rate:.1f}% annually
-                2. **Forces RMDs** from pre-tax accounts starting at age 73 (IRS Uniform Lifetime Table)
+                2. **Forces Required Minimum Distributions (RMDs)** from pre-tax accounts starting at age 73 (IRS Uniform Lifetime Table)
                 3. **Sequences remaining withdrawals** optimally: taxable brokerage → Roth (last)
                 4. **Taxes each withdrawal** at the appropriate rate (ordinary income for pre-tax, capital
                    gains on brokerage gains, tax-free for Roth)
@@ -4051,21 +4063,37 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                 *(binary search result: maximum first-year withdrawal that depletes portfolio at age {life_expectancy})*
                 """)
 
+                with st.expander("ℹ️ What is a Required Minimum Distribution (RMD)?", expanded=False):
+                    st.markdown("""
+**Required Minimum Distribution (RMD)** is the minimum amount the IRS requires you to withdraw
+each year from tax-deferred retirement accounts (such as 401(k)s and Traditional IRAs) once you
+reach age 73.
+
+**Key facts:**
+- RMDs begin at **age 73** (under the SECURE 2.0 Act, effective 2023)
+- The annual amount is calculated by dividing your prior year-end account balance by a life
+  expectancy factor from the **IRS Uniform Lifetime Table**
+- Missing an RMD triggers a **25% excise tax** on the amount not withdrawn
+- **Roth IRAs** are not subject to RMDs during the original owner's lifetime
+- Excess RMD beyond your spending need can be reinvested in a taxable brokerage account
+
+📖 [Learn more at IRS.gov — Required Minimum Distributions](https://www.irs.gov/retirement-plans/plan-participant-employee/required-minimum-distributions)
+                    """)
+
                 # Build year-by-year table from sim_data
                 import pandas as pd
                 if sim_data:
                     _col_cfg = {
                         "Year":          st.column_config.NumberColumn("Year",          format="%d"),
                         "Age":           st.column_config.NumberColumn("Age",           format="%d"),
-                        "RMD":           st.column_config.NumberColumn("RMD",           format="$%d"),
-                        "Brokerage W/D": st.column_config.NumberColumn("Brokerage W/D", format="$%d"),
-                        "Roth W/D":      st.column_config.NumberColumn("Roth W/D",      format="$%d"),
-                        "Extra Pre-Tax": st.column_config.NumberColumn("Extra Pre-Tax", format="$%d"),
-                        "Tax Paid":      st.column_config.NumberColumn("Tax Paid",      format="$%d"),
-                        "After-Tax Income (adjusted for inflation)": st.column_config.NumberColumn(
-                            "After-Tax Income (adjusted for inflation)",
-                            format="$%d"),
-                        "Total Portfolio": st.column_config.NumberColumn("Total Portfolio", format="$%d"),
+                        "RMD":           st.column_config.TextColumn("RMD"),
+                        "Brokerage W/D": st.column_config.TextColumn("Brokerage W/D"),
+                        "Roth W/D":      st.column_config.TextColumn("Roth W/D"),
+                        "Extra Pre-Tax": st.column_config.TextColumn("Extra Pre-Tax"),
+                        "Tax Paid":      st.column_config.TextColumn("Tax Paid"),
+                        "After-Tax Income (adjusted for inflation)": st.column_config.TextColumn(
+                            "After-Tax Income (adjusted for inflation)"),
+                        "Total Portfolio": st.column_config.TextColumn("Total Portfolio"),
                     }
 
                     withdrawal_data = []
@@ -4073,13 +4101,13 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                         withdrawal_data.append({
                             "Year":          row["year"],
                             "Age":           row["age"],
-                            "RMD":           row["rmd"]                     if row["rmd"] > 0                     else None,
-                            "Brokerage W/D": row["brokerage_withdrawal"]    if row["brokerage_withdrawal"] > 0    else None,
-                            "Roth W/D":      row["roth_withdrawal"]         if row["roth_withdrawal"] > 0         else None,
-                            "Extra Pre-Tax": row["extra_pretax_withdrawal"] if row["extra_pretax_withdrawal"] > 0 else None,
-                            "Tax Paid":      row["total_tax"],
-                            "After-Tax Income (adjusted for inflation)": row["actual_aftertax"],
-                            "Total Portfolio": row["total_portfolio_end"],
+                            "RMD":           f"${row['rmd']:,.0f}"                     if row["rmd"] > 0                     else None,
+                            "Brokerage W/D": f"${row['brokerage_withdrawal']:,.0f}"    if row["brokerage_withdrawal"] > 0    else None,
+                            "Roth W/D":      f"${row['roth_withdrawal']:,.0f}"         if row["roth_withdrawal"] > 0         else None,
+                            "Extra Pre-Tax": f"${row['extra_pretax_withdrawal']:,.0f}" if row["extra_pretax_withdrawal"] > 0 else None,
+                            "Tax Paid":      f"${row['total_tax']:,.0f}",
+                            "After-Tax Income (adjusted for inflation)": f"${row['actual_aftertax']:,.0f}",
+                            "Total Portfolio": f"${row['total_portfolio_end']:,.0f}",
                         })
 
                     df_withdrawals = pd.DataFrame(withdrawal_data)
@@ -4680,7 +4708,6 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                     })
                     st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
                     st.dataframe(pd.DataFrame(asset_data), use_container_width=True, hide_index=True)
-                    st.warning("⚠️ **Note on Brokerage Accounts**: Current analysis assumes the entire balance is taxable at withdrawal. In reality, only the gains portion should be taxed. This will be corrected in a future version to provide more accurate projections for brokerage accounts.")
                 else:
                     st.info("No individual asset breakdown available")
             else:
