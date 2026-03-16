@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 10.1.0
+Version: 10.5.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "10.1.0"
+VERSION = "10.5.0"
 
 # Streamlit import
 import streamlit as st
@@ -575,6 +575,89 @@ def find_sustainable_withdrawal(
         retirement_tax_rate_pct, capital_gains_rate_pct,
     )
     return low, final_data
+
+
+def find_required_portfolio(
+    target_after_tax_income: float,
+    retirement_age: int,
+    life_expectancy: int,
+    retirement_tax_rate_pct: float,
+    growth_rate: float = 0.04,
+    inflation_rate: float = 0.03,
+    legacy_goal: float = 0.0,
+    life_expenses: float = 0.0,
+) -> dict:
+    """Binary search for the minimum pre-tax portfolio that sustains `target_after_tax_income`/year.
+    Assumes all assets are pre-tax (uniform treatment). Reuses find_sustainable_withdrawal so the
+    reverse calculation stays consistent with the forward simulator.
+    life_expenses is a lump sum deducted from the portfolio at retirement before simulation.
+    """
+    years = max(0, life_expectancy - retirement_age)
+    if target_after_tax_income <= 0:
+        # No income needed — but must still fund legacy_goal if set.
+        # With 0 withdrawals the portfolio grows at growth_rate; solve for the
+        # present-value of legacy_goal then add one-time expenses on top.
+        if legacy_goal > 0 and years > 0:
+            min_for_legacy = legacy_goal / ((1.0 + growth_rate) ** years)
+        else:
+            min_for_legacy = legacy_goal  # years==0: need full amount today
+        required = min_for_legacy + life_expenses
+        return {
+            "required_pretax_portfolio": required,
+            "confirmed_income": 0.0,
+            "years_in_retirement": years,
+            "growth_rate": growth_rate,
+            "inflation_rate": inflation_rate,
+            "tax_rate": retirement_tax_rate_pct,
+            "legacy_goal": legacy_goal,
+            "life_expenses": life_expenses,
+        }
+
+    low = 0.0
+    # Upper bound: generous enough for high income goals + legacy targets + one-time expenses
+    high = (target_after_tax_income + legacy_goal) * 200.0 + life_expenses
+
+    for _ in range(60):
+        mid = (low + high) / 2.0
+        # Deduct life_expenses before simulating sustainable income
+        effective_bal = max(0.0, mid - life_expenses)
+        income, _ = find_sustainable_withdrawal(
+            pretax_bal=effective_bal, roth_bal=0.0, brokerage_bal=0.0,
+            brokerage_cost_basis=0.0,
+            retirement_age=retirement_age,
+            life_expectancy=life_expectancy,
+            growth_rate=growth_rate,
+            inflation_rate=inflation_rate,
+            retirement_tax_rate_pct=retirement_tax_rate_pct,
+            legacy_goal=legacy_goal,
+        )
+        if income < target_after_tax_income:
+            low = mid
+        else:
+            high = mid
+
+    required = high
+    effective_bal = max(0.0, required - life_expenses)
+    confirmed_income, _ = find_sustainable_withdrawal(
+        pretax_bal=effective_bal, roth_bal=0.0, brokerage_bal=0.0,
+        brokerage_cost_basis=0.0,
+        retirement_age=retirement_age,
+        life_expectancy=life_expectancy,
+        growth_rate=growth_rate,
+        inflation_rate=inflation_rate,
+        retirement_tax_rate_pct=retirement_tax_rate_pct,
+        legacy_goal=legacy_goal,
+    )
+    return {
+        "required_pretax_portfolio": required,
+        "confirmed_income": confirmed_income,
+        "years_in_retirement": years,
+        "growth_rate": growth_rate,
+        "inflation_rate": inflation_rate,
+        "tax_rate": retirement_tax_rate_pct,
+        "legacy_goal": legacy_goal,
+        "life_expenses": life_expenses,
+    }
 
 
 def generate_pdf_report(result: Dict[str, float], assets: List[Asset], user_inputs: Dict) -> bytes:
@@ -1231,6 +1314,58 @@ def contribution_reminder_dialog():
             st.session_state.current_page = 'results'
             st.rerun()
 
+
+
+@st.dialog("How do you want to plan?")
+def planning_mode_dialog():
+    """Popup shown automatically at Step 2 entry — lets user choose forward or reverse planning mode."""
+    st.markdown("Choose how you'd like to approach your retirement plan:")
+    st.markdown("")
+
+    mode = st.radio(
+        "Planning approach",
+        ["I know my assets — show my income", "I have an income goal — show how much I need"],
+        index=0,
+        label_visibility="collapsed",
+        key="planning_mode_dialog_radio",
+    )
+
+    st.markdown("")
+    if mode == "I know my assets — show my income":
+        st.info("Enter your retirement accounts and we'll calculate your sustainable annual income.")
+    else:
+        st.info(
+            "Tell us your target after-tax income and we'll calculate the pre-tax portfolio you need. "
+            "Assumes 100% pre-tax accounts (e.g. 401k / Traditional IRA)."
+        )
+
+    st.markdown("---")
+    if st.button("Continue →", type="primary", use_container_width=True, key="planning_mode_dialog_confirm"):
+        st.session_state.planning_mode_choice = mode
+        st.rerun()
+
+
+@st.dialog("⚠️ Legal Disclaimer", width="large")
+def legal_disclaimer_dialog():
+    """Full legal disclaimer shown as a popup on non-onboarding pages."""
+    st.markdown("""
+    ### 🚨 DISCLAIMER - READ CAREFULLY
+
+    **This application provides educational and informational content only. It is NOT financial, tax, legal, or investment advice.**
+
+    **Important Limitations:**
+    - **Not Professional Advice**: This tool is for educational purposes only and does not constitute professional financial, tax, legal, or investment advice
+    - **No Personal Recommendations**: Results are based on general assumptions and may not be suitable for your specific situation
+    - **No Guarantees**: Past performance does not guarantee future results; all projections are estimates
+    - **Consult Professionals**: Always consult with qualified financial advisors, tax professionals, and legal counsel before making financial decisions
+    - **Your Responsibility**: You are solely responsible for your financial decisions and their consequences
+
+    **No Liability**: The creators and operators of this application disclaim all liability for any losses, damages, or consequences arising from the use of this information.
+
+    **By using this application, you acknowledge and agree to these terms.**
+    """)
+    if st.button("Close", use_container_width=True, type="primary", key="close_legal_disclaimer"):
+        st.rerun()
 
 
 @st.dialog(f"🆕 What's New in v{VERSION}", width="large")
@@ -1898,7 +2033,7 @@ if not _RUNNING_TESTS:
     if 'whatif_current_tax_rate' not in st.session_state:
         st.session_state.whatif_current_tax_rate = 22
     if 'whatif_retirement_tax_rate' not in st.session_state:
-        st.session_state.whatif_retirement_tax_rate = 25
+        st.session_state.whatif_retirement_tax_rate = 22
     if 'whatif_inflation_rate' not in st.session_state:
         st.session_state.whatif_inflation_rate = 3
     if 'whatif_life_expenses' not in st.session_state:
@@ -2034,11 +2169,11 @@ if not _RUNNING_TESTS:
             st.markdown("**🎯 What-If Scenarios**")
             st.caption("Easily adjust assumptions and see instant results")
             st.markdown("")
-    
-            st.markdown("**🎲 Scenario Analysis**")
-            st.caption("Run Monte Carlo simulations to explore thousands of possible outcomes")
+
+            st.markdown("**🔁 Income Goal Calculator**")
+            st.caption("Know your target income? Calculate the pre-tax portfolio you need to save")
             st.markdown("")
-    
+
         st.markdown("---")
     
         # Getting Started section with green background
@@ -2085,33 +2220,6 @@ if not _RUNNING_TESTS:
         st.stop()
     
     # ==========================================
-    # MAIN AREA - Header & Disclaimer
-    # ==========================================
-    # Note: Sidebar advanced settings removed - now in Results page as What-If controls
-
-    # Header
-    st.title("💰 Smart Retire AI - Advanced Retirement Planning")
-
-    # Legal Disclaimer
-    with st.expander("⚠️ **IMPORTANT LEGAL DISCLAIMER**", expanded=False):
-        st.markdown("""
-        ### 🚨 **DISCLAIMER - READ CAREFULLY**
-    
-        **This application provides educational and informational content only. It is NOT financial, tax, legal, or investment advice.**
-    
-        **Important Limitations:**
-        - **Not Professional Advice**: This tool is for educational purposes only and does not constitute professional financial, tax, legal, or investment advice
-        - **No Personal Recommendations**: Results are based on general assumptions and may not be suitable for your specific situation
-        - **No Guarantees**: Past performance does not guarantee future results; all projections are estimates
-        - **Consult Professionals**: Always consult with qualified financial advisors, tax professionals, and legal counsel before making financial decisions
-        - **Your Responsibility**: You are solely responsible for your financial decisions and their consequences
-    
-        **No Liability**: The creators and operators of this application disclaim all liability for any losses, damages, or consequences arising from the use of this information.
-    
-        **By using this application, you acknowledge and agree to these terms.**
-        """)
-    
-    # ==========================================
     # PAGE ROUTING
     # ==========================================
     # Route to appropriate page based on current_page state
@@ -2140,7 +2248,7 @@ if not _RUNNING_TESTS:
             2: "🏦 Asset Configuration"
         }
         
-        st.header(f"📝 {step_titles[current_step]}")
+        st.subheader(f"📝 {step_titles[current_step]}")
         st.markdown("---")
         
         # ==========================================
@@ -2286,7 +2394,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 1, 1])
             with col3:
-                if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
+                if st.button("Next: Planning Mode & Asset Configuration →", type="primary", use_container_width=True):
                     # Track step 1 completed
                     track_onboarding_step_completed(
                         1,
@@ -2308,7 +2416,268 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             # Show contribution reminder dialog if flagged
             if st.session_state.get('show_contribution_reminder', False):
                 contribution_reminder_dialog()
-    
+
+            # ---- Planning mode: auto-show dialog on first visit to Step 2 ----
+            if "planning_mode_choice" not in st.session_state:
+                planning_mode_dialog()
+                st.stop()
+
+            planning_mode = st.session_state.planning_mode_choice
+
+            # Show current mode + allow switching
+            _mode_label = "Assets → Income" if "assets" in planning_mode else "Income Goal → Portfolio"
+            _col_mode_a, _col_mode_b = st.columns([5, 1])
+            _col_mode_a.caption(f"Planning mode: **{_mode_label}**")
+            if _col_mode_b.button("Change", key="change_planning_mode_btn"):
+                del st.session_state["planning_mode_choice"]
+                st.rerun()
+
+            if planning_mode == "I have an income goal — show how much I need":
+                st.subheader("Income Goal Calculator")
+                st.info(
+                    "Enter your desired retirement income and we'll calculate the pre-tax portfolio "
+                    "you need. **v1 assumes the entire portfolio is pre-tax** (e.g. 401k / Traditional IRA). "
+                    "If you expect Social Security or Roth income, reduce your target accordingly."
+                )
+
+                # Results container declared here so it renders above the inputs
+                _goal_results_container = st.container()
+                st.markdown("---")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    goal_target_income = st.number_input(
+                        "Desired after-tax annual income ($) — Excluding Social Security",
+                        min_value=0,
+                        value=int(st.session_state.get("retirement_income_goal", 60000)),
+                        step=1000,
+                        key="goal_target_income",
+                        help="""Typical Annual Needs:
+• $40K–$60K: Modest lifestyle
+• $60K–$80K: Comfortable lifestyle
+• $80K–$100K: Enhanced lifestyle
+• $100K+: Premium lifestyle
+
+Consider:
+• Housing costs (rent/mortgage, taxes)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, hobbies)
+
+💡 Exclude Social Security — enter only the income you need from your portfolio.
+Use the Social Security expander below to calculate your net target.""",
+                    )
+                    if goal_target_income > 0:
+                        st.info(f"💰 **Income Target**: ${goal_target_income:,.0f}/year from your portfolio")
+                    else:
+                        st.info("💡 **No target set** — enter a desired annual income above")
+
+                    goal_tax_rate = st.slider(
+                        "Retirement tax rate (%)",
+                        min_value=0,
+                        max_value=99,
+                        value=int(st.session_state.get("whatif_retirement_tax_rate", 22)),
+                        key="goal_tax_rate",
+                        help="""Your effective tax rate on withdrawals in retirement.
+
+Typical ranges:
+• 10–15%: Low income / heavy Roth
+• 22–24%: Middle income (most retirees)
+• 32%+: Higher income
+
+💡 This applies uniformly to all withdrawals (v1 assumes 100% pre-tax assets).
+Consult a tax professional for a personalized estimate.""",
+                    )
+                    st.info(f"🧾 **Tax Rate**: {goal_tax_rate}% applied to all withdrawals")
+
+                    goal_legacy = st.number_input(
+                        "Legacy / end-of-life portfolio goal ($) — Optional",
+                        min_value=0,
+                        value=int(st.session_state.get("legacy_goal", 0)),
+                        step=10000,
+                        key="goal_legacy",
+                        help="""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
+
+The withdrawal simulation will preserve this amount so it can be passed on.
+
+💡 Common range: $50,000–$500,000
+   (e.g., $200,000 as an inheritance for your family)
+
+Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance.""",
+                    )
+                    if goal_legacy > 0:
+                        st.info(f"🎯 **Legacy Goal**: ${goal_legacy:,.0f} remaining at end of plan")
+                    else:
+                        st.info("💡 **No legacy goal** — portfolio can be fully depleted at end of life")
+
+                    goal_life_expenses = st.number_input(
+                        "One-Time Expenses at Retirement ($) — Optional",
+                        min_value=0,
+                        max_value=10_000_000,
+                        value=int(st.session_state.get("life_expenses", 0)),
+                        step=10_000,
+                        key="goal_life_expenses",
+                        help="""A lump-sum amount deducted from your portfolio at the moment you retire.
+
+Examples:
+• Paying off a remaining mortgage
+• Large medical or long-term care costs
+• Down payment on a retirement home
+
+💡 Common range: $50,000–$300,000
+   (e.g., $150,000 to clear a remaining mortgage)
+
+This amount is subtracted from your portfolio before calculating sustainable income.""",
+                    )
+                    if goal_life_expenses > 0:
+                        st.info(f"💸 **One-Time Deduction**: ${goal_life_expenses:,.0f} at retirement")
+                    else:
+                        st.info("💡 **No one-time expenses set** — no deduction at retirement")
+
+                with col2:
+                    goal_retirement_age = st.number_input(
+                        "Retirement age",
+                        min_value=50,
+                        max_value=80,
+                        value=int(st.session_state.get("retirement_age", 65)),
+                        key="goal_retirement_age",
+                        help="The age at which you plan to retire and begin drawing from your portfolio.",
+                    )
+                    st.info(f"⏰ **Retiring at**: age {goal_retirement_age}")
+
+                    goal_life_expectancy = st.number_input(
+                        "Life expectancy (age)",
+                        min_value=60,
+                        max_value=110,
+                        value=int(st.session_state.get("life_expectancy", 90)),
+                        key="goal_life_expectancy",
+                        help="""Average Life Expectancy:
+• At birth: ~79 years (US avg)
+• At age 30: ~80 years
+• At age 50: ~82 years
+• At age 65: ~85 years
+
+Factors to Consider:
+• Family history & health status
+• Lifestyle (exercise, diet, smoking)
+• Gender (women live 3–5 yrs longer)
+
+💡 Tip: Add 5–10 years for safety.""",
+                    )
+                    _goal_years_in_ret = goal_life_expectancy - goal_retirement_age
+                    st.info(f"⏳ **Years in Retirement**: {_goal_years_in_ret} years")
+
+                    goal_growth_rate = st.slider(
+                        "Portfolio growth rate in retirement (%)",
+                        min_value=0,
+                        max_value=10,
+                        value=int(round(st.session_state.get("whatif_retirement_growth_rate", 4.0))),
+                        key="goal_growth_rate",
+                        help="""Expected annual portfolio growth rate during retirement.
+
+Typical assumptions:
+• 3–4%: Conservative (bonds-heavy)
+• 5–6%: Moderate (balanced)
+• 7–8%: Aggressive (stocks-heavy)
+
+💡 Default 4% is a common conservative estimate for a balanced retirement portfolio.""",
+                    )
+                    st.info(f"📈 **Growth Rate**: {goal_growth_rate}%/year on portfolio")
+
+                    goal_inflation_rate = st.slider(
+                        "Inflation rate (%)",
+                        min_value=0,
+                        max_value=10,
+                        value=int(round(st.session_state.get("whatif_inflation_rate", 3.0))),
+                        key="goal_inflation_rate",
+                        help="""Expected average annual inflation rate over your retirement.
+
+Historical context:
+• US long-run average: ~3%
+• Recent (2021–2023): 4–8%
+• Fed target: 2%
+
+💡 Higher inflation erodes purchasing power — use 3% or above for safety.""",
+                    )
+                    st.info(f"💹 **Inflation Rate**: {goal_inflation_rate}%/year")
+
+                # Sync Income Goal Calculator values back to the shared session state keys
+                # so Personal Info, What-If analysis, and the forward calculator all stay in sync.
+                st.session_state.retirement_income_goal = goal_target_income
+                st.session_state.whatif_retirement_income_goal = goal_target_income
+                st.session_state.whatif_retirement_tax_rate = goal_tax_rate
+                st.session_state.legacy_goal = goal_legacy
+                st.session_state.whatif_legacy_goal = goal_legacy
+                st.session_state.life_expenses = goal_life_expenses
+                st.session_state.whatif_life_expenses = goal_life_expenses
+                st.session_state.retirement_age = goal_retirement_age
+                st.session_state.whatif_retirement_age = goal_retirement_age
+                st.session_state.life_expectancy = goal_life_expectancy
+                st.session_state.whatif_life_expectancy = goal_life_expectancy
+                st.session_state.whatif_retirement_growth_rate = goal_growth_rate
+                st.session_state.whatif_inflation_rate = goal_inflation_rate
+
+                # Validate before running
+                _goal_errors = []
+                if goal_life_expectancy <= goal_retirement_age:
+                    _goal_errors.append("Life expectancy must be greater than retirement age.")
+                if goal_target_income < 0:
+                    _goal_errors.append("Target income cannot be negative.")
+                if goal_legacy < 0:
+                    _goal_errors.append("Legacy goal cannot be negative.")
+
+                with _goal_results_container:
+                    if _goal_errors:
+                        for _err in _goal_errors:
+                            st.error(_err)
+                    else:
+                        _r = find_required_portfolio(
+                            target_after_tax_income=float(goal_target_income),
+                            retirement_age=int(goal_retirement_age),
+                            life_expectancy=int(goal_life_expectancy),
+                            retirement_tax_rate_pct=float(goal_tax_rate),
+                            growth_rate=float(goal_growth_rate) / 100.0,
+                            inflation_rate=float(goal_inflation_rate) / 100.0,
+                            legacy_goal=float(goal_legacy),
+                            life_expenses=float(goal_life_expenses),
+                        )
+                        st.markdown("#### Results")
+                        _rc1, _rc2 = st.columns(2)
+                        _rc1.metric("Required Pre-Tax Portfolio at Retirement", f"${_r['required_pretax_portfolio']:,.0f}")
+                        _rc2.metric("Modeled First-Year After-Tax Income", f"${_r['confirmed_income']:,.0f}/yr")
+                        if goal_legacy > 0:
+                            st.caption(
+                                f"Includes a **${goal_legacy:,.0f} legacy goal** remaining at end of plan. "
+                            )
+                        if goal_life_expenses > 0:
+                            st.caption(
+                                f"Includes a **${goal_life_expenses:,.0f} one-time deduction** at retirement."
+                            )
+                        st.caption(
+                            f"Assumptions: {goal_growth_rate}% portfolio growth · {goal_inflation_rate}% inflation · "
+                            f"{goal_tax_rate}% tax rate · {_r['years_in_retirement']} years in retirement · "
+                            "100% pre-tax assets"
+                        )
+                        with st.expander("💡 How to account for Social Security income"):
+                            st.markdown("""
+                                Social Security benefits are **not included** in this calculation. If you expect to receive
+                                Social Security, reduce your income target by your estimated annual benefit.
+
+                                **How to find your estimated benefit:**
+                                - Visit **[ssa.gov/myaccount](https://www.ssa.gov/myaccount)** and create a free account — it shows your personalized benefit estimates at different claiming ages (62, 67, 70, etc.)
+                                - Alternatively, use the **[SSA Quick Calculator](https://www.ssa.gov/OACT/quickcalc/)** for a rough estimate without logging in
+
+                                **Example:** If your goal is \$80,000/yr after-tax and you expect \$24,000/yr from Social Security,
+                                enter **\$56,000** as your income target here.
+                            """)
+
+                st.markdown("---")
+                if st.button("← Previous: Personal Info", key="goal_mode_back_btn"):
+                    st.session_state.pop("planning_mode_choice", None)
+                    st.session_state.onboarding_step = 1
+                    st.rerun()
+                st.stop()
+
             # Simplified setup options (removed Default Portfolio and Legacy Mode)
             # Pre-select "Configure Individual Assets" if the user previously used it
             if 'setup_method_radio' not in st.session_state and 'num_assets_manual' in st.session_state:
@@ -3662,6 +4031,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
                 if st.button("← Previous: Personal Info", use_container_width=True):
+                    st.session_state.pop("planning_mode_choice", None)
                     st.session_state.onboarding_step = 1
                     st.rerun()
             with col3:
@@ -4475,7 +4845,7 @@ reach age 73.
                     st.session_state.whatif_life_expectancy = st.session_state.baseline_life_expectancy
                     st.session_state.whatif_retirement_income_goal = st.session_state.baseline_retirement_income_goal
                     st.session_state.whatif_current_tax_rate = 22
-                    st.session_state.whatif_retirement_tax_rate = 25
+                    st.session_state.whatif_retirement_tax_rate = 22
                     st.session_state.whatif_inflation_rate = 3
                     st.session_state.whatif_retirement_growth_rate = 4.0
                     st.session_state.whatif_life_expenses = st.session_state.baseline_life_expenses
