@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "11.0.0"
+VERSION = "11.0.5"
 
 # Streamlit import
 import streamlit as st
@@ -71,7 +71,7 @@ except ImportError:
     def set_analytics_consent(consented: bool) -> None: pass
     def track_event(event_name: str, properties: Optional[Dict[str, any]] = None, user_properties: Optional[Dict[str, any]] = None) -> None: pass
     def track_page_view(page_name: str) -> None: pass
-    def track_onboarding_step_started(step: int) -> None: pass
+    def track_onboarding_step_started(step: int, **kwargs: any) -> None: pass
     def track_onboarding_step_completed(step: int, **kwargs: any) -> None: pass
     def track_feature_usage(feature: str, **kwargs: any) -> None: pass
     def track_pdf_generation(success: bool) -> None: pass
@@ -107,6 +107,30 @@ try:
     _REPORTLAB_AVAILABLE = True
 except ImportError:
     _REPORTLAB_AVAILABLE = False
+
+
+def _fmt_inr(n: float) -> str:
+    """Format a number using the Indian numbering system (last 3 digits, then groups of 2).
+
+    Examples: 600000 → '6,00,000'  |  8589300 → '85,89,300'  |  10000000 → '1,00,00,000'
+    """
+    neg = n < 0
+    s = str(int(round(abs(n))))
+    if len(s) <= 3:
+        return ('-' if neg else '') + s
+    result = s[-3:]
+    s = s[:-3]
+    while s:
+        result = s[-2:] + ',' + result
+        s = s[:-2]
+    return ('-' if neg else '') + result
+
+
+def _fmt_currency(val: float, is_india: bool) -> str:
+    """Return currency string: ₹Indian-format for India, $US-format for US."""
+    if is_india:
+        return f"₹{_fmt_inr(val)}"
+    return f"${val:,.0f}"
 
 
 def load_release_notes() -> Optional[str]:
@@ -2333,7 +2357,7 @@ if not _RUNNING_TESTS:
         # ==========================================
         if current_step == 1:
             # Track step 1 started
-            track_onboarding_step_started(1)
+            track_onboarding_step_started(1, country=st.session_state.get('country', 'US'))
 
             # Country selector — determines currency, terminology, and available modes
             _country_options = ["🇺🇸 United States", "🇮🇳 India"]
@@ -2355,14 +2379,14 @@ if not _RUNNING_TESTS:
                 if _is_india:
                     st.session_state.retirement_age = 60
                     st.session_state.life_expectancy = 85
-                    st.session_state.retirement_income_goal = 600000
+                    st.session_state.retirement_income_goal = 0
                     st.session_state.whatif_retirement_growth_rate = 10.0
                     st.session_state.whatif_inflation_rate = 7.0
                     st.session_state.whatif_retirement_tax_rate = 10
                 else:
                     st.session_state.retirement_age = 65
                     st.session_state.life_expectancy = 90
-                    st.session_state.retirement_income_goal = 60000
+                    st.session_state.retirement_income_goal = 0
                     st.session_state.whatif_retirement_growth_rate = 4.0
                     st.session_state.whatif_inflation_rate = 3.0
                     st.session_state.whatif_retirement_tax_rate = 22
@@ -2372,8 +2396,14 @@ if not _RUNNING_TESTS:
                 for _k in (
                     'goal_tax_rate', 'goal_growth_rate', 'goal_inflation_rate',
                     'goal_retirement_age', 'goal_life_expectancy', 'goal_target_income',
+                    'retirement_income_goal_input',
                 ):
                     st.session_state.pop(_k, None)
+                track_event(
+                    'country_selected',
+                    {'country': st.session_state.country, 'previous_country': _prev_country},
+                    user_properties={'country': st.session_state.country},
+                )
                 st.session_state._prev_country = st.session_state.country
                 st.rerun()
             st.session_state._prev_country = st.session_state.country
@@ -2487,7 +2517,7 @@ Consider:
                 st.session_state.retirement_income_goal = retirement_income_goal
 
                 if retirement_income_goal > 0:
-                    st.info(f"💰 **Target**: {_sym}{retirement_income_goal:,.0f}/year in retirement")
+                    st.info(f"💰 **Target**: {_fmt_currency(retirement_income_goal, _is_india)}/year in retirement")
                 else:
                     st.info("💡 **No target set** - Analysis will show your projected value")
 
@@ -2527,7 +2557,7 @@ This amount is subtracted from your portfolio before calculating sustainable inc
                 st.session_state.life_expenses = life_expenses
 
                 if life_expenses > 0:
-                    st.info(f"💸 **One-Time Deduction**: {_sym}{life_expenses:,.0f} at retirement")
+                    st.info(f"💸 **One-Time Deduction**: {_fmt_currency(life_expenses, _is_india)} at retirement")
                 else:
                     st.info("💡 **No one-time expenses set** - No deduction at retirement")
 
@@ -2561,7 +2591,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                 st.session_state.legacy_goal = legacy_goal
 
                 if legacy_goal > 0:
-                    st.info(f"🎯 **Legacy Goal**: {_sym}{legacy_goal:,.0f} remaining at end of life")
+                    st.info(f"🎯 **Legacy Goal**: {_fmt_currency(legacy_goal, _is_india)} remaining at end of life")
                 else:
                     st.info(f"💡 **No legacy goal set** - {_corpus_label} can be fully depleted at end of life")
 
@@ -2573,6 +2603,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                     # Track step 1 completed
                     track_onboarding_step_completed(
                         1,
+                        country=st.session_state.get('country', 'US'),
                         age_range=get_age_range(datetime.now().year - st.session_state.birth_year),
                         retirement_age=st.session_state.retirement_age,
                         years_to_retirement=st.session_state.retirement_age - (datetime.now().year - st.session_state.birth_year),
@@ -2586,7 +2617,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
         # ==========================================
         elif current_step == 2:
             # Track step 2 started
-            track_onboarding_step_started(2)
+            track_onboarding_step_started(2, country=st.session_state.get('country', 'US'))
     
             # Show contribution reminder dialog if flagged
             if st.session_state.get('show_contribution_reminder', False):
@@ -2683,7 +2714,7 @@ Use the Social Security expander below to calculate your net target."""
                         help=_income_help,
                     )
                     if goal_target_income > 0:
-                        st.info(f"💰 **Income Target**: {_sym}{goal_target_income:,.0f}/year from your {'corpus' if _is_india else 'portfolio'}")
+                        st.info(f"💰 **Income Target**: {_fmt_currency(goal_target_income, _is_india)}/year from your {'corpus' if _is_india else 'portfolio'}")
                     else:
                         st.info("💡 **No target set** — enter a desired annual income above")
 
@@ -2745,7 +2776,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                         ),
                     )
                     if goal_legacy > 0:
-                        st.info(f"🎯 **Legacy Goal**: {_sym}{goal_legacy:,.0f} remaining at end of plan")
+                        st.info(f"🎯 **Legacy Goal**: {_fmt_currency(goal_legacy, _is_india)} remaining at end of plan")
                     else:
                         st.info(f"💡 **No legacy goal** — {_corpus_label.lower()} can be fully depleted at end of life")
 
@@ -2783,7 +2814,7 @@ This amount is subtracted from your portfolio before calculating sustainable inc
                         ),
                     )
                     if goal_life_expenses > 0:
-                        st.info(f"💸 **One-Time Deduction**: {_sym}{goal_life_expenses:,.0f} at retirement")
+                        st.info(f"💸 **One-Time Deduction**: {_fmt_currency(goal_life_expenses, _is_india)} at retirement")
                     else:
                         st.info("💡 **No one-time expenses set** — no deduction at retirement")
 
@@ -2932,15 +2963,15 @@ Historical context:
                         )
                         st.markdown("#### Results")
                         _rc1, _rc2 = st.columns(2)
-                        _rc1.metric(f"Required {_corpus_label} at Retirement", f"{_sym}{_r['required_pretax_portfolio']:,.0f}")
-                        _rc2.metric("Modeled First-Year After-Tax Income", f"{_sym}{_r['confirmed_income']:,.0f}/yr")
+                        _rc1.metric(f"Required {_corpus_label} at Retirement", _fmt_currency(_r['required_pretax_portfolio'], _is_india))
+                        _rc2.metric("Modeled First-Year After-Tax Income", f"{_fmt_currency(_r['confirmed_income'], _is_india)}/yr")
                         if goal_legacy > 0:
                             st.caption(
-                                f"Includes a **{_sym}{goal_legacy:,.0f} legacy goal** remaining at end of plan. "
+                                f"Includes a **{_fmt_currency(goal_legacy, _is_india)} legacy goal** remaining at end of plan. "
                             )
                         if goal_life_expenses > 0:
                             st.caption(
-                                f"Includes a **{_sym}{goal_life_expenses:,.0f} one-time deduction** at retirement."
+                                f"Includes a **{_fmt_currency(goal_life_expenses, _is_india)} one-time deduction** at retirement."
                             )
                         _assets_assumption = "NPS / EPF / PPF / Equity MF corpus" if _is_india else "100% pre-tax assets"
                         st.caption(
@@ -4366,6 +4397,7 @@ Historical context:
                         # Track step 2 completed
                         track_onboarding_step_completed(
                             2,
+                            country=st.session_state.get('country', 'US'),
                             num_accounts=len(assets),
                             setup_method=setup_option,
                             total_balance=sum(asset.current_balance for asset in assets)
@@ -4391,10 +4423,11 @@ Historical context:
     
                         # Track onboarding completed
                         track_event('onboarding_completed', {
+                            'country': st.session_state.get('country', 'US'),
                             'num_accounts': len(assets),
                             'setup_method': setup_option,
                             'has_retirement_goal': st.session_state.retirement_income_goal > 0
-                        })
+                        }, user_properties={'country': st.session_state.get('country', 'US')})
     
                         st.rerun()
         

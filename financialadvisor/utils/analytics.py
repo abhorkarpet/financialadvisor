@@ -277,9 +277,9 @@ def get_goal_range(goal: float) -> str:
 # COMMON EVENT TRACKING FUNCTIONS
 # ==========================================
 
-def track_onboarding_step_started(step: int) -> None:
+def track_onboarding_step_started(step: int, **kwargs) -> None:
     """Track when user starts an onboarding step."""
-    track_event(f'onboarding_step{step}_started', {'step': step})
+    track_event(f'onboarding_step{step}_started', {'step': step, **kwargs})
 
 
 def track_onboarding_step_completed(step: int, **kwargs) -> None:
