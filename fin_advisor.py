@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 10.5.0
+Version: 10.6.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "10.5.0"
+VERSION = "10.6.0"
 
 # Streamlit import
 import streamlit as st
@@ -398,11 +398,12 @@ def simulate_retirement(
 ) -> list:
     """Year-by-year retirement simulation with withdrawal sequencing and RMDs.
 
-    Withdrawal order each year:
+    Withdrawal order each year (annuity due — withdrawals at START of year):
       1. RMD from pre-tax (forced at age >= 73; IRS Uniform Lifetime Table)
       2. Brokerage (capital gains tax on gains portion only)
       3. Roth IRA (tax-free)
       4. Additional pre-tax if still short (ordinary income tax)
+      Portfolio grows on the remaining balance after withdrawals.
 
     Excess RMD beyond spending need is reinvested into brokerage after tax.
 
@@ -431,13 +432,7 @@ def simulate_retirement(
         age = retirement_age + year - 1
         annual_target = first_year_aftertax_target * ((1.0 + inflation_rate) ** (year - 1))
 
-        # --- 1. Grow all balances ---
-        pretax_bal    *= (1.0 + growth_rate)
-        roth_bal      *= (1.0 + growth_rate)
-        brokerage_bal *= (1.0 + growth_rate)
-        # Cost basis does not grow (only the market value does)
-
-        # --- 2. RMD from pre-tax (forced) ---
+        # --- 1. RMD from pre-tax (on start-of-year balance, before growth) ---
         rmd = 0.0
         rmd_tax = 0.0
         rmd_aftertax = 0.0
@@ -448,7 +443,7 @@ def simulate_retirement(
             rmd_aftertax = rmd - rmd_tax
             pretax_bal -= rmd
 
-        # --- 3. Determine remaining after-tax needed ---
+        # --- 2. Determine remaining after-tax needed ---
         brokerage_withdrawal = 0.0
         brokerage_tax = 0.0
         roth_withdrawal = 0.0
@@ -496,6 +491,12 @@ def simulate_retirement(
                 extra_pretax_tax = extra_pretax_withdrawal * t_ord
                 pretax_bal -= extra_pretax_withdrawal
                 actual_spend += (extra_pretax_withdrawal - extra_pretax_tax)
+
+        # --- 3. Grow remaining balances (after withdrawals — annuity due) ---
+        pretax_bal    *= (1.0 + growth_rate)
+        roth_bal      *= (1.0 + growth_rate)
+        brokerage_bal *= (1.0 + growth_rate)
+        # Cost basis does not grow (only the market value does)
 
         # --- 4. Clamp balances ---
         pretax_bal    = max(0.0, pretax_bal)
