@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 10.6.0
+Version: 11.0.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "10.6.0"
+VERSION = "11.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -1885,89 +1885,161 @@ if not _RUNNING_TESTS:
         st.session_state.client_name = ""
     if 'assets' not in st.session_state:
         st.session_state.assets = []
-    
+    if 'country' not in st.session_state:
+        st.session_state.country = 'US'
+
     # ==========================================
     # SIDEBAR - Advanced Settings (Collapsed by Default)
     # ==========================================
     with st.sidebar:
         with st.expander("⚙️ Advanced Settings", expanded=False):
+            _sb_india = st.session_state.get('country', 'US') == 'India'
+
             st.markdown("### Tax Settings")
-    
+
             # Current tax rate with helpful guidance
             with st.expander("💡 How to find your current tax rate", expanded=False):
-                st.markdown("""
-                **To find your current marginal tax rate:**
-                1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
-                2. **Use IRS tax brackets**: Find which bracket your income falls into
-    
-                **2024 Tax Brackets (Single):**
-                - 10%: $0 - $11,600
-                - 12%: $11,601 - $47,150
-                - 22%: $47,151 - $100,525
-                - 24%: $100,526 - $191,950
-                - 32%: $191,951 - $243,725
-                - 35%: $243,726 - $609,350
-                - 37%: $609,351+
-                """)
-    
-            current_tax_rate = st.slider("Current Marginal Tax Rate (%)", 0, 50, 22, help="Your current tax bracket based on your income")
-    
+                if _sb_india:
+                    st.markdown("""
+                    **India Income Tax — New Regime (FY 2024-25):**
+                    - 0%:  Up to ₹3,00,000
+                    - 5%:  ₹3,00,001 – ₹7,00,000
+                    - 10%: ₹7,00,001 – ₹10,00,000
+                    - 15%: ₹10,00,001 – ₹12,00,000
+                    - 20%: ₹12,00,001 – ₹15,00,000
+                    - 30%: Above ₹15,00,000
+
+                    Check your Form 16 or ITR for your effective rate.
+                    """)
+                else:
+                    st.markdown("""
+                    **To find your current marginal tax rate:**
+                    1. **From your tax return**: Look at your most recent Form 1040, Line 15 (Taxable Income)
+                    2. **Use IRS tax brackets**: Find which bracket your income falls into
+
+                    **2024 Tax Brackets (Single):**
+                    - 10%: $0 - $11,600
+                    - 12%: $11,601 - $47,150
+                    - 22%: $47,151 - $100,525
+                    - 24%: $100,526 - $191,950
+                    - 32%: $191,951 - $243,725
+                    - 35%: $243,726 - $609,350
+                    - 37%: $609,351+
+                    """)
+
+            current_tax_rate = st.slider(
+                "Current Marginal Tax Rate (%)", 0, 50,
+                key=f"sidebar_current_tax_rate_{st.session_state.get('country','US')}",
+                value=10 if _sb_india else 22,
+                help="Your current tax bracket based on your income",
+            )
+
             with st.expander("💡 How to estimate retirement tax rate", expanded=False):
-                st.markdown("""
-                **Consider these factors:**
-                1. **Lower income**: Most people have lower income in retirement
-                2. **Social Security**: Only 85% is taxable for most people
-                3. **Roth withdrawals**: Tax-free if qualified
-                4. **Required Minimum Distributions**: Start at age 73 (2024)
-    
-                **Common scenarios:**
-                - **Conservative**: Same as current rate
-                - **Optimistic**: 10-15% lower than current
-                - **Pessimistic**: 5-10% higher (if tax rates increase)
-                """)
-    
-            retirement_tax_rate = st.slider("Projected Retirement Tax Rate (%)", 0, 50, 22, help="Expected tax rate in retirement")
-    
+                if _sb_india:
+                    st.markdown("""
+                    **Consider these factors:**
+                    1. **Lower income**: Most retirees have lower taxable income
+                    2. **EPF / PPF withdrawals**: Fully tax-free at maturity
+                    3. **NPS**: 60% lump sum is tax-free; annuity income is taxable
+                    4. **Senior citizen benefit**: ₹50,000 standard deduction on pension income
+
+                    **Common scenarios:**
+                    - **Conservative**: Same as current rate
+                    - **Optimistic**: 10% (EPF/PPF-heavy corpus)
+                    - **Pessimistic**: 20–30% (large NPS annuity or rental income)
+                    """)
+                else:
+                    st.markdown("""
+                    **Consider these factors:**
+                    1. **Lower income**: Most people have lower income in retirement
+                    2. **Social Security**: Only 85% is taxable for most people
+                    3. **Roth withdrawals**: Tax-free if qualified
+                    4. **Required Minimum Distributions**: Start at age 73 (2024)
+
+                    **Common scenarios:**
+                    - **Conservative**: Same as current rate
+                    - **Optimistic**: 10-15% lower than current
+                    - **Pessimistic**: 5-10% higher (if tax rates increase)
+                    """)
+
+            retirement_tax_rate = st.slider(
+                "Projected Retirement Tax Rate (%)", 0, 50,
+                key=f"sidebar_retirement_tax_rate_{st.session_state.get('country','US')}",
+                value=10 if _sb_india else 22,
+                help="Expected tax rate in retirement",
+            )
+
             st.markdown("---")
             st.markdown("### Growth Rate Assumptions")
-    
+
             with st.expander("💡 Inflation guidance", expanded=False):
-                st.markdown("""
-                **Historical context:**
-                - **Long-term average**: 3.0-3.5% annually
-                - **Recent years**: 2-4% (2020-2024)
-                - **Federal Reserve target**: 2% annually
-    
-                **Consider:**
-                - **Conservative**: 2-3% (Fed target)
-                - **Moderate**: 3-4% (historical average)
-                - **Aggressive**: 4-5% (higher inflation)
-                """)
-    
-            inflation_rate = st.slider("Expected Inflation Rate (%)", 0, 10, 3, help="Long-term inflation assumption (affects purchasing power)")
-    
+                if _sb_india:
+                    st.markdown("""
+                    **Historical context (India):**
+                    - **Long-term CPI average**: 5–7% annually
+                    - **Recent years**: 4–7% (2020–2024)
+                    - **RBI target**: 4% annually
+
+                    **Consider:**
+                    - **Conservative**: 6–7% (safe for long-term planning)
+                    - **Moderate**: 5–6%
+                    - **Optimistic**: 4% (RBI target)
+                    """)
+                else:
+                    st.markdown("""
+                    **Historical context:**
+                    - **Long-term average**: 3.0-3.5% annually
+                    - **Recent years**: 2-4% (2020-2024)
+                    - **Federal Reserve target**: 2% annually
+
+                    **Consider:**
+                    - **Conservative**: 2-3% (Fed target)
+                    - **Moderate**: 3-4% (historical average)
+                    - **Aggressive**: 4-5% (higher inflation)
+                    """)
+
+            inflation_rate = st.slider(
+                "Expected Inflation Rate (%)", 0, 15 if _sb_india else 10,
+                key=f"sidebar_inflation_rate_{st.session_state.get('country','US')}",
+                value=7 if _sb_india else 3,
+                help="Long-term inflation assumption (affects purchasing power)",
+            )
+
             st.markdown("---")
             st.markdown("### Investment Growth Rate")
-    
+
             with st.expander("💡 Growth rate guidance", expanded=False):
-                st.markdown("""
-                **Typical annual growth rates:**
-                - **Stocks/Equity funds**: 7-10%
-                - **Bonds/Fixed income**: 4-5%
-                - **Savings accounts**: 2-4%
-                - **Conservative portfolio**: 5-6%
-                - **Aggressive portfolio**: 8-10%
-    
-                **Note:** This is used as the default when adding investment accounts.
-                """)
-    
+                if _sb_india:
+                    st.markdown("""
+                    **Typical annual growth rates (India):**
+                    - **Equity MF (large-cap)**: 10–12%
+                    - **Equity MF (flexi/mid-cap)**: 12–15%
+                    - **Balanced / hybrid MF**: 8–10%
+                    - **Debt MF / FD**: 6–7%
+                    - **PPF / EPF**: 7–8%
+
+                    **Note:** This is used as the default when adding investment accounts.
+                    """)
+                else:
+                    st.markdown("""
+                    **Typical annual growth rates:**
+                    - **Stocks/Equity funds**: 7-10%
+                    - **Bonds/Fixed income**: 4-5%
+                    - **Savings accounts**: 2-4%
+                    - **Conservative portfolio**: 5-6%
+                    - **Aggressive portfolio**: 8-10%
+
+                    **Note:** This is used as the default when adding investment accounts.
+                    """)
+
             default_growth_rate = st.slider(
                 "Default Growth Rate for Investments (%)",
                 min_value=0.0,
                 max_value=20.0,
-                value=7.0,
+                key=f"sidebar_default_growth_rate_{st.session_state.get('country','US')}",
+                value=10.0 if _sb_india else 7.0,
                 step=0.5,
-                help="Default annual growth rate for investment accounts (stocks, bonds, etc.)"
+                help="Default annual growth rate for investment accounts (stocks, bonds, etc.)",
             )
     
             st.markdown("---")
@@ -2175,6 +2247,10 @@ if not _RUNNING_TESTS:
             st.caption("Know your target income? Calculate the pre-tax portfolio you need to save")
             st.markdown("")
 
+            st.markdown("**🇮🇳 India Corpus Planning**")
+            st.caption("Full ₹ INR support with Indian defaults — calculate the corpus you need for retirement in India")
+            st.markdown("")
+
         st.markdown("---")
     
         # Getting Started section with green background
@@ -2258,7 +2334,50 @@ if not _RUNNING_TESTS:
         if current_step == 1:
             # Track step 1 started
             track_onboarding_step_started(1)
-    
+
+            # Country selector — determines currency, terminology, and available modes
+            _country_options = ["🇺🇸 United States", "🇮🇳 India"]
+            _country_sel = st.selectbox(
+                "Country",
+                _country_options,
+                index=0 if st.session_state.get('country', 'US') == 'US' else 1,
+                key="country_select",
+                help="Select your country. India mode shows the Corpus Calculator with ₹ (INR) currency.",
+            )
+            st.session_state.country = "India" if "India" in _country_sel else "US"
+            _is_india = st.session_state.country == "India"
+            _sym = "₹" if _is_india else "$"
+            _corpus_label = "Corpus" if _is_india else "Portfolio"
+
+            # Reset defaults when country changes so the new country's values appear immediately
+            _prev_country = st.session_state.get('_prev_country', st.session_state.country)
+            if _prev_country != st.session_state.country:
+                if _is_india:
+                    st.session_state.retirement_age = 60
+                    st.session_state.life_expectancy = 85
+                    st.session_state.retirement_income_goal = 600000
+                    st.session_state.whatif_retirement_growth_rate = 10.0
+                    st.session_state.whatif_inflation_rate = 7.0
+                    st.session_state.whatif_retirement_tax_rate = 10
+                else:
+                    st.session_state.retirement_age = 65
+                    st.session_state.life_expectancy = 90
+                    st.session_state.retirement_income_goal = 60000
+                    st.session_state.whatif_retirement_growth_rate = 4.0
+                    st.session_state.whatif_inflation_rate = 3.0
+                    st.session_state.whatif_retirement_tax_rate = 22
+                # Delete all widget keys that carry country-specific defaults so they
+                # re-initialize from their country-aware value= parameters on the next run.
+                # (Streamlit forbids writing to widget keys after instantiation in the same run.)
+                for _k in (
+                    'goal_tax_rate', 'goal_growth_rate', 'goal_inflation_rate',
+                    'goal_retirement_age', 'goal_life_expectancy', 'goal_target_income',
+                ):
+                    st.session_state.pop(_k, None)
+                st.session_state._prev_country = st.session_state.country
+                st.rerun()
+            st.session_state._prev_country = st.session_state.country
+
             col1, col2 = st.columns(2)
     
             with col1:
@@ -2292,18 +2411,32 @@ if not _RUNNING_TESTS:
                     min_value=retirement_age+1,
                     max_value=120,
                     value=st.session_state.life_expectancy,
-                    help="""Average Life Expectancy:
-    • At birth: ~79 years (US avg)
-    • At age 30: ~80 years
-    • At age 50: ~82 years
-    • At age 65: ~85 years
+                    help=(
+                        """Average Life Expectancy (India):
+• At birth: ~72 years (India avg)
+• At age 30: ~75 years
+• At age 60: ~80 years
 
-    Factors to Consider:
-    • Family history & health status
-    • Lifestyle (exercise, diet, smoking)
-    • Gender (women live 3-5 yrs longer)
+Factors to Consider:
+• Family history & health status
+• Lifestyle (exercise, diet)
+• Access to healthcare
 
-    💡 Tip: Add 5-10 years for safety.""",
+💡 Tip: Plan to age 85–90 for safety."""
+                        if _is_india else
+                        """Average Life Expectancy:
+• At birth: ~79 years (US avg)
+• At age 30: ~80 years
+• At age 50: ~82 years
+• At age 65: ~85 years
+
+Factors to Consider:
+• Family history & health status
+• Lifestyle (exercise, diet, smoking)
+• Gender (women live 3-5 yrs longer)
+
+💡 Tip: Add 5-10 years for safety."""
+                    ),
                     key="life_expectancy_input"
                 )
                 st.session_state.life_expectancy = life_expectancy
@@ -2314,41 +2447,70 @@ if not _RUNNING_TESTS:
     
                 # Retirement income goal with tooltip help
                 retirement_income_goal = st.number_input(
-                    "After Tax Annual Income Needed in Retirement ($) - Optional",
+                    f"After Tax Annual Income Needed in Retirement ({_sym}) - Optional",
                     min_value=0,
-                    max_value=500000,
+                    max_value=50_000_000 if _is_india else 500000,
                     value=st.session_state.retirement_income_goal,
-                    step=5000,
-                    help="""Typical Annual Needs:
-    • $40K-$60K: Modest lifestyle
-    • $60K-$80K: Comfortable lifestyle
-    • $80K-$100K: Enhanced lifestyle
-    • $100K+: Premium lifestyle
+                    step=50000 if _is_india else 5000,
+                    help=(
+                        """Typical Annual Needs (India):
+• ₹3L–₹5L/yr:  Modest lifestyle
+• ₹5L–₹8L/yr:  Comfortable lifestyle
+• ₹8L–₹12L/yr: Enhanced lifestyle
+• ₹12L+/yr:    Premium lifestyle
 
-    Consider:
-    • Housing costs (rent/mortgage, taxes)
-    • Healthcare (insurance, out-of-pocket)
-    • Daily living (food, utilities)
-    • Lifestyle (travel, hobbies)
-    • Social Security (~$20-40K/yr)
+Consider:
+• Housing (rent/EMI, maintenance)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, family)
 
-    💡 Rule of thumb: 70-80% of pre-retirement income""",
+💡 Rule of thumb: 70–80% of pre-retirement income"""
+                        if _is_india else
+                        """Typical Annual Needs:
+• $40K-$60K: Modest lifestyle
+• $60K-$80K: Comfortable lifestyle
+• $80K-$100K: Enhanced lifestyle
+• $100K+: Premium lifestyle
+
+Consider:
+• Housing costs (rent/mortgage, taxes)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, hobbies)
+• Social Security (~$20-40K/yr)
+
+💡 Rule of thumb: 70-80% of pre-retirement income"""
+                    ),
                     key="retirement_income_goal_input"
                 )
                 st.session_state.retirement_income_goal = retirement_income_goal
-    
+
                 if retirement_income_goal > 0:
-                    st.info(f"💰 **Target**: ${retirement_income_goal:,.0f}/year in retirement")
+                    st.info(f"💰 **Target**: {_sym}{retirement_income_goal:,.0f}/year in retirement")
                 else:
                     st.info("💡 **No target set** - Analysis will show your projected value")
 
                 life_expenses = st.number_input(
-                    "One-Time Expenses at Retirement ($) — Optional",
+                    f"One-Time Expenses at Retirement ({_sym}) — Optional",
                     min_value=0,
-                    max_value=10_000_000,
+                    max_value=100_000_000 if _is_india else 10_000_000,
                     value=st.session_state.get('life_expenses', 0),
-                    step=10_000,
-                    help="""A lump-sum amount deducted from your portfolio at the moment you retire.
+                    step=100_000 if _is_india else 10_000,
+                    help=(
+                        """A lump-sum amount deducted from your corpus at the moment you retire.
+
+Examples:
+• Paying off a remaining home loan
+• Large medical or long-term care costs
+• Down payment on a retirement home
+
+💡 Common range: ₹5L–₹50L
+   (e.g., ₹15L to clear a remaining home loan)
+
+This amount is subtracted from your corpus before calculating sustainable income."""
+                        if _is_india else
+                        """A lump-sum amount deducted from your portfolio at the moment you retire.
 
 Examples:
 • Paying off a remaining mortgage
@@ -2358,38 +2520,50 @@ Examples:
 💡 Common range: $50,000–$300,000
    (e.g., $150,000 to clear a remaining mortgage)
 
-This amount is subtracted from your portfolio before calculating sustainable income.""",
+This amount is subtracted from your portfolio before calculating sustainable income."""
+                    ),
                     key="life_expenses_input"
                 )
                 st.session_state.life_expenses = life_expenses
 
                 if life_expenses > 0:
-                    st.info(f"💸 **One-Time Deduction**: ${life_expenses:,.0f} at retirement")
-                else:                    
+                    st.info(f"💸 **One-Time Deduction**: {_sym}{life_expenses:,.0f} at retirement")
+                else:
                     st.info("💡 **No one-time expenses set** - No deduction at retirement")
 
                 legacy_goal = st.number_input(
-                    "Legacy Goal — Money to Leave Behind ($) — Optional",
+                    f"Legacy Goal — Money to Leave Behind ({_sym}) — Optional",
                     min_value=0,
-                    max_value=10_000_000,
+                    max_value=100_000_000 if _is_india else 10_000_000,
                     value=st.session_state.get('legacy_goal', 0),
-                    step=10_000,
-                    help="""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
+                    step=100_000 if _is_india else 10_000,
+                    help=(
+                        f"""The amount you want remaining in your corpus at end of life — this is NOT deducted at retirement.
+
+The withdrawal simulation will preserve this amount so it can be passed on.
+
+💡 Common range: ₹20L–₹2Cr
+   (e.g., ₹50L as an inheritance for your family)
+
+Modeled as a future-value target: the corpus must end at life expectancy with at least this balance."""
+                        if _is_india else
+                        """The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
 
 The withdrawal simulation will preserve this amount so it can be passed on.
 
 💡 Common range: $50,000–$500,000
    (e.g., $200,000 as an inheritance for your family)
 
-Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance.""",
+Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance."""
+                    ),
                     key="legacy_goal_input"
                 )
                 st.session_state.legacy_goal = legacy_goal
 
                 if legacy_goal > 0:
-                    st.info(f"🎯 **Legacy Goal**: ${legacy_goal:,.0f} remaining at end of life")
+                    st.info(f"🎯 **Legacy Goal**: {_sym}{legacy_goal:,.0f} remaining at end of life")
                 else:
-                    st.info("💡 **No legacy goal set** - Portfolio can be fully depleted at end of life")
+                    st.info(f"💡 **No legacy goal set** - {_corpus_label} can be fully depleted at end of life")
 
             # Navigation button for Step 1
             st.markdown("---")
@@ -2420,26 +2594,43 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
 
             # ---- Planning mode: auto-show dialog on first visit to Step 2 ----
             if "planning_mode_choice" not in st.session_state:
-                planning_mode_dialog()
-                st.stop()
+                if st.session_state.get('country') == 'India':
+                    # India only supports the Income Goal (Corpus) Calculator
+                    st.session_state.planning_mode_choice = "I have an income goal — show how much I need"
+                else:
+                    planning_mode_dialog()
+                    st.stop()
 
             planning_mode = st.session_state.planning_mode_choice
 
-            # Show current mode + allow switching
-            _mode_label = "Assets → Income" if "assets" in planning_mode else "Income Goal → Portfolio"
-            _col_mode_a, _col_mode_b = st.columns([5, 1])
-            _col_mode_a.caption(f"Planning mode: **{_mode_label}**")
-            if _col_mode_b.button("Change", key="change_planning_mode_btn"):
-                del st.session_state["planning_mode_choice"]
-                st.rerun()
+            # Show current mode + allow switching (US only; India is locked to Income Goal mode)
+            if st.session_state.get('country') != 'India':
+                _mode_label = "Assets → Income" if "assets" in planning_mode else "Income Goal → Portfolio"
+                _col_mode_a, _col_mode_b = st.columns([5, 1])
+                _col_mode_a.caption(f"Planning mode: **{_mode_label}**")
+                if _col_mode_b.button("Change", key="change_planning_mode_btn"):
+                    del st.session_state["planning_mode_choice"]
+                    st.rerun()
+
+            # Currency / terminology helpers (used in Income Goal Calculator below)
+            _is_india = st.session_state.get('country') == 'India'
+            _sym = "₹" if _is_india else "$"
+            _corpus_label = "Corpus" if _is_india else "Portfolio"
 
             if planning_mode == "I have an income goal — show how much I need":
-                st.subheader("Income Goal Calculator")
-                st.info(
-                    "Enter your desired retirement income and we'll calculate the pre-tax portfolio "
-                    "you need. **v1 assumes the entire portfolio is pre-tax** (e.g. 401k / Traditional IRA). "
-                    "If you expect Social Security or Roth income, reduce your target accordingly."
-                )
+                st.subheader("Income Goal Calculator" if not _is_india else "Corpus Calculator")
+                if _is_india:
+                    st.info(
+                        "Enter your desired retirement income and we'll calculate the **corpus** you need. "
+                        "Assumes corpus invested in NPS / EPF / PPF / Equity Mutual Funds. "
+                        "If you expect Pension or NPS annuity income, reduce your target accordingly."
+                    )
+                else:
+                    st.info(
+                        "Enter your desired retirement income and we'll calculate the pre-tax portfolio "
+                        "you need. **v1 assumes the entire portfolio is pre-tax** (e.g. 401k / Traditional IRA). "
+                        "If you expect Social Security or Roth income, reduce your target accordingly."
+                    )
 
                 # Results container declared here so it renders above the inputs
                 _goal_results_container = st.container()
@@ -2447,13 +2638,28 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
 
                 col1, col2 = st.columns(2)
                 with col1:
-                    goal_target_income = st.number_input(
-                        "Desired after-tax annual income ($) — Excluding Social Security",
-                        min_value=0,
-                        value=int(st.session_state.get("retirement_income_goal", 60000)),
-                        step=1000,
-                        key="goal_target_income",
-                        help="""Typical Annual Needs:
+                    _income_label = (
+                        "Desired after-tax annual income (₹) — Excluding Pension/NPS"
+                        if _is_india else
+                        "Desired after-tax annual income ($) — Excluding Social Security"
+                    )
+                    _income_help = (
+                        """Typical Annual Needs (India):
+• ₹3L–₹5L/yr:  Modest lifestyle
+• ₹5L–₹8L/yr:  Comfortable lifestyle
+• ₹8L–₹12L/yr: Enhanced lifestyle
+• ₹12L+/yr:    Premium lifestyle
+
+Consider:
+• Housing (rent/EMI, maintenance)
+• Healthcare (insurance, out-of-pocket)
+• Daily living (food, utilities)
+• Lifestyle (travel, family)
+
+💡 Exclude Pension / NPS annuity — enter only the income you need from your corpus.
+Use the Pension/NPS expander below to calculate your net target."""
+                        if _is_india else
+                        """Typical Annual Needs:
 • $40K–$60K: Modest lifestyle
 • $60K–$80K: Comfortable lifestyle
 • $80K–$100K: Enhanced lifestyle
@@ -2466,20 +2672,33 @@ Consider:
 • Lifestyle (travel, hobbies)
 
 💡 Exclude Social Security — enter only the income you need from your portfolio.
-Use the Social Security expander below to calculate your net target.""",
+Use the Social Security expander below to calculate your net target."""
+                    )
+                    goal_target_income = st.number_input(
+                        _income_label,
+                        min_value=0,
+                        value=int(st.session_state.get("retirement_income_goal", 600000 if _is_india else 60000)),
+                        step=10000 if _is_india else 1000,
+                        key="goal_target_income",
+                        help=_income_help,
                     )
                     if goal_target_income > 0:
-                        st.info(f"💰 **Income Target**: ${goal_target_income:,.0f}/year from your portfolio")
+                        st.info(f"💰 **Income Target**: {_sym}{goal_target_income:,.0f}/year from your {'corpus' if _is_india else 'portfolio'}")
                     else:
                         st.info("💡 **No target set** — enter a desired annual income above")
 
-                    goal_tax_rate = st.slider(
-                        "Retirement tax rate (%)",
-                        min_value=0,
-                        max_value=99,
-                        value=int(st.session_state.get("whatif_retirement_tax_rate", 22)),
-                        key="goal_tax_rate",
-                        help="""Your effective tax rate on withdrawals in retirement.
+                    _tax_help = (
+                        """Your effective tax rate on corpus withdrawals in retirement.
+
+India New Tax Regime typical rates:
+• 10–15%: Moderate income retiree
+• 20–25%: Higher income retiree
+• 30%+:   High income
+
+💡 EPF / PPF withdrawals are tax-free. NPS: 60% lump sum is tax-free; annuity income is taxable.
+Consult a tax professional for a personalized estimate."""
+                        if _is_india else
+                        """Your effective tax rate on withdrawals in retirement.
 
 Typical ranges:
 • 10–15%: Low income / heavy Roth
@@ -2487,38 +2706,70 @@ Typical ranges:
 • 32%+: Higher income
 
 💡 This applies uniformly to all withdrawals (v1 assumes 100% pre-tax assets).
-Consult a tax professional for a personalized estimate.""",
+Consult a tax professional for a personalized estimate."""
+                    )
+                    goal_tax_rate = st.slider(
+                        "Retirement tax rate (%)",
+                        min_value=0,
+                        max_value=99,
+                        value=int(st.session_state.get("whatif_retirement_tax_rate", 10 if _is_india else 22)),
+                        key="goal_tax_rate",
+                        help=_tax_help,
                     )
                     st.info(f"🧾 **Tax Rate**: {goal_tax_rate}% applied to all withdrawals")
 
                     goal_legacy = st.number_input(
-                        "Legacy / end-of-life portfolio goal ($) — Optional",
+                        f"Legacy / end-of-life {_corpus_label.lower()} goal ({_sym}) — Optional",
                         min_value=0,
                         value=int(st.session_state.get("legacy_goal", 0)),
-                        step=10000,
+                        step=100000 if _is_india else 10000,
                         key="goal_legacy",
-                        help="""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
+                        help=(
+                            f"""The amount you want remaining in your {_corpus_label.lower()} at end of life — this is NOT deducted at retirement.
+
+The withdrawal simulation will preserve this amount so it can be passed on.
+
+💡 Common range: ₹20L–₹2Cr
+   (e.g., ₹50L as an inheritance for your family)
+
+Modeled as a future-value target: the corpus must end at life expectancy with at least this balance."""
+                            if _is_india else
+                            f"""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
 
 The withdrawal simulation will preserve this amount so it can be passed on.
 
 💡 Common range: $50,000–$500,000
    (e.g., $200,000 as an inheritance for your family)
 
-Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance.""",
+Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance."""
+                        ),
                     )
                     if goal_legacy > 0:
-                        st.info(f"🎯 **Legacy Goal**: ${goal_legacy:,.0f} remaining at end of plan")
+                        st.info(f"🎯 **Legacy Goal**: {_sym}{goal_legacy:,.0f} remaining at end of plan")
                     else:
-                        st.info("💡 **No legacy goal** — portfolio can be fully depleted at end of life")
+                        st.info(f"💡 **No legacy goal** — {_corpus_label.lower()} can be fully depleted at end of life")
 
                     goal_life_expenses = st.number_input(
-                        "One-Time Expenses at Retirement ($) — Optional",
+                        f"One-Time Expenses at Retirement ({_sym}) — Optional",
                         min_value=0,
                         max_value=10_000_000,
                         value=int(st.session_state.get("life_expenses", 0)),
-                        step=10_000,
+                        step=100_000 if _is_india else 10_000,
                         key="goal_life_expenses",
-                        help="""A lump-sum amount deducted from your portfolio at the moment you retire.
+                        help=(
+                            f"""A lump-sum amount deducted from your corpus at the moment you retire.
+
+Examples:
+• Paying off a remaining home loan
+• Large medical or long-term care costs
+• Down payment on a retirement home
+
+💡 Common range: ₹5L–₹50L
+   (e.g., ₹15L to clear a remaining home loan)
+
+This amount is subtracted from your corpus before calculating sustainable income."""
+                            if _is_india else
+                            """A lump-sum amount deducted from your portfolio at the moment you retire.
 
 Examples:
 • Paying off a remaining mortgage
@@ -2528,10 +2779,11 @@ Examples:
 💡 Common range: $50,000–$300,000
    (e.g., $150,000 to clear a remaining mortgage)
 
-This amount is subtracted from your portfolio before calculating sustainable income.""",
+This amount is subtracted from your portfolio before calculating sustainable income."""
+                        ),
                     )
                     if goal_life_expenses > 0:
-                        st.info(f"💸 **One-Time Deduction**: ${goal_life_expenses:,.0f} at retirement")
+                        st.info(f"💸 **One-Time Deduction**: {_sym}{goal_life_expenses:,.0f} at retirement")
                     else:
                         st.info("💡 **No one-time expenses set** — no deduction at retirement")
 
@@ -2540,9 +2792,9 @@ This amount is subtracted from your portfolio before calculating sustainable inc
                         "Retirement age",
                         min_value=50,
                         max_value=80,
-                        value=int(st.session_state.get("retirement_age", 65)),
+                        value=int(st.session_state.get("retirement_age", 60 if _is_india else 65)),
                         key="goal_retirement_age",
-                        help="The age at which you plan to retire and begin drawing from your portfolio.",
+                        help=f"The age at which you plan to retire and begin drawing from your {'corpus' if _is_india else 'portfolio'}.",
                     )
                     st.info(f"⏰ **Retiring at**: age {goal_retirement_age}")
 
@@ -2550,9 +2802,22 @@ This amount is subtracted from your portfolio before calculating sustainable inc
                         "Life expectancy (age)",
                         min_value=60,
                         max_value=110,
-                        value=int(st.session_state.get("life_expectancy", 90)),
+                        value=int(st.session_state.get("life_expectancy", 85 if _is_india else 90)),
                         key="goal_life_expectancy",
-                        help="""Average Life Expectancy:
+                        help=(
+                            """Average Life Expectancy (India):
+• At birth: ~72 years (India avg)
+• At age 30: ~75 years
+• At age 60: ~80 years
+
+Factors to Consider:
+• Family history & health status
+• Lifestyle (exercise, diet)
+• Access to healthcare
+
+💡 Tip: Plan to age 85–90 for safety."""
+                            if _is_india else
+                            """Average Life Expectancy:
 • At birth: ~79 years (US avg)
 • At age 30: ~80 years
 • At age 50: ~82 years
@@ -2563,42 +2828,65 @@ Factors to Consider:
 • Lifestyle (exercise, diet, smoking)
 • Gender (women live 3–5 yrs longer)
 
-💡 Tip: Add 5–10 years for safety.""",
+💡 Tip: Add 5–10 years for safety."""
+                        ),
                     )
                     _goal_years_in_ret = goal_life_expectancy - goal_retirement_age
                     st.info(f"⏳ **Years in Retirement**: {_goal_years_in_ret} years")
 
                     goal_growth_rate = st.slider(
-                        "Portfolio growth rate in retirement (%)",
+                        f"{'Corpus' if _is_india else 'Portfolio'} growth rate in retirement (%)",
                         min_value=0,
-                        max_value=10,
-                        value=int(round(st.session_state.get("whatif_retirement_growth_rate", 4.0))),
+                        max_value=15 if _is_india else 10,
+                        value=int(round(st.session_state.get("whatif_retirement_growth_rate", 10.0 if _is_india else 4.0))),
                         key="goal_growth_rate",
-                        help="""Expected annual portfolio growth rate during retirement.
+                        help=(
+                            """Expected annual corpus growth rate during retirement.
+
+Typical assumptions (India):
+• 6–7%:  Conservative (debt MF / FD-heavy)
+• 8–10%: Moderate (balanced MF)
+• 10–12%: Equity-heavy MF
+
+💡 A SWP (Systematic Withdrawal Plan) from equity MFs at 8–10% growth is a common Indian retirement strategy."""
+                            if _is_india else
+                            """Expected annual portfolio growth rate during retirement.
 
 Typical assumptions:
 • 3–4%: Conservative (bonds-heavy)
 • 5–6%: Moderate (balanced)
 • 7–8%: Aggressive (stocks-heavy)
 
-💡 Default 4% is a common conservative estimate for a balanced retirement portfolio.""",
+💡 Default 4% is a common conservative estimate for a balanced retirement portfolio."""
+                        ),
                     )
-                    st.info(f"📈 **Growth Rate**: {goal_growth_rate}%/year on portfolio")
+                    st.info(f"📈 **Growth Rate**: {goal_growth_rate}%/year on {'corpus' if _is_india else 'portfolio'}")
 
                     goal_inflation_rate = st.slider(
                         "Inflation rate (%)",
                         min_value=0,
-                        max_value=10,
-                        value=int(round(st.session_state.get("whatif_inflation_rate", 3.0))),
+                        max_value=15 if _is_india else 10,
+                        value=int(round(st.session_state.get("whatif_inflation_rate", 7.0 if _is_india else 3.0))),
                         key="goal_inflation_rate",
-                        help="""Expected average annual inflation rate over your retirement.
+                        help=(
+                            """Expected average annual inflation rate over your retirement.
+
+Historical context (India):
+• Long-run CPI average: ~5–7%
+• Recent years: 4–7%
+• RBI target: 4%
+
+💡 Use 7% or above for conservative planning."""
+                            if _is_india else
+                            """Expected average annual inflation rate over your retirement.
 
 Historical context:
 • US long-run average: ~3%
 • Recent (2021–2023): 4–8%
 • Fed target: 2%
 
-💡 Higher inflation erodes purchasing power — use 3% or above for safety.""",
+💡 Higher inflation erodes purchasing power — use 3% or above for safety."""
+                        ),
                     )
                     st.info(f"💹 **Inflation Rate**: {goal_inflation_rate}%/year")
 
@@ -2644,33 +2932,52 @@ Historical context:
                         )
                         st.markdown("#### Results")
                         _rc1, _rc2 = st.columns(2)
-                        _rc1.metric("Required Pre-Tax Portfolio at Retirement", f"${_r['required_pretax_portfolio']:,.0f}")
-                        _rc2.metric("Modeled First-Year After-Tax Income", f"${_r['confirmed_income']:,.0f}/yr")
+                        _rc1.metric(f"Required {_corpus_label} at Retirement", f"{_sym}{_r['required_pretax_portfolio']:,.0f}")
+                        _rc2.metric("Modeled First-Year After-Tax Income", f"{_sym}{_r['confirmed_income']:,.0f}/yr")
                         if goal_legacy > 0:
                             st.caption(
-                                f"Includes a **${goal_legacy:,.0f} legacy goal** remaining at end of plan. "
+                                f"Includes a **{_sym}{goal_legacy:,.0f} legacy goal** remaining at end of plan. "
                             )
                         if goal_life_expenses > 0:
                             st.caption(
-                                f"Includes a **${goal_life_expenses:,.0f} one-time deduction** at retirement."
+                                f"Includes a **{_sym}{goal_life_expenses:,.0f} one-time deduction** at retirement."
                             )
+                        _assets_assumption = "NPS / EPF / PPF / Equity MF corpus" if _is_india else "100% pre-tax assets"
                         st.caption(
-                            f"Assumptions: {goal_growth_rate}% portfolio growth · {goal_inflation_rate}% inflation · "
+                            f"Assumptions: {goal_growth_rate}% {'corpus' if _is_india else 'portfolio'} growth · {goal_inflation_rate}% inflation · "
                             f"{goal_tax_rate}% tax rate · {_r['years_in_retirement']} years in retirement · "
-                            "100% pre-tax assets"
+                            f"{_assets_assumption}"
                         )
-                        with st.expander("💡 How to account for Social Security income"):
-                            st.markdown("""
-                                Social Security benefits are **not included** in this calculation. If you expect to receive
-                                Social Security, reduce your income target by your estimated annual benefit.
+                        if _is_india:
+                            with st.expander("💡 How to account for Pension / NPS Annuity income"):
+                                st.markdown("""
+                                    Pension or NPS annuity income is **not included** in this calculation.
+                                    If you expect regular income from these sources, reduce your income target accordingly.
 
-                                **How to find your estimated benefit:**
-                                - Visit **[ssa.gov/myaccount](https://www.ssa.gov/myaccount)** and create a free account — it shows your personalized benefit estimates at different claiming ages (62, 67, 70, etc.)
-                                - Alternatively, use the **[SSA Quick Calculator](https://www.ssa.gov/OACT/quickcalc/)** for a rough estimate without logging in
+                                    **Common sources of pension income in India:**
+                                    - **NPS (National Pension System)**: At maturity, 60% is a tax-free lump sum; the remaining
+                                      40% must be used to purchase an annuity (taxable income). Estimate your annuity income
+                                      as roughly 5–6% of the 40% annuity portion per year.
+                                    - **EPF Pension (EPS)**: If you contributed to EPS, you receive a monthly pension from age 58.
+                                      Check your estimated pension on the **[EPFO Member Portal](https://unifiedportal-mem.epfindia.gov.in/)**.
+                                    - **Government / Defence Pension**: If applicable, this is a fixed monthly pension.
 
-                                **Example:** If your goal is \$80,000/yr after-tax and you expect \$24,000/yr from Social Security,
-                                enter **\$56,000** as your income target here.
-                            """)
+                                    **Example:** If your goal is ₹8,00,000/yr after-tax and you expect ₹2,40,000/yr from
+                                    NPS annuity + EPF pension, enter **₹5,60,000** as your income target here.
+                                """)
+                        else:
+                            with st.expander("💡 How to account for Social Security income"):
+                                st.markdown("""
+                                    Social Security benefits are **not included** in this calculation. If you expect to receive
+                                    Social Security, reduce your income target by your estimated annual benefit.
+
+                                    **How to find your estimated benefit:**
+                                    - Visit **[ssa.gov/myaccount](https://www.ssa.gov/myaccount)** and create a free account — it shows your personalized benefit estimates at different claiming ages (62, 67, 70, etc.)
+                                    - Alternatively, use the **[SSA Quick Calculator](https://www.ssa.gov/OACT/quickcalc/)** for a rough estimate without logging in
+
+                                    **Example:** If your goal is \$80,000/yr after-tax and you expect \$24,000/yr from Social Security,
+                                    enter **\$56,000** as your income target here.
+                                """)
 
                 st.markdown("---")
                 if st.button("← Previous: Personal Info", key="goal_mode_back_btn"):
