@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "11.0.5"
+VERSION = "12.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -95,6 +95,13 @@ try:
     _N8N_AVAILABLE = True
 except ImportError:
     _N8N_AVAILABLE = False
+
+# Chat advisor (Mode 2 conversational planning)
+try:
+    from integrations.chat_advisor import chat_with_advisor, fields_are_complete
+    _CHAT_AVAILABLE = True
+except ImportError:
+    _CHAT_AVAILABLE = False
 
 # PDF generation
 try:
@@ -1341,6 +1348,442 @@ def contribution_reminder_dialog():
 
 
 
+def show_mode_selection_page():
+    """Full-page mode selection: Simple (chat) vs Detailed (form). Shown after splash."""
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        "<h2 style='text-align:center;'>How would you like to plan your retirement?</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center; color:#666;'>Choose the experience that works best for you.</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_simple, col_detailed = st.columns(2, gap="large")
+
+    with col_simple:
+        st.markdown(
+            """
+            <div style='border:2px solid #1f77b4; border-radius:12px; padding:28px 24px; min-height:220px;'>
+                <div style='font-size:2.2em; text-align:center;'>💬</div>
+                <h3 style='text-align:center; color:#1f77b4;'>Simple Planning</h3>
+                <p style='text-align:center; color:#444;'>
+                    Tell me your <strong>income goal</strong> and I'll calculate
+                    how much you need to retire. Guided chat — no forms.
+                </p>
+                <p style='text-align:center; font-size:0.85em; color:#888;'>
+                    Best for: quick estimates &amp; what-if exploration
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Start Chat →", type="primary", use_container_width=True, key="mode_select_simple"):
+            st.session_state.planning_mode_choice = "I have an income goal — show how much I need"
+            st.session_state.current_page = "chat_mode"
+            st.session_state.chat_messages = []
+            st.session_state.chat_fields = {}
+            st.session_state.chat_complete = False
+            st.rerun()
+
+    with col_detailed:
+        st.markdown(
+            """
+            <div style='border:2px solid #2ca02c; border-radius:12px; padding:28px 24px; min-height:220px;'>
+                <div style='font-size:2.2em; text-align:center;'>📊</div>
+                <h3 style='text-align:center; color:#2ca02c;'>Detailed Planning</h3>
+                <p style='text-align:center; color:#444;'>
+                    Enter your <strong>actual retirement accounts</strong> and see
+                    detailed projections, tax analysis, and withdrawal strategy.
+                </p>
+                <p style='text-align:center; font-size:0.85em; color:#888;'>
+                    Best for: precise planning with known asset balances
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Enter Details →", use_container_width=True, key="mode_select_detailed"):
+            st.session_state.planning_mode_choice = "I know my assets — show my income"
+            st.session_state.current_page = "onboarding"
+            st.session_state.onboarding_step = 1
+            st.rerun()
+
+
+def show_chat_mode_page():
+    """Chat + live results split-pane for Mode 2 (Income Goal → Portfolio)."""
+    _CHAT_DEFAULTS_US = {"retirement_age": 65, "life_expectancy": 90, "tax_rate": 22, "growth_rate": 4.0, "inflation_rate": 3.0}
+    _CHAT_DEFAULTS_IN = {"retirement_age": 60, "life_expectancy": 85, "tax_rate": 10, "growth_rate": 10.0, "inflation_rate": 7.0}
+
+    # Initialize chat session state on first visit
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+    if "chat_fields" not in st.session_state:
+        st.session_state.chat_fields = {}
+    if "chat_complete" not in st.session_state:
+        st.session_state.chat_complete = False
+
+    fields = st.session_state.chat_fields
+    country = fields.get("country", "US")
+    is_india = country == "India"
+    _sym = "₹" if is_india else "$"
+    _corpus_label = "Corpus" if is_india else "Portfolio"
+    _defaults = _CHAT_DEFAULTS_IN if is_india else _CHAT_DEFAULTS_US
+
+    # Header
+    st.markdown("### 💬 Simple Retirement Planner")
+    if st.button("← Change planning mode", key="chat_back_to_mode_select"):
+        st.session_state.current_page = "mode_selection"
+        st.rerun()
+
+    st.markdown("---")
+
+    chat_col, results_col = st.columns([1, 1], gap="large")
+
+    # ── LEFT: Chat ──────────────────────────────────────────────────────────
+    with chat_col:
+        st.markdown("#### Chat")
+
+        # Fixed-height scrollable message history — keeps input always visible below
+        _msgs_box = st.container(height=460)
+        with _msgs_box:
+            # Initial greeting if conversation is empty — append first, then let the loop render
+            if not st.session_state.chat_messages and _CHAT_AVAILABLE:
+                opening = (
+                    "Hi! Three quick questions to get started:\n\n"
+                    "1. **Country** — are you planning for 🇺🇸 US or 🇮🇳 India?\n"
+                    "2. **Birth year** — so I can calculate your age.\n"
+                    "3. **Target income** — how much annual after-tax income would you like in retirement?"
+                )
+                st.session_state.chat_messages.append({"role": "assistant", "content": opening})
+
+            # Render conversation history (single render path for all messages)
+            for msg in st.session_state.chat_messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+
+        if not _CHAT_AVAILABLE:
+            st.warning("Chat requires the `openai` package and an `OPENAI_API_KEY`. Run `pip install openai` and set the key in your `.env` file.")
+        elif not os.getenv("OPENAI_API_KEY"):
+            st.warning("Set `OPENAI_API_KEY` in your `.env` file to enable the chat advisor.")
+        else:
+            # Chat input sits below the fixed-height box, always visible
+            user_input = st.chat_input("Type your answer or ask a what-if question…")
+            if user_input:
+                st.session_state.chat_messages.append({"role": "user", "content": user_input})
+
+                # Detect country from current message so system prompt uses the right currency
+                # before chat_fields has been populated (first-message timing issue)
+                _msg_lower = user_input.lower()
+                if "india" in _msg_lower:
+                    _call_country = "India"
+                elif any(w in _msg_lower for w in ("us", "usa", "united states", "america")):
+                    _call_country = "US"
+                else:
+                    _call_country = country  # already confirmed in a prior turn
+
+                with st.spinner(""):
+                    try:
+                        display_msg, new_fields = chat_with_advisor(
+                            st.session_state.chat_messages,
+                            country=_call_country,
+                        )
+                    except Exception as e:
+                        display_msg = f"Sorry, I ran into an error: {e}"
+                        new_fields = {}
+
+                # Merge confirmed fields
+                for k, v in new_fields.items():
+                    if k != "done" and v is not None:
+                        st.session_state.chat_fields[k] = v
+
+                if new_fields.get("done"):
+                    st.session_state.chat_complete = True
+
+                st.session_state.chat_messages.append({"role": "assistant", "content": display_msg})
+                st.rerun()
+
+        # Download transcript button — visible once there are messages
+        if st.session_state.chat_messages:
+            def _build_chat_transcript(messages, fields, _is_india):
+                sym = "₹" if _is_india else "$"
+                lines = [
+                    "# Smart Retire AI — Chat Transcript",
+                    f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    "",
+                    "---",
+                    "",
+                ]
+                for msg in messages:
+                    speaker = "**You:**" if msg["role"] == "user" else "**Advisor:**"
+                    lines.append(f"{speaker} {msg['content']}")
+                    lines.append("")
+                if fields:
+                    lines += ["---", "", "## Your Retirement Plan Summary", ""]
+                    label_map = {
+                        "country": "Country",
+                        "birth_year": "Birth Year",
+                        "retirement_age": "Retirement Age",
+                        "life_expectancy": "Life Expectancy (age)",
+                        "target_income": f"Target Income ({sym}/yr)",
+                        "tax_rate": "Tax Rate (%)",
+                        "growth_rate": "Growth Rate (%)",
+                        "inflation_rate": "Inflation Rate (%)",
+                        "legacy_goal": f"Legacy Goal ({sym})",
+                        "life_expenses": f"One-Time Expenses ({sym})",
+                    }
+                    for key, label in label_map.items():
+                        val = fields.get(key)
+                        if val is not None:
+                            lines.append(f"- **{label}:** {val}")
+                return "\n".join(lines)
+
+            _transcript = _build_chat_transcript(
+                st.session_state.chat_messages,
+                st.session_state.chat_fields,
+                is_india,
+            )
+            _fname = f"retirement_chat_{datetime.now().strftime('%Y%m%d')}.md"
+            st.download_button(
+                "⬇ Download transcript",
+                data=_transcript,
+                file_name=_fname,
+                mime="text/markdown",
+                use_container_width=True,
+                key="chat_download_btn",
+            )
+
+    # ── RIGHT: Live Results ──────────────────────────────────────────────────
+    with results_col:
+        st.markdown(f"#### Your {_corpus_label} Estimate")
+
+        # Fixed-height container mirrors the chat box height so the panel floats alongside the chat
+        _results_box = st.container(height=460)
+
+        # Check if we have enough to calculate
+        _f = st.session_state.chat_fields
+        _ret_age = _f.get("retirement_age")
+        _life_exp = _f.get("life_expectancy")
+        _target = _f.get("target_income")
+        _birth_year = _f.get("birth_year")
+
+        _has_required = all(v is not None for v in [_ret_age, _life_exp, _target])
+
+        with _results_box:
+            if not _has_required:
+                st.markdown(
+                    """
+                    <div style='border:1px dashed #ccc; border-radius:8px; padding:32px; text-align:center; color:#999; margin-top:16px;'>
+                        <div style='font-size:2em;'>📋</div>
+                        <p>Your plan will appear here as you answer the questions on the left.</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Validate
+                _errors = []
+                if int(_life_exp) <= int(_ret_age):
+                    _errors.append("Life expectancy must be greater than retirement age.")
+                if float(_target) < 0:
+                    _errors.append("Target income cannot be negative.")
+
+                if _errors:
+                    for e in _errors:
+                        st.error(e)
+                else:
+                    _tax = float(_f.get("tax_rate", _defaults["tax_rate"]))
+                    _growth = float(_f.get("growth_rate", _defaults["growth_rate"])) / 100.0
+                    _inflation = float(_f.get("inflation_rate", _defaults["inflation_rate"])) / 100.0
+                    _legacy = float(_f.get("legacy_goal", 0))
+                    _expenses = float(_f.get("life_expenses", 0))
+
+                    try:
+                        _r = find_required_portfolio(
+                            target_after_tax_income=float(_target),
+                            retirement_age=int(_ret_age),
+                            life_expectancy=int(_life_exp),
+                            retirement_tax_rate_pct=_tax,
+                            growth_rate=_growth,
+                            inflation_rate=_inflation,
+                            legacy_goal=_legacy,
+                            life_expenses=_expenses,
+                        )
+
+                        st.metric(
+                            f"Required {_corpus_label} at Retirement",
+                            _fmt_currency(_r["required_pretax_portfolio"], is_india),
+                        )
+                        st.metric(
+                            "Modeled First-Year After-Tax Income",
+                            _fmt_currency(_r["confirmed_income"], is_india),
+                        )
+
+                        # Assumptions
+                        if _birth_year:
+                            _current_age = datetime.now().year - int(_birth_year)
+                            _years_to_retire = max(0, int(_ret_age) - _current_age)
+                            st.caption(f"Age {_current_age} today · {_years_to_retire} years to retirement")
+
+                        st.caption(
+                            f"Retiring at {_ret_age} · Planning to age {_life_exp} · "
+                            f"{_r['years_in_retirement']} years in retirement"
+                        )
+                        st.caption(
+                            f"{_tax:.0f}% tax rate · {_growth*100:.1f}% growth · {_inflation*100:.1f}% inflation"
+                        )
+                        if _legacy > 0:
+                            st.caption(f"Legacy goal: {_fmt_currency(_legacy, is_india)}")
+                        if _expenses > 0:
+                            st.caption(f"One-time expenses at retirement: {_fmt_currency(_expenses, is_india)}")
+
+                    except Exception as e:
+                        st.error(f"Calculation error: {e}")
+
+        # PDF export button — visible once we have enough to calculate
+        if _has_required:
+            st.markdown("---")
+
+            def _build_results_pdf(fields, calc_result, _is_india, corpus_label):
+                """Generate a PDF of the retirement plan estimate (results + assumptions only)."""
+                buf = io.BytesIO()
+                doc = SimpleDocTemplate(
+                    buf,
+                    pagesize=A4,
+                    rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=72,
+                )
+                styles = getSampleStyleSheet()
+                title_style = ParagraphStyle(
+                    "ChatTitle",
+                    parent=styles["Title"],
+                    fontSize=20,
+                    spaceAfter=6,
+                )
+                heading_style = ParagraphStyle(
+                    "ChatHeading",
+                    parent=styles["Heading2"],
+                    fontSize=13,
+                    spaceBefore=16,
+                    spaceAfter=6,
+                    textColor=colors.HexColor("#1f77b4"),
+                )
+
+                story = []
+
+                # Header
+                story.append(Paragraph("Smart Retire AI", title_style))
+                story.append(Paragraph(
+                    f"Simple Retirement Plan · {datetime.now().strftime('%B %d, %Y')}",
+                    styles["Normal"],
+                ))
+                story.append(Spacer(1, 20))
+
+                # Key results table
+                story.append(Paragraph(f"Required {corpus_label} at Retirement", heading_style))
+                req = calc_result["required_pretax_portfolio"]
+                inc = calc_result["confirmed_income"]
+                result_data = [
+                    ["Required Portfolio", _fmt_currency(req, _is_india)],
+                    ["Modeled First-Year After-Tax Income", _fmt_currency(inc, _is_india)],
+                ]
+                tbl = Table(result_data, colWidths=[260, 160])
+                tbl.setStyle(TableStyle([
+                    ("FONTSIZE", (0, 0), (-1, -1), 12),
+                    ("FONTNAME", (1, 0), (1, -1), "Helvetica-Bold"),
+                    ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#e8f4fd"), colors.HexColor("#f0faf0")]),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]))
+                story.append(tbl)
+
+                # Assumptions table
+                story.append(Paragraph("Assumptions", heading_style))
+                _birth = fields.get("birth_year")
+                rows = []
+                if _birth:
+                    _age_now = datetime.now().year - int(_birth)
+                    rows.append(["Current Age", str(_age_now)])
+                    rows.append(["Years to Retirement", str(max(0, int(fields["retirement_age"]) - _age_now))])
+                rows += [
+                    ["Country", fields.get("country", "US")],
+                    ["Retirement Age", str(fields["retirement_age"])],
+                    ["Life Expectancy", str(fields["life_expectancy"])],
+                    ["Years in Retirement", str(calc_result["years_in_retirement"])],
+                    ["Tax Rate on Withdrawals", f"{fields.get('tax_rate', calc_result['tax_rate']):.0f}%"],
+                    ["Portfolio Growth Rate", f"{calc_result['growth_rate']*100:.1f}%"],
+                    ["Inflation Rate", f"{calc_result['inflation_rate']*100:.1f}%"],
+                ]
+                if calc_result.get("legacy_goal", 0) > 0:
+                    rows.append(["Legacy Goal", _fmt_currency(calc_result["legacy_goal"], _is_india)])
+                if calc_result.get("life_expenses", 0) > 0:
+                    rows.append(["One-Time Expenses at Retirement", _fmt_currency(calc_result["life_expenses"], _is_india)])
+
+                asmp_tbl = Table(rows, colWidths=[260, 160])
+                asmp_tbl.setStyle(TableStyle([
+                    ("FONTSIZE", (0, 0), (-1, -1), 11),
+                    ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#f9f9f9")]),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]))
+                story.append(asmp_tbl)
+
+                # Disclaimer
+                story.append(Spacer(1, 24))
+                story.append(Paragraph(
+                    "This report is for educational purposes only and does not constitute financial advice. "
+                    "Projections are estimates based on the assumptions above.",
+                    ParagraphStyle("Disclaimer", parent=styles["Normal"], fontSize=9,
+                                   textColor=colors.grey, leading=13),
+                ))
+
+                doc.build(story)
+                buf.seek(0)
+                return buf.getvalue()
+
+            _can_pdf = _REPORTLAB_AVAILABLE and int(_life_exp) > int(_ret_age) and float(_target) >= 0
+            if _can_pdf:
+                try:
+                    _pdf_tax = float(_f.get("tax_rate", _defaults["tax_rate"]))
+                    _pdf_growth = float(_f.get("growth_rate", _defaults["growth_rate"])) / 100.0
+                    _pdf_inflation = float(_f.get("inflation_rate", _defaults["inflation_rate"])) / 100.0
+                    _pdf_r = find_required_portfolio(
+                        target_after_tax_income=float(_target),
+                        retirement_age=int(_ret_age),
+                        life_expectancy=int(_life_exp),
+                        retirement_tax_rate_pct=_pdf_tax,
+                        growth_rate=_pdf_growth,
+                        inflation_rate=_pdf_inflation,
+                        legacy_goal=float(_f.get("legacy_goal", 0)),
+                        life_expenses=float(_f.get("life_expenses", 0)),
+                    )
+                    _pdf_bytes = _build_results_pdf(_f, _pdf_r, is_india, _corpus_label)
+                    _pdf_fname = f"retirement_plan_{datetime.now().strftime('%Y%m%d')}.pdf"
+                    st.download_button(
+                        "📥 Download PDF Report",
+                        data=_pdf_bytes,
+                        file_name=_pdf_fname,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="chat_pdf_download",
+                    )
+                except Exception as _pdf_err:
+                    st.caption(f"PDF generation failed: {_pdf_err}")
+            else:
+                st.caption("Install `reportlab` to enable PDF export.")
+
+
 @st.dialog("How do you want to plan?")
 def planning_mode_dialog():
     """Popup shown automatically at Step 2 entry — lets user choose forward or reverse planning mode."""
@@ -1890,7 +2333,15 @@ if not _RUNNING_TESTS:
     
     # Initialize session state for page navigation
     if 'current_page' not in st.session_state:
-        st.session_state.current_page = 'onboarding'  # Can be 'onboarding' or 'results'
+        st.session_state.current_page = 'mode_selection'  # Can be 'mode_selection', 'chat_mode', 'onboarding', or 'results'
+
+    # Initialize chat session state
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+    if 'chat_fields' not in st.session_state:
+        st.session_state.chat_fields = {}
+    if 'chat_complete' not in st.session_state:
+        st.session_state.chat_complete = False
     
     # Initialize session state for baseline values (from onboarding)
     if 'birth_year' not in st.session_state:
@@ -2324,8 +2775,17 @@ if not _RUNNING_TESTS:
     # PAGE ROUTING
     # ==========================================
     # Route to appropriate page based on current_page state
-    
-    if st.session_state.current_page == 'onboarding':
+
+    if st.session_state.current_page == 'mode_selection':
+        # Show analytics consent on first load
+        if st.session_state.get('analytics_consent') is None:
+            analytics_consent_dialog()
+        show_mode_selection_page()
+
+    elif st.session_state.current_page == 'chat_mode':
+        show_chat_mode_page()
+
+    elif st.session_state.current_page == 'onboarding':
         # Show analytics consent dialog on first load (before onboarding)
         if st.session_state.get('analytics_consent') is None:
             analytics_consent_dialog()
@@ -4447,10 +4907,14 @@ Historical context:
         # Track page view
         track_page_view('results')
     
-        # Add navigation button to go back to onboarding
+        # Add navigation button to go back to setup
         if st.button("← Back to Setup", use_container_width=False):
             track_event('navigation_back_to_setup')
-            st.session_state.current_page = 'onboarding'
+            # Return to chat mode if user came from there, otherwise onboarding form
+            if st.session_state.get('chat_complete'):
+                st.session_state.current_page = 'chat_mode'
+            else:
+                st.session_state.current_page = 'onboarding'
             st.rerun()
     
         st.markdown("---")
