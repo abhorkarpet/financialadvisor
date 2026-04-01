@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.1.0"
+VERSION = "12.2.0"
 
 # Streamlit import
 import streamlit as st
@@ -1344,6 +1344,7 @@ def contribution_reminder_dialog():
                 del st.session_state.show_contribution_reminder
             # Advance to results page
             st.session_state.current_page = 'results'
+            st.session_state.results_source = 'onboarding'
             st.rerun()
 
 
@@ -1574,6 +1575,17 @@ def show_chat_mode_page():
 
         _has_required = all(v is not None for v in [_ret_age, _life_exp, _target])
 
+        def _to_float(val, fallback=None):
+            """Strip commas/currency symbols and convert to float; return fallback on failure."""
+            try:
+                return float(str(val).replace(",", "").replace("₹", "").replace("$", "").strip())
+            except (ValueError, TypeError):
+                return fallback
+
+        def _to_int(val, fallback=None):
+            f = _to_float(val)
+            return int(f) if f is not None else fallback
+
         with _results_box:
             if not _has_required:
                 st.markdown(
@@ -1586,28 +1598,36 @@ def show_chat_mode_page():
                     unsafe_allow_html=True,
                 )
             else:
+                _ret_age_i  = _to_int(_ret_age)
+                _life_exp_i = _to_int(_life_exp)
+                _target_f   = _to_float(_target)
+
                 # Validate
                 _errors = []
-                if int(_life_exp) <= int(_ret_age):
+                if _ret_age_i is None or _life_exp_i is None:
+                    _errors.append("Could not parse retirement age or life expectancy — please re-enter as plain numbers.")
+                elif _life_exp_i <= _ret_age_i:
                     _errors.append("Life expectancy must be greater than retirement age.")
-                if float(_target) < 0:
+                if _target_f is None:
+                    _errors.append("Could not parse target income — please re-enter as a plain number.")
+                elif _target_f < 0:
                     _errors.append("Target income cannot be negative.")
 
                 if _errors:
                     for e in _errors:
                         st.error(e)
                 else:
-                    _tax = float(_f.get("tax_rate", _defaults["tax_rate"]))
-                    _growth = float(_f.get("growth_rate", _defaults["growth_rate"])) / 100.0
-                    _inflation = float(_f.get("inflation_rate", _defaults["inflation_rate"])) / 100.0
-                    _legacy = float(_f.get("legacy_goal", 0))
-                    _expenses = float(_f.get("life_expenses", 0))
+                    _tax = _to_float(_f.get("tax_rate", _defaults["tax_rate"]), _defaults["tax_rate"])
+                    _growth = _to_float(_f.get("growth_rate", _defaults["growth_rate"]), _defaults["growth_rate"]) / 100.0
+                    _inflation = _to_float(_f.get("inflation_rate", _defaults["inflation_rate"]), _defaults["inflation_rate"]) / 100.0
+                    _legacy = _to_float(_f.get("legacy_goal", 0), 0)
+                    _expenses = _to_float(_f.get("life_expenses", 0), 0)
 
                     try:
                         _r = find_required_portfolio(
-                            target_after_tax_income=float(_target),
-                            retirement_age=int(_ret_age),
-                            life_expectancy=int(_life_exp),
+                            target_after_tax_income=_target_f,
+                            retirement_age=_ret_age_i,
+                            life_expectancy=_life_exp_i,
                             retirement_tax_rate_pct=_tax,
                             growth_rate=_growth,
                             inflation_rate=_inflation,
@@ -4779,6 +4799,7 @@ Historical context:
                         # Mark onboarding as complete and navigate to results page
                         st.session_state.onboarding_complete = True
                         st.session_state.current_page = 'results'
+                        st.session_state.results_source = 'onboarding'
     
                         # Track onboarding completed
                         track_event('onboarding_completed', {
@@ -4806,8 +4827,8 @@ Historical context:
         # Add navigation button to go back to setup
         if st.button("← Back to Setup", use_container_width=False):
             track_event('navigation_back_to_setup')
-            # Return to chat mode if user came from there, otherwise onboarding form
-            if st.session_state.get('chat_complete'):
+            # Return to whichever page last navigated to results
+            if st.session_state.get('results_source') == 'chat_mode':
                 st.session_state.current_page = 'chat_mode'
             else:
                 st.session_state.current_page = 'onboarding'
