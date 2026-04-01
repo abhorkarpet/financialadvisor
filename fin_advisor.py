@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 11.0.0
+Version: 12.1.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.0.0"
+VERSION = "12.1.0"
 
 # Streamlit import
 import streamlit as st
@@ -1463,7 +1463,8 @@ def show_chat_mode_page():
 
             # Render conversation history (single render path for all messages)
             for msg in st.session_state.chat_messages:
-                with st.chat_message(msg["role"]):
+                avatar = "🧑‍💼" if msg["role"] == "assistant" else "🧑"
+                with st.chat_message(msg["role"], avatar=avatar):
                     st.markdown(msg["content"])
 
         if not _CHAT_AVAILABLE:
@@ -2610,162 +2611,66 @@ if not _RUNNING_TESTS:
     # ==========================================
     if not st.session_state.splash_dismissed:
         # Display splash screen
-        st.markdown(
-            """
-            <style>
-                .splash-container {
-                    background: linear-gradient(135deg, #1f77b4 0%, #2ca02c 100%);
-                    padding: 60px 40px;
-                    border-radius: 20px;
-                    text-align: center;
-                    color: white;
-                    margin: 40px auto;
-                    max-width: 900px;
-                    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-                }
-                .splash-title {
-                    font-size: 3em;
-                    font-weight: bold;
-                    margin-bottom: 10px;
-                    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-                }
-                .splash-version {
-                    font-size: 1.2em;
-                    opacity: 0.9;
-                    margin-bottom: 30px;
-                }
-                .splash-tagline {
-                    font-size: 1.4em;
-                    font-weight: 500;
-                    margin-bottom: 40px;
-                    opacity: 0.95;
-                }
-                .splash-description {
-                    font-size: 1.1em;
-                    line-height: 1.8;
-                    margin-bottom: 40px;
-                    text-align: left;
-                    background: rgba(255,255,255,0.1);
-                    padding: 30px;
-                    border-radius: 10px;
-                }
-                .splash-features {
-                    text-align: left;
-                    margin: 30px 0;
-                }
-                .splash-feature {
-                    font-size: 1.05em;
-                    margin: 12px 0;
-                    padding-left: 10px;
-                }
-                .splash-desktop-note {
-                    font-size: 0.95em;
-                    margin-top: 8px;
-                    opacity: 0.95;
-                    font-style: italic;
-                    color: rgba(255,255,255,0.9);
-                }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-    
-        # Splash header with gradient
+        # Compact splash header
         st.markdown(
             f"""
-            <div class="splash-container">
-                <div class="splash-title">💰 Smart Retire AI</div>
-                <div class="splash-version">Version {VERSION}</div>
-                <div class="splash-tagline">Your AI-Powered Retirement Planning Companion</div>
-                <div class="splash-desktop-note">Best used on a desktop browser for the full experience.</div>
+            <div style='background: linear-gradient(135deg, #1f77b4 0%, #2ca02c 100%);
+                        padding: 28px 32px;
+                        border-radius: 16px;
+                        text-align: center;
+                        color: white;
+                        margin: 16px auto 20px auto;
+                        max-width: 900px;
+                        box-shadow: 0 4px 16px rgba(0,0,0,0.12);'>
+                <div style='font-size: 2em; font-weight: bold; margin-bottom: 4px;'>💰 Smart Retire AI</div>
+                <div style='font-size: 0.95em; opacity: 0.85; margin-bottom: 6px;'>Version {VERSION} &nbsp;·&nbsp; Best used on a desktop browser</div>
+                <div style='font-size: 1.15em; font-weight: 500; opacity: 0.95;'>Your AI-Powered Retirement Planning Companion</div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-    
-        st.markdown("<br>", unsafe_allow_html=True)
-    
-        # Content using Streamlit components for proper rendering
-        st.markdown("### 👋 Welcome!")
-        st.markdown("""
-        Smart Retire AI helps you plan for a comfortable retirement with sophisticated
-        financial modeling and AI-powered insights.
-        """)
-    
-        st.markdown("### ✨ Key Features")
-    
-        # Two-column layout for features
+
+        # 4 key features in a 2-column grid
+        st.markdown("#### ✨ What you can do")
         col1, col2 = st.columns(2)
-    
         with col1:
-            st.markdown("**✨ AI Statement Upload**")
-            st.caption("Automatically extract account data from PDF statements")
+            st.markdown("**💬 Simple Planning**")
+            st.caption("Answer 3 questions in a chat and get your required corpus/portfolio instantly — no forms.")
             st.markdown("")
-    
-            st.markdown("**📊 Smart Tax Planning**")
-            st.caption("Optimize with pre-tax, post-tax, and tax-free accounts")
-            st.markdown("")
-    
-            st.markdown("**📈 Growth Projections**")
-            st.caption("See your portfolio grow year by year until retirement")
-    
+            st.markdown("**📊 Detailed Portfolio Analysis**")
+            st.caption("Upload PDF statements, enter account balances, and get tax-optimised year-by-year projections.")
         with col2:
-            st.markdown("**💡 Personalized Insights**")
-            st.caption("Get recommendations tailored to your financial situation")
-            st.markdown("")
-    
             st.markdown("**🎯 What-If Scenarios**")
-            st.caption("Easily adjust assumptions and see instant results")
+            st.caption("Adjust any assumption — retirement age, income, growth rate — and see results update instantly.")
             st.markdown("")
-
-            st.markdown("**🔁 Income Goal Calculator**")
-            st.caption("Know your target income? Calculate the pre-tax portfolio you need to save")
-            st.markdown("")
-
-            st.markdown("**🇮🇳 India Corpus Planning**")
-            st.caption("Full ₹ INR support with Indian defaults — calculate the corpus you need for retirement in India")
-            st.markdown("")
+            st.markdown("**🇮🇳 US & India Support**")
+            st.caption("Full $ and ₹ support with country-specific defaults for tax rate, inflation, and growth.")
 
         st.markdown("---")
-    
-        # Getting Started section with green background
-        st.markdown(
-            """
-            <div style='background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-                        padding: 20px;
-                        border-radius: 10px;
-                        border-left: 5px solid #4caf50;
-                        margin: 20px 0;'>
-                <p style='margin: 0; font-size: 1.05em; color: #2e7d32;'>
-                    <strong>🚀 Getting Started:</strong> Complete the 2-step onboarding to enter your personal information and configure your retirement accounts. Results update instantly as you make changes. For fast results, download the latest statements for accounts that you want to include in the analysis.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
+
+        # Analytics notice (auto opt-in)
+        st.caption(
+            "📊 By continuing you agree to anonymous usage analytics to help us improve the app. "
+            "No financial data or personal information is ever collected. "
+            "You can opt out anytime in Advanced Settings."
         )
-    
-        st.markdown("<br>", unsafe_allow_html=True)
-    
-        # Button with privacy policy link
+
+        # Continue button
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-    
-            # Main action button
-            if st.button("✅ Continue", type="primary", use_container_width=True):
+            if st.button("✅ Get Started", type="primary", use_container_width=True):
                 st.session_state.splash_dismissed = True
+                set_analytics_consent(True)
                 st.rerun()
-    
-        st.markdown("<br><br>", unsafe_allow_html=True)
-    
-        # Contact info at bottom
+
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
             """
-            <div style='text-align: center; color: #666; font-size: 0.9em; padding: 20px;'>
-                Questions? Contact us at <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4;'>smartretireai@gmail.com</a>
+            <div style='text-align: center; color: #999; font-size: 0.85em;'>
+                Questions? <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4;'>smartretireai@gmail.com</a>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
     
         # Stop rendering the rest of the page
@@ -2777,18 +2682,12 @@ if not _RUNNING_TESTS:
     # Route to appropriate page based on current_page state
 
     if st.session_state.current_page == 'mode_selection':
-        # Show analytics consent on first load
-        if st.session_state.get('analytics_consent') is None:
-            analytics_consent_dialog()
         show_mode_selection_page()
 
     elif st.session_state.current_page == 'chat_mode':
         show_chat_mode_page()
 
     elif st.session_state.current_page == 'onboarding':
-        # Show analytics consent dialog on first load (before onboarding)
-        if st.session_state.get('analytics_consent') is None:
-            analytics_consent_dialog()
         # ==========================================
         # ONBOARDING PAGE
         # ==========================================
@@ -4896,10 +4795,7 @@ Historical context:
                 st.warning("⚠️ Please configure at least one asset before completing onboarding.")
     
     elif st.session_state.current_page == 'results':
-        # Show analytics consent dialog on first load
-        if st.session_state.get('analytics_consent') is None:
-            analytics_consent_dialog()
-    
+
         # ==========================================
         # RESULTS & ANALYSIS PAGE
         # ==========================================
