@@ -4,7 +4,7 @@
 
 **Smart Retire AI** is a Streamlit-based retirement planning web app. It projects retirement savings across multiple asset types with IRS tax logic, Monte Carlo simulation, AI-powered financial statement processing, and a GPT-4 chat advisor.
 
-Current version: **12.2.0**
+Current version: **12.4.0**
 
 ---
 
@@ -37,7 +37,7 @@ streamlit run fin_advisor.py
 streamlit run statement_uploader.py
 
 # Run tests
-python fin_advisor.py --run-tests
+python3 fin_advisor.py --run-tests
 ```
 
 The main app runs on `http://localhost:8501`.
@@ -78,7 +78,7 @@ integrations/
   chat_advisor.py               # GPT-4 conversation loop
   gpt_system_prompt.txt         # System prompt for chat advisor
 tests/
-  test_fin_advisor.py           # 13+ unit test cases
+  test_fin_advisor.py           # 16+ unit tests covering math + tax behavior
 workflows/                      # n8n workflow JSON definitions
 ```
 
@@ -113,7 +113,7 @@ FV = P × (1+r)^t  +  C × [((1+r)^t − 1) / r]
 
 - Special-cased when `r == 0` to avoid division by zero
 - Results rounded to 2 decimal places
-- Tax logic branches on `asset_type`: `pre_tax`, `post_tax`, `tax_deferred`
+- Tax logic now uses explicit `tax_behavior` with backward-compatible `asset_type` support
 
 ---
 
@@ -121,12 +121,12 @@ FV = P × (1+r)^t  +  C × [((1+r)^t − 1) / r]
 
 Tests live in `tests/test_fin_advisor.py` and cover:
 - FV calculations (zero rate, positive rate, principal-only)
-- Post-tax calculations and edge cases
+- Explicit tax behaviors (pre-tax, Roth/tax-free, brokerage gains, HSA split, cash-style post-tax)
 - Backward compatibility with legacy inputs
 
 Run with:
 ```bash
-python fin_advisor.py --run-tests
+python3 fin_advisor.py --run-tests
 ```
 
 CI runs the full suite against Python 3.9–3.12 on every push.

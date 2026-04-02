@@ -13,6 +13,88 @@ class AssetType(Enum):
     TAX_DEFERRED = "tax_deferred" # Annuities, HSA
 
 
+class TaxBehavior(Enum):
+    """Explicit tax behavior used by projection logic."""
+    PRE_TAX = "pre_tax"
+    TAX_FREE = "tax_free"
+    CAPITAL_GAINS = "capital_gains"
+    HSA_SPLIT = "hsa_split"
+    ORDINARY_INCOME = "ordinary_income"
+    NO_ADDITIONAL_TAX = "no_additional_tax"
+
+
+def _normalize_asset_type(value):
+    """Normalize string asset types for backward compatibility."""
+    if isinstance(value, AssetType):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "pretax": AssetType.PRE_TAX,
+            "posttax": AssetType.POST_TAX,
+            "taxdeferred": AssetType.TAX_DEFERRED,
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+        return AssetType(normalized)
+    return value
+
+
+def _normalize_tax_behavior(value):
+    """Normalize string tax behaviors for backward compatibility."""
+    if value is None or isinstance(value, TaxBehavior):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+        return TaxBehavior(normalized)
+    return value
+
+
+def infer_tax_behavior(asset_type, name: str, tax_rate_pct: float = 0.0) -> TaxBehavior:
+    """Infer tax behavior when legacy callers don't set it explicitly."""
+    normalized_asset_type = _normalize_asset_type(asset_type)
+    name_lower = (name or "").lower()
+
+    if normalized_asset_type == AssetType.PRE_TAX:
+        return TaxBehavior.PRE_TAX
+
+    if normalized_asset_type == AssetType.TAX_DEFERRED:
+        if "hsa" in name_lower or "health savings" in name_lower:
+            return TaxBehavior.HSA_SPLIT
+        return TaxBehavior.ORDINARY_INCOME
+
+    if normalized_asset_type == AssetType.POST_TAX:
+        if "roth" in name_lower:
+            return TaxBehavior.TAX_FREE
+        if tax_rate_pct > 0 or any(
+            keyword in name_lower
+            for keyword in ("brokerage", "taxable", "stock", "espp", "rsu", "equity", "mutual fund")
+        ):
+            return TaxBehavior.CAPITAL_GAINS
+        return TaxBehavior.NO_ADDITIONAL_TAX
+
+    raise ValueError(f"Unknown asset type for tax behavior inference: {asset_type}")
+
+
+def infer_asset_type_from_name(name: str) -> AssetType:
+    """Infer asset type from a legacy account name when no exact mapping exists."""
+    normalized = (name or "").strip().lower()
+
+    if any(token in normalized for token in ("hsa", "health savings", "annuity")):
+        return AssetType.TAX_DEFERRED
+
+    if any(token in normalized for token in ("roth", "brokerage", "taxable", "savings", "checking", "cash")):
+        return AssetType.POST_TAX
+
+    if any(token in normalized for token in ("401", "403", "457", "traditional ira", "rollover ira", "pre-tax", "pretax")):
+        return AssetType.PRE_TAX
+
+    if "ira" in normalized:
+        return AssetType.PRE_TAX
+
+    return AssetType.POST_TAX
+
+
 @dataclass
 class Asset:
     """Individual asset with specific tax treatment."""
@@ -21,13 +103,22 @@ class Asset:
     current_balance: float
     annual_contribution: float
     growth_rate_pct: float
+    tax_behavior: Optional[TaxBehavior] = None
     tax_rate_pct: float = 0.0  # For post_tax assets (capital gains)
 
     def __post_init__(self):
         """Validate asset configuration."""
-        if self.asset_type == AssetType.POST_TAX and self.tax_rate_pct == 0.0:
-            # Default capital gains rate for brokerage accounts
+        self.asset_type = _normalize_asset_type(self.asset_type)
+        self.tax_behavior = _normalize_tax_behavior(self.tax_behavior)
+
+        if self.tax_behavior is None:
+            self.tax_behavior = infer_tax_behavior(self.asset_type, self.name, self.tax_rate_pct)
+
+        if self.tax_behavior == TaxBehavior.CAPITAL_GAINS and self.tax_rate_pct == 0.0:
+            # Default capital gains rate for brokerage-style accounts
             self.tax_rate_pct = 15.0
+        elif self.tax_behavior != TaxBehavior.CAPITAL_GAINS:
+            self.tax_rate_pct = 0.0
 
 
 @dataclass
@@ -119,7 +210,7 @@ class UserInputs:
             # Map known names to AssetType where possible
             name_to_type = {name: at for (name, at) in _DEF_ASSET_TYPES}
             for name in asset_types:
-                asset_type = name_to_type.get(name, AssetType.POST_TAX)
+                asset_type = name_to_type.get(name, infer_asset_type_from_name(name))
                 self.assets.append(
                     Asset(
                         name=name,

@@ -13,10 +13,10 @@ Usage:
         $ streamlit run fin_advisor.py
 
     Run unit tests:
-        $ python fin_advisor.py --run-tests
+        $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 12.3.0
+Version: 12.4.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.3.0"
+VERSION = "12.4.0"
 
 # Streamlit import
 import streamlit as st
@@ -158,10 +158,12 @@ def load_release_notes() -> Optional[str]:
 # ---------------------------
 from financialadvisor.domain.models import (
     AssetType,
+    TaxBehavior,
     Asset,
     TaxBracket,
     UserInputs,
     _DEF_ASSET_TYPES,
+    infer_tax_behavior,
 )
 
 from financialadvisor.core.calculator import (
@@ -185,6 +187,72 @@ from financialadvisor.core.explainer import explain_projected_balance
 # Domain Models & Computation (now imported from financialadvisor package)
 # ---------------------------
 
+TAX_TREATMENT_OPTIONS = ["Tax-Deferred", "Tax-Free", "Post-Tax"]
+
+
+def _resolve_tax_settings(
+    tax_treatment: str,
+    account_name: str,
+    tax_rate_pct: float = 0.0,
+) -> Tuple[AssetType, TaxBehavior, float]:
+    """Convert UI tax labels into explicit internal tax settings."""
+    normalized = str(tax_treatment).strip().lower().replace("_", "-")
+    account_name = str(account_name).strip()
+    rate = float(tax_rate_pct or 0.0)
+
+    if normalized in {"pre-tax", "pre tax", "pre_tax"}:
+        return AssetType.PRE_TAX, TaxBehavior.PRE_TAX, 0.0
+
+    if normalized in {"tax-deferred", "tax deferred", "tax_deferred"}:
+        lowered_name = account_name.lower()
+        if "hsa" in lowered_name or "health savings" in lowered_name:
+            return AssetType.TAX_DEFERRED, TaxBehavior.HSA_SPLIT, 0.0
+        if "annuity" in lowered_name:
+            return AssetType.TAX_DEFERRED, TaxBehavior.ORDINARY_INCOME, 0.0
+        return AssetType.PRE_TAX, TaxBehavior.PRE_TAX, 0.0
+
+    if normalized in {"tax-free", "tax free", "tax_free", "roth"}:
+        return AssetType.POST_TAX, TaxBehavior.TAX_FREE, 0.0
+
+    if normalized in {"post-tax", "post tax", "post_tax"}:
+        tax_behavior = infer_tax_behavior(AssetType.POST_TAX, account_name, rate)
+        normalized_rate = rate if tax_behavior == TaxBehavior.CAPITAL_GAINS else 0.0
+        return AssetType.POST_TAX, tax_behavior, normalized_rate
+
+    raise ValueError(
+        f"Invalid tax treatment: '{tax_treatment}'. Must be 'Tax-Deferred', "
+        f"'Tax-Free', or 'Post-Tax' (or legacy: 'pre_tax', 'post_tax', 'tax_deferred')"
+    )
+
+
+def _asset_to_tax_treatment_label(asset: Asset) -> str:
+    """Return the stable editor label for an asset's tax treatment."""
+    if asset.tax_behavior == TaxBehavior.TAX_FREE:
+        return "Tax-Free"
+    if asset.tax_behavior in (TaxBehavior.CAPITAL_GAINS, TaxBehavior.NO_ADDITIONAL_TAX):
+        return "Post-Tax"
+    return "Tax-Deferred"
+
+
+def _asset_from_editor_row(row: Dict[str, object]) -> Asset:
+    """Create an Asset from a row used in AI-upload and CSV editors."""
+    account_name = str(row["Account Name"])
+    raw_tax_rate = float(row.get("Tax Rate on Gains (%)", 0.0) or 0.0)
+    asset_type, tax_behavior, normalized_tax_rate = _resolve_tax_settings(
+        str(row["Tax Treatment"]),
+        account_name,
+        raw_tax_rate,
+    )
+    return Asset(
+        name=account_name,
+        asset_type=asset_type,
+        current_balance=float(row["Current Balance"]),
+        annual_contribution=float(row["Annual Contribution"]),
+        growth_rate_pct=float(row["Growth Rate (%)"]),
+        tax_behavior=tax_behavior,
+        tax_rate_pct=normalized_tax_rate,
+    )
+
 
 def create_default_assets() -> List[Asset]:
     """Create default asset configuration."""
@@ -194,14 +262,16 @@ def create_default_assets() -> List[Asset]:
             asset_type=AssetType.PRE_TAX,
             current_balance=50000,
             annual_contribution=12000,
-            growth_rate_pct=7.0
+            growth_rate_pct=7.0,
+            tax_behavior=TaxBehavior.PRE_TAX,
         ),
         Asset(
             name="Roth IRA",
             asset_type=AssetType.POST_TAX,
             current_balance=10000,
             annual_contribution=6000,
-            growth_rate_pct=7.0
+            growth_rate_pct=7.0,
+            tax_behavior=TaxBehavior.TAX_FREE,
         ),
         Asset(
             name="Brokerage Account",
@@ -209,6 +279,7 @@ def create_default_assets() -> List[Asset]:
             current_balance=15000,
             annual_contribution=3000,
             growth_rate_pct=7.0,
+            tax_behavior=TaxBehavior.CAPITAL_GAINS,
             tax_rate_pct=15.0  # Capital gains rate
         ),
         Asset(
@@ -217,6 +288,7 @@ def create_default_assets() -> List[Asset]:
             current_balance=25000,
             annual_contribution=2000,
             growth_rate_pct=4.5,
+            tax_behavior=TaxBehavior.NO_ADDITIONAL_TAX,
             tax_rate_pct=0.0  # Interest taxed as ordinary income, but no capital gains
         )
     ]
@@ -292,24 +364,7 @@ def parse_uploaded_csv(csv_content: str) -> tuple:
                 if field not in row or not row[field].strip():
                     raise ValueError(f"Missing or empty required field: {field}")
 
-            # Parse asset type (using the determined column name)
-            # Support both human-readable format (Tax-Deferred, Tax-Free, Post-Tax)
-            # and legacy format (pre_tax, post_tax, tax_deferred)
             asset_type_str = row[tax_column].strip()
-            asset_type_lower = asset_type_str.lower()
-
-            # Map to AssetType enum
-            if asset_type_lower in ["pre_tax", "tax-deferred", "tax deferred"]:
-                asset_type = AssetType.PRE_TAX
-            elif asset_type_lower in ["post_tax", "post-tax", "post tax"]:
-                asset_type = AssetType.POST_TAX
-            elif asset_type_lower in ["tax_deferred"]:
-                asset_type = AssetType.TAX_DEFERRED
-            elif asset_type_lower in ["tax-free", "tax free", "roth"]:
-                # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                asset_type = AssetType.POST_TAX
-            else:
-                raise ValueError(f"Invalid tax treatment: '{asset_type_str}'. Must be 'Tax-Deferred', 'Tax-Free', or 'Post-Tax' (or legacy: 'pre_tax', 'post_tax', 'tax_deferred')")
             
             # Parse numeric values (handle commas in numbers)
             try:
@@ -348,15 +403,6 @@ def parse_uploaded_csv(csv_content: str) -> tuple:
             except ValueError as e:
                 raise ValueError(f"Invalid numeric value in row: {e}")
 
-            # Auto-derive capital gains tax rate from account type.
-            # Tax Rate (%) is no longer a user-supplied field — only brokerage (POST_TAX
-            # non-Roth) accounts carry a capital gains rate; all others are unused.
-            account_name_lower = row["Account Name"].strip().lower()
-            if asset_type == AssetType.POST_TAX and "roth" not in account_name_lower:
-                tax_rate = 15.0  # standard long-term capital gains rate for brokerage
-            else:
-                tax_rate = 0.0   # unused for pre-tax, Roth, and tax-deferred accounts
-
             # Validate ranges
             if current_balance < 0:
                 raise ValueError("Current Balance cannot be negative")
@@ -366,14 +412,14 @@ def parse_uploaded_csv(csv_content: str) -> tuple:
                 raise ValueError("Growth Rate must be between 0% and 50%")
             
             # Create asset
-            asset = Asset(
-                name=row["Account Name"].strip(),
-                asset_type=asset_type,
-                current_balance=current_balance,
-                annual_contribution=annual_contribution,
-                growth_rate_pct=growth_rate,
-                tax_rate_pct=tax_rate
-            )
+            asset = _asset_from_editor_row({
+                "Account Name": row["Account Name"].strip(),
+                "Tax Treatment": asset_type_str,
+                "Current Balance": current_balance,
+                "Annual Contribution": annual_contribution,
+                "Growth Rate (%)": growth_rate,
+                "Tax Rate on Gains (%)": 0.0,
+            })
             
             assets.append(asset)
         
@@ -2279,7 +2325,7 @@ if not _RUNNING_TESTS:
                 ),
                 "Tax Treatment": st.column_config.SelectboxColumn(
                     "Tax Treatment",
-                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                    options=TAX_TREATMENT_OPTIONS,
                     help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
                 ),
                 "Current Balance": st.column_config.NumberColumn(
@@ -3009,7 +3055,7 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 1, 1])
             with col3:
-                if st.button("Next: Planning Mode & Asset Configuration →", type="primary", use_container_width=True):
+                if st.button("Next: Asset Configuration →", type="primary", use_container_width=True):
                     # Track step 1 completed
                     track_onboarding_step_completed(
                         1,
@@ -3416,8 +3462,8 @@ Historical context:
                                     - Visit **[ssa.gov/myaccount](https://www.ssa.gov/myaccount)** and create a free account — it shows your personalized benefit estimates at different claiming ages (62, 67, 70, etc.)
                                     - Alternatively, use the **[SSA Quick Calculator](https://www.ssa.gov/OACT/quickcalc/)** for a rough estimate without logging in
 
-                                    **Example:** If your goal is \$80,000/yr after-tax and you expect \$24,000/yr from Social Security,
-                                    enter **\$56,000** as your income target here.
+                                    **Example:** If your goal is **US$80,000/yr** after-tax and you expect **US$24,000/yr**
+                                    from Social Security, enter **US$56,000** as your income target here.
                                 """)
 
                 st.markdown("---")
@@ -3637,7 +3683,7 @@ Historical context:
                                         ),
                                         "Tax Treatment": st.column_config.SelectboxColumn(
                                             "Tax Treatment",
-                                            options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                            options=TAX_TREATMENT_OPTIONS,
                                             help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
                                         ),
                                         "Current Balance": st.column_config.NumberColumn(
@@ -3700,31 +3746,7 @@ Historical context:
                         if st.session_state.ai_edited_table is not None:
                             edited_df = st.session_state.ai_edited_table
                             try:
-                                assets = []
-                                for _, row in edited_df.iterrows():
-                                    # Parse tax treatment (from human-readable to enum)
-                                    tax_treatment_str = row["Tax Treatment"]
-                                    if tax_treatment_str == "Tax-Deferred":
-                                        asset_type = AssetType.TAX_DEFERRED
-                                    elif tax_treatment_str == "Post-Tax":
-                                        asset_type = AssetType.POST_TAX
-                                    elif tax_treatment_str == "Tax-Free":
-                                        # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                        asset_type = AssetType.POST_TAX
-                                    else:
-                                        raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-        
-                                    # Create asset - use actual DataFrame column names (without $ suffix)
-                                    # Note: column_config labels are just for display, DataFrame columns keep original names
-                                    asset = Asset(
-                                        name=row["Account Name"],
-                                        asset_type=asset_type,
-                                        current_balance=float(row["Current Balance"]),
-                                        annual_contribution=float(row["Annual Contribution"]),
-                                        growth_rate_pct=float(row["Growth Rate (%)"]),
-                                        tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                    )
-                                    assets.append(asset)
+                                assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
         
                                 st.info(f"📊 Using {len(assets)} AI-extracted accounts for retirement analysis")
         
@@ -4108,12 +4130,6 @@ Historical context:
                                                     income_eligibility = row.get('income_eligibility', '')
                                                     purpose = row.get('purpose', '')
             
-                                                    # Set default tax rate based on tax treatment
-                                                    if asset_type_display == 'Post-Tax':
-                                                        default_tax_rate = 15.0  # Capital gains tax
-                                                    else:
-                                                        default_tax_rate = 0.0  # Tax-Deferred and Tax-Free both show 0% here
-            
                                                     # Set default growth rate based on account type
                                                     account_type_lower = str(account_type_raw).lower()
                                                     if account_type_lower in ['savings', 'checking']:
@@ -4122,13 +4138,19 @@ Historical context:
                                                         # Use the user's default growth rate for all investment accounts
                                                         account_growth_rate = 7
             
+                                                    _, inferred_behavior, default_tax_rate = _resolve_tax_settings(
+                                                        asset_type_display,
+                                                        account_name,
+                                                        0.0,
+                                                    )
+
                                                     table_row = {
                                                         "#": f"#{idx+1}",
                                                         "Institution": institution,
                                                         "Account Name": account_name,
                                                         "Last 4": account_number_last4,
                                                         "Account Type": account_type,
-                                                        "Tax Treatment": asset_type_display,
+                                                        "Tax Treatment": "Post-Tax" if inferred_behavior == TaxBehavior.NO_ADDITIONAL_TAX else asset_type_display,
                                                         "Current Balance": current_balance,
                                                         "Annual Contribution": 0.0,  # User needs to fill
                                                         "Growth Rate (%)": account_growth_rate,
@@ -4185,7 +4207,7 @@ Historical context:
                                                 ),
                                                 "Tax Treatment": st.column_config.SelectboxColumn(
                                                     "Tax Treatment",
-                                                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                                    options=TAX_TREATMENT_OPTIONS,
                                                     help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
                                                 ),
                                                 "Current Balance": st.column_config.NumberColumn(
@@ -4394,30 +4416,7 @@ Historical context:
                                             # Convert edited dataframe to Asset objects
                                             if not edited_df.empty:
                                                 try:
-                                                    assets = []
-                                                    for _, row in edited_df.iterrows():
-                                                        # Parse tax treatment (from human-readable to enum)
-                                                        tax_treatment_str = row["Tax Treatment"]
-                                                        if tax_treatment_str == "Pre-Tax" or tax_treatment_str == "Tax-Deferred":
-                                                            asset_type = AssetType.TAX_DEFERRED
-                                                        elif tax_treatment_str == "Post-Tax":
-                                                            asset_type = AssetType.POST_TAX
-                                                        elif tax_treatment_str == "Tax-Free":
-                                                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                                            asset_type = AssetType.POST_TAX
-                                                        else:
-                                                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-        
-                                                        # Create asset
-                                                        asset = Asset(
-                                                            name=row["Account Name"],
-                                                            asset_type=asset_type,
-                                                            current_balance=float(row["Current Balance"]),
-                                                            annual_contribution=float(row["Annual Contribution"]),
-                                                            growth_rate_pct=float(row["Growth Rate (%)"]),
-                                                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                                        )
-                                                        assets.append(asset)
+                                                    assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
         
                                                     st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
         
@@ -4510,25 +4509,13 @@ Historical context:
                         # Show uploaded assets in editable table format
                         with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
                             # Helper function to convert asset type to human-readable format
-                            def asset_type_to_display(asset: Asset) -> str:
-                                """Convert AssetType enum to human-readable display value."""
-                                if asset.asset_type == AssetType.PRE_TAX or asset.asset_type == AssetType.TAX_DEFERRED:
-                                    return "Tax-Deferred"
-                                elif asset.asset_type == AssetType.POST_TAX:
-                                    # Check tax rate to distinguish Roth (Tax-Free) from Brokerage (Post-Tax)
-                                    if asset.tax_rate_pct == 0:
-                                        return "Tax-Free"
-                                    else:
-                                        return "Post-Tax"
-                                return "Post-Tax"  # default
-        
                             # Create editable table data
                             table_data = []
                             for i, asset in enumerate(assets):
                                 row = {
                                     "Index": i,
                                     "Account Name": asset.name,
-                                    "Tax Treatment": asset_type_to_display(asset),
+                                    "Tax Treatment": _asset_to_tax_treatment_label(asset),
                                     "Current Balance": asset.current_balance,
                                     "Annual Contribution": asset.annual_contribution,
                                     "Growth Rate (%)": asset.growth_rate_pct,
@@ -4545,7 +4532,7 @@ Historical context:
                                 "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
                                 "Tax Treatment": st.column_config.SelectboxColumn(
                                     "Tax Treatment",
-                                    options=["Tax-Deferred", "Tax-Free", "Post-Tax"],
+                                    options=TAX_TREATMENT_OPTIONS,
                                     help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
                                 ),
                                 "Current Balance": st.column_config.NumberColumn(
@@ -4602,30 +4589,7 @@ Historical context:
                             # Convert edited dataframe back to Asset objects
                             if not edited_df.empty:
                                 try:
-                                    updated_assets = []
-                                    for _, row in edited_df.iterrows():
-                                        # Parse tax treatment (from human-readable to enum)
-                                        tax_treatment_str = row["Tax Treatment"]
-                                        if tax_treatment_str == "Tax-Deferred":
-                                            asset_type = AssetType.TAX_DEFERRED
-                                        elif tax_treatment_str == "Post-Tax":
-                                            asset_type = AssetType.POST_TAX
-                                        elif tax_treatment_str == "Tax-Free":
-                                            # Tax-Free (Roth) maps to POST_TAX with 0% tax rate
-                                            asset_type = AssetType.POST_TAX
-                                        else:
-                                            raise ValueError(f"Invalid tax treatment: {tax_treatment_str}")
-        
-                                        # Create updated asset
-                                        updated_asset = Asset(
-                                            name=row["Account Name"],
-                                            asset_type=asset_type,
-                                            current_balance=float(row["Current Balance"]),
-                                            annual_contribution=float(row["Annual Contribution"]),
-                                            growth_rate_pct=float(row["Growth Rate (%)"]),
-                                            tax_rate_pct=float(row["Tax Rate on Gains (%)"])
-                                        )
-                                        updated_assets.append(updated_asset)
+                                    updated_assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
                                     
                                     # Update the assets list in both local and session state
                                     assets = updated_assets
@@ -4674,7 +4638,15 @@ Historical context:
                             default_type_index = 0
                             if existing_asset:
                                 for idx, (name, atype) in enumerate(_DEF_ASSET_TYPES):
-                                    if atype == existing_asset.asset_type:
+                                    template_behavior = infer_tax_behavior(
+                                        atype,
+                                        name,
+                                        15.0 if name == "Brokerage Account" else 0.0,
+                                    )
+                                    if (
+                                        atype == existing_asset.asset_type
+                                        and template_behavior == existing_asset.tax_behavior
+                                    ):
                                         default_type_index = idx
                                         break
 
@@ -4707,7 +4679,12 @@ Historical context:
                                 int(existing_asset.growth_rate_pct) if existing_asset else 7,
                                 help=f"Expected annual return (default: 7%)"
                             )
-                            if asset_type_selection[1] == AssetType.POST_TAX and "Brokerage" in asset_name:
+                            inferred_behavior = infer_tax_behavior(
+                                asset_type_selection[1],
+                                asset_name,
+                                existing_asset.tax_rate_pct if existing_asset else 0.0,
+                            )
+                            if inferred_behavior == TaxBehavior.CAPITAL_GAINS:
                                 tax_rate = st.slider(
                                     f"Capital Gains Rate {i+1} (%)",
                                     0, 30,
@@ -4723,6 +4700,7 @@ Historical context:
                             current_balance=current_balance,
                             annual_contribution=annual_contribution,
                             growth_rate_pct=growth_rate,
+                            tax_behavior=inferred_behavior,
                             tax_rate_pct=tax_rate
                         ))
 
@@ -6341,142 +6319,6 @@ reach age 73.
 import unittest
 
 
-class TestComputation(unittest.TestCase):
-    def test_years_to_retirement_basic(self):
-        self.assertEqual(years_to_retirement(30, 65), 35)
-
-    def test_years_to_retirement_invalid(self):
-        with self.assertRaises(ValueError):
-            years_to_retirement(65, 60)
-
-    def test_future_value_zero_rate(self):
-        fv = future_value_with_contrib(10000, 1000, 0.0, 5)
-        # 10k principal + 5*1k contributions
-        self.assertAlmostEqual(fv, 15000.0, places=6)
-
-    def test_future_value_positive_rate(self):
-        # P=0, C=1000, r=10%, t=2  => 1000*((1.1^2 - 1)/0.1) = 1000*(0.21/0.1)=2100
-        fv = future_value_with_contrib(0.0, 1000.0, 10.0, 2)
-        self.assertAlmostEqual(fv, 2100.0, places=6)
-
-    def test_post_tax_bounds(self):
-        self.assertAlmostEqual(simple_post_tax(1000, 0), 1000.0)
-        self.assertAlmostEqual(simple_post_tax(1000, 100), 0.0)
-        self.assertAlmostEqual(simple_post_tax(1000, 25), 750.0)
-
-    def test_asset_creation(self):
-        asset = Asset(
-            name="Test 401(k)",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=10000,
-            annual_contribution=5000,
-            growth_rate_pct=7.0
-        )
-        self.assertEqual(asset.name, "Test 401(k)")
-        self.assertEqual(asset.asset_type, AssetType.PRE_TAX)
-        self.assertEqual(asset.current_balance, 10000)
-        self.assertEqual(asset.annual_contribution, 5000)
-        self.assertEqual(asset.growth_rate_pct, 7.0)
-
-    def test_asset_growth_calculation(self):
-        asset = Asset(
-            name="Test Asset",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=10000,
-            annual_contribution=1000,
-            growth_rate_pct=10.0
-        )
-        future_value, total_contributions = calculate_asset_growth(asset, 2)
-        # Manual calculation: 10000 * 1.1^2 + 1000 * ((1.1^2 - 1)/0.1)
-        # = 12100 + 1000 * (0.21/0.1) = 12100 + 2100 = 14200
-        self.assertAlmostEqual(future_value, 14200.0, places=2)
-        self.assertEqual(total_contributions, 2000.0)
-
-    def test_tax_logic_pre_tax(self):
-        asset = Asset(
-            name="401(k)",
-            asset_type=AssetType.PRE_TAX,
-            current_balance=0,
-            annual_contribution=0,
-            growth_rate_pct=0
-        )
-        after_tax, tax_liability = apply_tax_logic(asset, 100000, 0, 25.0)
-        self.assertEqual(after_tax, 75000.0)
-        self.assertEqual(tax_liability, 25000.0)
-
-    def test_tax_logic_roth_ira(self):
-        asset = Asset(
-            name="Roth IRA",
-            asset_type=AssetType.POST_TAX,
-            current_balance=0,
-            annual_contribution=0,
-            growth_rate_pct=0
-        )
-        after_tax, tax_liability = apply_tax_logic(asset, 100000, 0, 25.0)
-        self.assertEqual(after_tax, 100000.0)
-        self.assertEqual(tax_liability, 0.0)
-
-    def test_tax_logic_brokerage(self):
-        asset = Asset(
-            name="Brokerage Account",
-            asset_type=AssetType.POST_TAX,
-            current_balance=0,
-            annual_contribution=0,
-            growth_rate_pct=0,
-            tax_rate_pct=15.0
-        )
-        # 100k future value, 50k contributions = 50k gains
-        after_tax, tax_liability = apply_tax_logic(asset, 100000, 50000, 25.0)
-        expected_tax = 50000 * 0.15  # 15% on gains
-        self.assertEqual(after_tax, 100000 - expected_tax)
-        self.assertEqual(tax_liability, expected_tax)
-
-    def test_project_enhanced(self):
-        assets = [
-            Asset(
-                name="401(k)",
-                asset_type=AssetType.PRE_TAX,
-                current_balance=0,
-                annual_contribution=10000,
-                growth_rate_pct=10.0
-            )
-        ]
-        inputs = UserInputs(
-            age=30,
-            retirement_age=31,
-            life_expectancy=85,
-            annual_income=100000,
-            contribution_rate_pct=10,
-            expected_growth_rate_pct=10,
-            inflation_rate_pct=0,
-            current_marginal_tax_rate_pct=22,
-            retirement_marginal_tax_rate_pct=25,
-            assets=assets
-        )
-        res = project(inputs)
-        self.assertIn("Total Future Value (Pre-Tax)", res)
-        self.assertIn("Total After-Tax Balance", res)
-        self.assertIn("Tax Efficiency (%)", res)
-        # FV should be ~ 10000 contribution grown 1 year at 10% = 11000
-        # But with 0 principal, it's just the contribution: 10000
-        self.assertAlmostEqual(res["Total Future Value (Pre-Tax)"], 10000.0, places=2)
-        # After tax @25% = 7500
-        self.assertAlmostEqual(res["Total After-Tax Balance"], 7500.0, places=2)
-
-    def test_irs_tax_brackets(self):
-        brackets = get_irs_tax_brackets_2024()
-        self.assertEqual(len(brackets), 7)
-        self.assertEqual(brackets[0].rate_pct, 10.0)
-        self.assertEqual(brackets[-1].rate_pct, 37.0)
-
-    def test_tax_rate_projection(self):
-        brackets = get_irs_tax_brackets_2024()
-        # Test various income levels
-        self.assertEqual(project_tax_rate(5000, brackets), 10.0)   # First bracket
-        self.assertEqual(project_tax_rate(30000, brackets), 12.0)  # Second bracket
-        self.assertEqual(project_tax_rate(100000, brackets), 24.0) # Fourth bracket
-
-
 # ---------------------------
 # Entrypoint
 # ---------------------------
@@ -6491,7 +6333,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and "--run-tests" in sys.argv:
-        suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestComputation)
+        suite = unittest.defaultTestLoader.discover("tests")
         test_result = unittest.TextTestRunner(verbosity=2).run(suite)
         sys.exit(0 if test_result.wasSuccessful() else 1)
     else:
@@ -6502,4 +6344,4 @@ if __name__ == "__main__":
         print("  streamlit run fin_advisor.py")
         print("\nThis will open your web browser with the interactive interface.")
         print("\nFor testing, use:")
-        print("  python fin_advisor.py --run-tests")
+        print("  python3 fin_advisor.py --run-tests")

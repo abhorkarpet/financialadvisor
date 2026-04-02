@@ -2,7 +2,7 @@
 
 from typing import Dict
 
-from financialadvisor.domain.models import Asset, AssetType, UserInputs
+from financialadvisor.domain.models import Asset, AssetType, TaxBehavior, UserInputs
 from financialadvisor.core.calculator import years_to_retirement
 from financialadvisor.core.tax_engine import calculate_asset_growth, apply_tax_logic
 
@@ -39,7 +39,8 @@ def project(inputs: UserInputs) -> Dict[str, float]:
             asset_type=AssetType.PRE_TAX,
             current_balance=inputs.current_balance + total_contribution,
             annual_contribution=0.0,
-            growth_rate_pct=inputs.expected_growth_rate_pct
+            growth_rate_pct=inputs.expected_growth_rate_pct,
+            tax_behavior=TaxBehavior.PRE_TAX,
         )
         inputs.assets = [default_asset]
 

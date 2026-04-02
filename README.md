@@ -2,14 +2,14 @@
 
 A Python/Streamlit web app for projecting retirement savings with multi-asset tax optimization, Monte Carlo simulation, AI-powered statement processing, and a GPT-4 chat advisor.
 
-**Current version: 12.2.0**
+**Current version: 12.4.0**
 
 ---
 
 ## Features
 
 ### Retirement Projection Engine
-- **Asset Classification**: Pre-tax (401k, Traditional IRA), Post-tax (Roth IRA, Brokerage), and Tax-deferred (HSA, Annuity) accounts
+- **Explicit Tax Modeling**: Pre-tax, tax-free Roth, brokerage capital gains, and tax-deferred/HSA-style account behaviors
 - **Per-Asset Growth Simulation**: Individual balance tracking with IRS tax bracket logic
 - **Tax Efficiency Analysis**: Capital gains, Roth tax-free withdrawals, HSA partial benefits
 - **Monte Carlo Simulation**: 1,000+ probabilistic scenarios with confidence intervals and probability of success
@@ -64,7 +64,7 @@ streamlit run fin_advisor.py
 streamlit run statement_uploader.py
 
 # Run unit tests
-python fin_advisor.py --run-tests
+python3 fin_advisor.py --run-tests
 ```
 
 The app opens at `http://localhost:8501`.
@@ -121,7 +121,7 @@ Zero-rate edge case is handled separately. Results are rounded to 2 decimal plac
 
 ### Testing
 ```bash
-python fin_advisor.py --run-tests
+python3 fin_advisor.py --run-tests
 ```
 
 CI runs the test suite against Python 3.9–3.12 on every push via GitHub Actions.
