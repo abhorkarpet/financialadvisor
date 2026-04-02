@@ -10,9 +10,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fin_advisor import (
+    Asset,
+    AssetType,
+    TaxBehavior,
     UserInputs,
+    _asset_from_editor_row,
+    apply_tax_logic,
     years_to_retirement,
     future_value_with_contrib,
+    parse_uploaded_csv,
     simple_post_tax,
     project
 )
@@ -147,6 +153,92 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(inputs.inflation_rate_pct, 3.0)
         self.assertEqual(inputs.tax_rate_pct, 25.0)
         self.assertEqual(len(inputs.asset_types), 1)
+
+    def test_asset_from_editor_row_tax_free(self):
+        """Tax-Free rows should produce explicit Roth-style tax behavior."""
+        asset = _asset_from_editor_row({
+            "Account Name": "Roth IRA",
+            "Tax Treatment": "Tax-Free",
+            "Current Balance": 10000,
+            "Annual Contribution": 6000,
+            "Growth Rate (%)": 7.0,
+            "Tax Rate on Gains (%)": 0.0,
+        })
+        self.assertEqual(asset.asset_type, AssetType.POST_TAX)
+        self.assertEqual(asset.tax_behavior, TaxBehavior.TAX_FREE)
+        self.assertEqual(asset.tax_rate_pct, 0.0)
+
+    def test_asset_from_editor_row_brokerage(self):
+        """Post-tax brokerage rows should keep capital-gains behavior."""
+        asset = _asset_from_editor_row({
+            "Account Name": "Brokerage Account",
+            "Tax Treatment": "Post-Tax",
+            "Current Balance": 10000,
+            "Annual Contribution": 1000,
+            "Growth Rate (%)": 7.0,
+            "Tax Rate on Gains (%)": 15.0,
+        })
+        self.assertEqual(asset.asset_type, AssetType.POST_TAX)
+        self.assertEqual(asset.tax_behavior, TaxBehavior.CAPITAL_GAINS)
+        self.assertEqual(asset.tax_rate_pct, 15.0)
+
+    def test_asset_from_editor_row_savings(self):
+        """Post-tax savings rows should not be treated as brokerage by default."""
+        asset = _asset_from_editor_row({
+            "Account Name": "High-Yield Savings Account",
+            "Tax Treatment": "Post-Tax",
+            "Current Balance": 10000,
+            "Annual Contribution": 1000,
+            "Growth Rate (%)": 4.0,
+            "Tax Rate on Gains (%)": 0.0,
+        })
+        self.assertEqual(asset.asset_type, AssetType.POST_TAX)
+        self.assertEqual(asset.tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(asset.tax_rate_pct, 0.0)
+
+    def test_parse_uploaded_csv_preserves_tax_behaviors(self):
+        """CSV parsing should resolve Roth, brokerage, and savings deterministically."""
+        csv_content = (
+            "Account Name,Tax Treatment,Current Balance,Annual Contribution,Growth Rate (%)\n"
+            "Roth IRA,Tax-Free,10000,6000,7\n"
+            "Brokerage Account,Post-Tax,15000,3000,7\n"
+            "High-Yield Savings Account,Post-Tax,25000,2000,4.5\n"
+        )
+        assets, warnings = parse_uploaded_csv(csv_content)
+        self.assertEqual(warnings, [])
+        self.assertEqual(assets[0].tax_behavior, TaxBehavior.TAX_FREE)
+        self.assertEqual(assets[1].tax_behavior, TaxBehavior.CAPITAL_GAINS)
+        self.assertEqual(assets[1].tax_rate_pct, 15.0)
+        self.assertEqual(assets[2].tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(assets[2].tax_rate_pct, 0.0)
+
+    def test_tax_logic_hsa_split(self):
+        """HSA-like behavior should tax only the simplified non-medical half."""
+        asset = Asset(
+            name="HSA Account",
+            asset_type=AssetType.TAX_DEFERRED,
+            current_balance=0,
+            annual_contribution=0,
+            growth_rate_pct=0,
+            tax_behavior=TaxBehavior.HSA_SPLIT,
+        )
+        after_tax, tax_liability = apply_tax_logic(asset, 100000, 0, 20.0)
+        self.assertEqual(tax_liability, 10000.0)
+        self.assertEqual(after_tax, 90000.0)
+
+    def test_tax_logic_no_additional_tax(self):
+        """Cash-style post-tax assets should not be forced through capital-gains math."""
+        asset = Asset(
+            name="High-Yield Savings Account",
+            asset_type=AssetType.POST_TAX,
+            current_balance=0,
+            annual_contribution=0,
+            growth_rate_pct=0,
+            tax_behavior=TaxBehavior.NO_ADDITIONAL_TAX,
+        )
+        after_tax, tax_liability = apply_tax_logic(asset, 100000, 50000, 25.0)
+        self.assertEqual(tax_liability, 0.0)
+        self.assertEqual(after_tax, 100000.0)
 
 
 if __name__ == '__main__':
