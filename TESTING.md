@@ -191,6 +191,6 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **12.4.1**
+Current Version: **12.5.0**
 
 This guide is focused on current local testing rather than historical release notes.
