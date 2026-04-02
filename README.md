@@ -2,7 +2,7 @@
 
 A Python/Streamlit web app for projecting retirement savings with multi-asset tax optimization, Monte Carlo simulation, AI-powered statement processing, and a GPT-4 chat advisor.
 
-**Current version: 12.5.0**
+**Current version: 12.5.1**
 
 ---
 
@@ -15,8 +15,8 @@ A Python/Streamlit web app for projecting retirement savings with multi-asset ta
 - **Monte Carlo Simulation**: 1,000+ probabilistic scenarios with confidence intervals and probability of success
 
 ### Planning Modes
-- **Detailed Mode**: Asset-by-asset configuration with full tax analysis
-- **Chat Mode**: Conversational GPT-4 advisor that collects your goals and returns a projection — supports US and India (USD/INR)
+- **Detailed Planning (US-only)**: Asset-by-asset configuration with tax-aware account analysis and asset-specific withdrawal treatment
+- **Simple Planning**: Conversational GPT-4 advisor that collects your goals and returns a quick projection — supports US and India (USD/INR)
 
 ### AI-Powered Statement Processing
 - Upload PDF financial statements; GPT-4.1 extracts and categorizes accounts automatically

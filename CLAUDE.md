@@ -4,7 +4,7 @@
 
 **Smart Retire AI** is a Streamlit-based retirement planning web app. It projects retirement savings across multiple asset types with IRS tax logic, Monte Carlo simulation, AI-powered financial statement processing, and a GPT-4 chat advisor.
 
-Current version: **12.5.0**
+Current version: **12.5.1**
 
 ---
 
@@ -78,7 +78,7 @@ integrations/
   chat_advisor.py               # GPT-4 conversation loop
   gpt_system_prompt.txt         # System prompt for chat advisor
 tests/
-  test_fin_advisor.py           # 16+ unit tests covering math + tax behavior
+  test_fin_advisor.py           # 19+ unit tests covering math, tax behavior, and planning handoff helpers
 workflows/                      # n8n workflow JSON definitions
 ```
 
@@ -95,9 +95,8 @@ workflows/                      # n8n workflow JSON definitions
 
 | Mode | Description |
 |---|---|
-| Mode 1 | Detailed asset-by-asset planning |
-| Mode 2 | Simple chat-based planning (GPT-4) |
-| Mode 3 | Legacy portfolio options |
+| Detailed Planning | US-only asset-by-asset planning |
+| Simple Planning | Chat-based planning (GPT-4) with US and India support |
 
 Navigation between modes uses `st.session_state.current_page`.
 

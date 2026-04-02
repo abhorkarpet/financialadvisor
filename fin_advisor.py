@@ -16,18 +16,18 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 12.5.0
+Version: 12.5.1
 """
 
 from __future__ import annotations
 import argparse
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.5.0"
+VERSION = "12.5.1"
 
 # Streamlit import
 import streamlit as st
@@ -246,31 +246,117 @@ def switch_to_simple_planning_from_onboarding() -> None:
     st.rerun()
 
 
-def switch_to_detailed_planning_from_chat() -> None:
-    """Move from chat mode into US-only detailed onboarding, preserving key inputs."""
-    fields = st.session_state.get("chat_fields", {})
+_CHAT_TO_DETAILED_FIELD_MAP: Tuple[Tuple[str, str], ...] = (
+    ("birth_year", "birth_year"),
+    ("retirement_age", "retirement_age"),
+    ("life_expectancy", "life_expectancy"),
+    ("target_income", "retirement_income_goal"),
+    ("legacy_goal", "legacy_goal"),
+    ("life_expenses", "life_expenses"),
+    ("tax_rate", "whatif_retirement_tax_rate"),
+    ("growth_rate", "whatif_retirement_growth_rate"),
+    ("inflation_rate", "whatif_inflation_rate"),
+)
 
-    for source_key, target_key in (
-        ("birth_year", "birth_year"),
-        ("retirement_age", "retirement_age"),
-        ("life_expectancy", "life_expectancy"),
-        ("target_income", "retirement_income_goal"),
-        ("legacy_goal", "legacy_goal"),
-        ("life_expenses", "life_expenses"),
-        ("tax_rate", "whatif_retirement_tax_rate"),
-        ("growth_rate", "whatif_retirement_growth_rate"),
-        ("inflation_rate", "whatif_inflation_rate"),
-    ):
-        value = fields.get(source_key)
+_DETAILED_PLANNING_RESET_KEYS: Tuple[str, ...] = (
+    "assets",
+    "setup_method_radio",
+    "num_assets_manual",
+    "show_contribution_reminder",
+    "contribution_reminder_dismissed",
+    "ai_extracted_accounts",
+    "ai_tax_buckets",
+    "ai_warnings",
+    "ai_edited_table",
+    "ai_table_data",
+    "ai_table_initialized",
+    "ai_table_modal_editor",
+    "dialog_open",
+    "show_extraction_feedback_form",
+    "csv_uploaded_file_id",
+    "csv_uploaded_assets",
+    "csv_uploaded_edited_table",
+    "csv_uploaded_assets_table",
+)
+
+
+def collect_detailed_planning_handoff_fields(chat_fields: Dict[str, Any]) -> Dict[str, Any]:
+    """Map Simple Planning fields into Detailed Planning state."""
+    seeded_fields: Dict[str, Any] = {}
+
+    for source_key, target_key in _CHAT_TO_DETAILED_FIELD_MAP:
+        value = chat_fields.get(source_key)
         if value is not None:
-            st.session_state[target_key] = value
+            seeded_fields[target_key] = value
+
+    seeded_fields["country"] = "US"
+    seeded_fields["_prev_country"] = "US"
+    return seeded_fields
+
+
+def has_existing_detailed_asset_state(state: Dict[str, Any]) -> bool:
+    """Return True when Detailed Planning already has account data or editor state."""
+    assets = state.get("assets") or []
+    if len(assets) > 0:
+        return True
+
+    ai_extracted = state.get("ai_extracted_accounts")
+    if ai_extracted is not None and len(ai_extracted) > 0:
+        return True
+
+    csv_assets = state.get("csv_uploaded_assets") or []
+    if len(csv_assets) > 0:
+        return True
+
+    csv_edited = state.get("csv_uploaded_edited_table")
+    if csv_edited is not None and len(csv_edited) > 0:
+        return True
+
+    return False
+
+
+def clear_detailed_planning_asset_state(state: Dict[str, Any]) -> None:
+    """Clear Detailed Planning account/setup state so Step 2 starts fresh."""
+    for key in _DETAILED_PLANNING_RESET_KEYS:
+        state.pop(key, None)
+
+    state["assets"] = []
+    state["ai_upload_widget_version"] = int(state.get("ai_upload_widget_version", 0)) + 1
+    state["csv_upload_widget_version"] = int(state.get("csv_upload_widget_version", 0)) + 1
+
+
+def _apply_detailed_planning_handoff(*, reuse_existing_assets: bool) -> None:
+    """Enter Detailed Planning using any queued handoff fields."""
+    seeded_fields = st.session_state.get("pending_detailed_switch_fields") or {}
+
+    if not reuse_existing_assets:
+        clear_detailed_planning_asset_state(st.session_state)
+
+    for key, value in seeded_fields.items():
+        st.session_state[key] = value
 
     st.session_state.country = "US"
     st.session_state._prev_country = "US"
     st.session_state.onboarding_complete = False
     st.session_state.current_page = "onboarding"
     st.session_state.onboarding_step = 1
+    st.session_state.show_detailed_asset_choice_dialog = False
+    st.session_state.pending_detailed_switch_fields = None
+    st.session_state.pending_detailed_switch_source_country = None
     st.rerun()
+
+
+def switch_to_detailed_planning_from_chat() -> None:
+    """Move from chat mode into US-only detailed onboarding, preserving key inputs."""
+    fields = st.session_state.get("chat_fields", {})
+    st.session_state.pending_detailed_switch_fields = collect_detailed_planning_handoff_fields(fields)
+    st.session_state.pending_detailed_switch_source_country = fields.get("country", "US")
+
+    if has_existing_detailed_asset_state(st.session_state):
+        st.session_state.show_detailed_asset_choice_dialog = True
+        st.rerun()
+
+    _apply_detailed_planning_handoff(reuse_existing_assets=True)
 # ---------------------------
 # Import refactored modules
 # ---------------------------
@@ -1561,11 +1647,11 @@ def show_mode_selection_page():
                 <div style='font-size:2.2em; text-align:center;'>📊</div>
                 <h3 style='text-align:center; color:#2ca02c;'>Detailed Planning</h3>
                 <p style='text-align:center; color:#444;'>
-                    Enter your <strong>actual retirement accounts</strong> and see
+                    Enter your <strong>actual US retirement accounts</strong> and see
                     detailed projections, tax analysis, and withdrawal strategy.
                 </p>
                 <p style='text-align:center; font-size:0.85em; color:#888;'>
-                    Best for: precise planning with known asset balances
+                    US-only detailed account-based planning
                 </p>
             </div>
             """,
@@ -1607,7 +1693,7 @@ def show_chat_mode_page():
             st.session_state.current_page = "mode_selection"
             st.rerun()
     with _chat_nav_right:
-        if st.button("Switch to Detailed Planning", key="chat_to_detailed", use_container_width=True):
+        if st.button("Switch to Detailed Planning (US-only)", key="chat_to_detailed", use_container_width=True, disabled=is_india):
             switch_to_detailed_planning_from_chat()
 
     st.markdown("---")
@@ -1862,6 +1948,17 @@ def show_chat_mode_page():
         # PDF export button — visible once we have enough to calculate
         if _has_required:
             st.markdown("---")
+
+            if not is_india:
+                st.warning(
+                    "Simple Planning uses a simplified tax model. Your required portfolio may be over- or understated because it does not model the tax treatment of each account."
+                )
+                if st.button(
+                    "Switch to Detailed Planning",
+                    key="results_to_detailed",
+                    use_container_width=True,
+                ):
+                    switch_to_detailed_planning_from_chat()
 
             def _build_results_pdf(fields, calc_result, _is_india, corpus_label):
                 """Generate a PDF of the retirement plan estimate (results + assumptions only)."""
@@ -2492,6 +2589,34 @@ if not _RUNNING_TESTS:
                 st.rerun()
 
 
+    @st.dialog("Switch to Detailed Planning", width="medium")
+    def detailed_planning_asset_choice_dialog():
+        """Let the user decide whether to reuse or reset existing Detailed Planning accounts."""
+        source_country = st.session_state.get("pending_detailed_switch_source_country", "US")
+
+        if source_country != "US":
+            st.info("Detailed Planning is currently US-only. If you continue, the setup will reopen in USD with US tax assumptions.")
+
+        st.warning("You already have account data saved in Detailed Planning from an earlier session.")
+        st.markdown("Choose how you want to continue:")
+        st.markdown("- **Reuse existing accounts (Recommended)** keeps your saved accounts and editor state.")
+        st.markdown("- **Start fresh** clears the saved uploads, tables, and manual account setup before reopening Detailed Planning.")
+
+        col_reuse, col_fresh, col_cancel = st.columns(3)
+        with col_reuse:
+            if st.button("Reuse existing accounts", type="primary", use_container_width=True):
+                _apply_detailed_planning_handoff(reuse_existing_assets=True)
+        with col_fresh:
+            if st.button("Start fresh", use_container_width=True):
+                _apply_detailed_planning_handoff(reuse_existing_assets=False)
+        with col_cancel:
+            if st.button("Stay in Simple Planning", use_container_width=True):
+                st.session_state.show_detailed_asset_choice_dialog = False
+                st.session_state.pending_detailed_switch_fields = None
+                st.session_state.pending_detailed_switch_source_country = None
+                st.rerun()
+
+
     if 'show_whats_new' not in st.session_state:
         st.session_state.show_whats_new = False
 
@@ -2521,6 +2646,16 @@ if not _RUNNING_TESTS:
         st.session_state.chat_fields = {}
     if 'chat_complete' not in st.session_state:
         st.session_state.chat_complete = False
+    if 'pending_detailed_switch_fields' not in st.session_state:
+        st.session_state.pending_detailed_switch_fields = None
+    if 'pending_detailed_switch_source_country' not in st.session_state:
+        st.session_state.pending_detailed_switch_source_country = None
+    if 'show_detailed_asset_choice_dialog' not in st.session_state:
+        st.session_state.show_detailed_asset_choice_dialog = False
+    if 'ai_upload_widget_version' not in st.session_state:
+        st.session_state.ai_upload_widget_version = 0
+    if 'csv_upload_widget_version' not in st.session_state:
+        st.session_state.csv_upload_widget_version = 0
     
     # Initialize session state for baseline values (from onboarding)
     if 'birth_year' not in st.session_state:
@@ -2815,14 +2950,14 @@ if not _RUNNING_TESTS:
             st.markdown("**💬 Simple Planning**")
             st.caption("Answer 3 questions in a chat and get your required corpus/portfolio instantly — no forms.")
             st.markdown("")
-            st.markdown("**📊 Detailed Portfolio Analysis**")
-            st.caption("Upload PDF statements, enter account balances, and get tax-optimised year-by-year projections.")
+            st.markdown("**📊 Detailed Planning (US-only)**")
+            st.caption("Upload US retirement statements, enter account balances, and get tax-aware year-by-year projections.")
         with col2:
             st.markdown("**🎯 What-If Scenarios**")
             st.caption("Adjust any assumption — retirement age, income, growth rate — and see results update instantly.")
             st.markdown("")
-            st.markdown("**🇮🇳 US & India Support**")
-            st.caption("Full $ and ₹ support with country-specific defaults for tax rate, inflation, and growth.")
+            st.markdown("**🌍 Planning Coverage**")
+            st.caption("Simple Planning supports US and India. Detailed Planning currently supports US households only.")
 
         st.markdown("---")
 
@@ -2869,6 +3004,8 @@ if not _RUNNING_TESTS:
         show_mode_selection_page()
 
     elif st.session_state.current_page == 'chat_mode':
+        if st.session_state.get("show_detailed_asset_choice_dialog", False):
+            detailed_planning_asset_choice_dialog()
         show_chat_mode_page()
 
     elif st.session_state.current_page == 'onboarding':
@@ -2883,7 +3020,7 @@ if not _RUNNING_TESTS:
         
         # Visual progress bar
         progress_text = f"**Step {current_step} of {total_steps}**"
-        progress_percentage = (current_step - 1) / total_steps
+        progress_percentage = min(current_step / total_steps, 1.0)
         st.progress(progress_percentage, text=progress_text)
         
         # Step titles
@@ -2903,7 +3040,7 @@ if not _RUNNING_TESTS:
             ):
                 switch_to_simple_planning_from_onboarding()
         st.markdown("---")
-        st.info("Detailed Planning currently supports US households only. Values and guidance below use USD. Use Simple Planning for India or quick estimates.")
+        st.info("Detailed Planning currently supports US households only. USD values and US tax guidance are used throughout this setup. Use Simple Planning for India or for a quick estimate.")
         
         # ==========================================
         # STEP 1: Personal Information
@@ -3423,7 +3560,8 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                             "📤 Upload Financial Statement PDFs",
                             type=['pdf'],
                             accept_multiple_files=True,
-                            help="Upload 401(k), IRA, brokerage, or bank statements"
+                            help="Upload 401(k), IRA, brokerage, or bank statements",
+                            key=f"ai_statement_uploader_{st.session_state.ai_upload_widget_version}",
                         )
         
                         if uploaded_files:
@@ -4138,7 +4276,8 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
                 uploaded_file = st.file_uploader(
                     "📤 Upload Your CSV File",
                     type=['csv'],
-                    help="Upload your modified CSV file with your asset data"
+                    help="Upload your modified CSV file with your asset data",
+                    key=f"csv_asset_uploader_{st.session_state.csv_upload_widget_version}",
                 )
 
                 if uploaded_file is not None:

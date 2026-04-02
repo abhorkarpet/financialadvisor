@@ -16,6 +16,9 @@ from fin_advisor import (
     UserInputs,
     _asset_from_editor_row,
     apply_tax_logic,
+    clear_detailed_planning_asset_state,
+    collect_detailed_planning_handoff_fields,
+    has_existing_detailed_asset_state,
     years_to_retirement,
     future_value_with_contrib,
     parse_uploaded_csv,
@@ -239,6 +242,65 @@ class TestFinancialAdvisor(unittest.TestCase):
         after_tax, tax_liability = apply_tax_logic(asset, 100000, 50000, 25.0)
         self.assertEqual(tax_liability, 0.0)
         self.assertEqual(after_tax, 100000.0)
+
+    def test_collect_detailed_planning_handoff_fields(self):
+        """Simple Planning fields should map cleanly into Detailed Planning state."""
+        seeded = collect_detailed_planning_handoff_fields({
+            "country": "India",
+            "birth_year": 1990,
+            "retirement_age": 62,
+            "life_expectancy": 90,
+            "target_income": 80000,
+            "legacy_goal": 250000,
+            "life_expenses": 100000,
+            "tax_rate": 24,
+            "growth_rate": 5.5,
+            "inflation_rate": 2.8,
+        })
+        self.assertEqual(seeded["birth_year"], 1990)
+        self.assertEqual(seeded["retirement_age"], 62)
+        self.assertEqual(seeded["life_expectancy"], 90)
+        self.assertEqual(seeded["retirement_income_goal"], 80000)
+        self.assertEqual(seeded["legacy_goal"], 250000)
+        self.assertEqual(seeded["life_expenses"], 100000)
+        self.assertEqual(seeded["whatif_retirement_tax_rate"], 24)
+        self.assertEqual(seeded["whatif_retirement_growth_rate"], 5.5)
+        self.assertEqual(seeded["whatif_inflation_rate"], 2.8)
+        self.assertEqual(seeded["country"], "US")
+        self.assertEqual(seeded["_prev_country"], "US")
+
+    def test_has_existing_detailed_asset_state(self):
+        """Detailed asset detection should recognize saved assets and upload tables."""
+        self.assertFalse(has_existing_detailed_asset_state({}))
+        self.assertTrue(has_existing_detailed_asset_state({"assets": [object()]}))
+        self.assertTrue(has_existing_detailed_asset_state({"csv_uploaded_assets": [object()]}))
+
+    def test_clear_detailed_planning_asset_state(self):
+        """Start-fresh reset should clear saved asset inputs and bump upload widget versions."""
+        state = {
+            "assets": [object()],
+            "setup_method_radio": "Upload CSV File",
+            "num_assets_manual": 4,
+            "ai_extracted_accounts": [object()],
+            "ai_tax_buckets": {"401k": "tax_deferred"},
+            "ai_warnings": ["warn"],
+            "ai_edited_table": [object()],
+            "ai_table_data": "data",
+            "ai_table_initialized": True,
+            "csv_uploaded_file_id": "file.csv_100",
+            "csv_uploaded_assets": [object()],
+            "csv_uploaded_edited_table": [object()],
+            "ai_upload_widget_version": 1,
+            "csv_upload_widget_version": 2,
+        }
+        clear_detailed_planning_asset_state(state)
+        self.assertEqual(state["assets"], [])
+        self.assertEqual(state["ai_upload_widget_version"], 2)
+        self.assertEqual(state["csv_upload_widget_version"], 3)
+        self.assertNotIn("setup_method_radio", state)
+        self.assertNotIn("num_assets_manual", state)
+        self.assertNotIn("ai_extracted_accounts", state)
+        self.assertNotIn("csv_uploaded_assets", state)
 
 
 if __name__ == '__main__':
