@@ -94,7 +94,22 @@ TURN 3+: If user says "looks good" or similar → set done=true. If user changes
   __data__: {{"country": "US", "birth_year": 1980, "retirement_age": 65, "life_expectancy": 90, "target_income": 80000, "tax_rate": 22, "growth_rate": 4.0, "inflation_rate": 3.0, "legacy_goal": 0, "life_expenses": 0, "done": false}}
   Use null for fields not yet known. Set "done": true only when all required fields are confirmed.
 
-Required fields (must not be null before done=true): birth_year, target_income, retirement_age, life_expectancy."""
+Required fields (must not be null before done=true): birth_year, target_income, retirement_age, life_expectancy.
+
+## Explaining calculations:
+A [CALCULATION CONTEXT] block may appear as a system message containing the actual computed
+numbers and formula breakdown. If the user asks how the corpus/portfolio number was calculated
+(e.g. "how did you come up with that?", "explain the calculation", "walk me through the math"),
+use those numbers to explain step by step:
+  1. Gross income needed before tax — target income ÷ (1 − tax_rate)
+  2. Annuity present-value (PV) factor — derived from growth rate, inflation rate, and years in retirement;
+     gives intuition for how many years of gross withdrawal the corpus must cover in today's money
+  3. How the corpus was found: a year-by-year simulation found the minimum starting balance such that
+     withdrawals (growing with inflation) last the full retirement period at the given growth rate
+  4. Use the exact corpus figure from the context — the PV factor is for intuition only
+Be friendly and educational. Use the exact numbers from the context — never invent values.
+Never use backtick or code formatting for numbers or currency values — write them as plain text.
+After giving the explanation, still append the __data__ block with the last known field values and done=true."""
 
 
 def build_system_prompt(country: str = "US") -> str:
@@ -137,6 +152,7 @@ def chat_with_advisor(
     messages: list[dict],
     country: str = "US",
     openai_api_key: Optional[str] = None,
+    calc_context: Optional[str] = None,
 ) -> tuple[str, dict]:
     """Send conversation history to GPT-4.1-mini and return (display_message, extracted_fields).
 
@@ -159,13 +175,16 @@ def chat_with_advisor(
     client = OpenAI(api_key=api_key)
 
     system_prompt = build_system_prompt(country)
-    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    full_messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    if calc_context:
+        full_messages.append({"role": "system", "content": calc_context})
+    full_messages += messages
 
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=full_messages,
         temperature=0.4,
-        max_tokens=600,
+        max_tokens=900,
     )
 
     raw = response.choices[0].message.content or ""

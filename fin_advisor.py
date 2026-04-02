@@ -16,7 +16,7 @@ Usage:
         $ python fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 12.1.0
+Version: 12.3.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.2.0"
+VERSION = "12.3.0"
 
 # Streamlit import
 import streamlit as st
@@ -1493,6 +1493,7 @@ def show_chat_mode_page():
                         display_msg, new_fields = chat_with_advisor(
                             st.session_state.chat_messages,
                             country=_call_country,
+                            calc_context=st.session_state.get("chat_calc_context"),
                         )
                     except Exception as e:
                         display_msg = f"Sorry, I ran into an error: {e}"
@@ -1506,6 +1507,8 @@ def show_chat_mode_page():
                 if new_fields.get("done"):
                     st.session_state.chat_complete = True
 
+                # Escape bare $ so Streamlit doesn't treat $...$ as LaTeX math
+                display_msg = display_msg.replace("$", r"\$")
                 st.session_state.chat_messages.append({"role": "assistant", "content": display_msg})
                 st.rerun()
 
@@ -1642,6 +1645,28 @@ def show_chat_mode_page():
                         st.metric(
                             "Modeled First-Year After-Tax Income",
                             _fmt_currency(_r["confirmed_income"], is_india),
+                        )
+
+                        # Compute and store calculation context so the chat advisor can
+                        # explain the numbers if the user asks a follow-up question.
+                        _ctx_years = _r["years_in_retirement"]
+                        _ctx_gross = _target_f / (1 - _tax / 100) if _tax < 100 else _target_f
+                        if abs(_growth - _inflation) > 0.0001:
+                            _ctx_pv = (1 - ((1 + _inflation) / (1 + _growth)) ** _ctx_years) / (_growth - _inflation)
+                        else:
+                            _ctx_pv = _ctx_years
+                        _ctx_real_ret = (_growth - _inflation) / (1 + _inflation) * 100
+                        st.session_state.chat_calc_context = (
+                            f"[CALC CONTEXT]\n"
+                            f"Required {_corpus_label}: {_sym}{_r['required_pretax_portfolio']:,.0f}\n"
+                            f"Target after-tax income: {_sym}{_target_f:,.0f}/yr\n"
+                            f"Gross before {_tax:.0f}% tax: {_sym}{_ctx_gross:,.0f}/yr [= target/(1-tax)]\n"
+                            f"Retirement: {_ctx_years} yrs (age {_ret_age_i}→{_life_exp_i})\n"
+                            f"Growth {_growth*100:.1f}% | Inflation {_inflation*100:.1f}% | Real return ~{_ctx_real_ret:.1f}%\n"
+                            f"PV factor: {_ctx_pv:.2f}× [(1-(1+i)^n/(1+g)^n)/(g-i)]\n"
+                            f"Method: year-by-year simulation finds min {_corpus_label.lower()} sustaining "
+                            f"{_sym}{_ctx_gross:,.0f}/yr (inflation-adjusted) for {_ctx_years} yrs at {_growth*100:.1f}% growth\n"
+                            f"Source: Present Value of Growing Annuity (CFA curriculum, Investopedia)"
                         )
 
                         # Assumptions
@@ -2330,14 +2355,10 @@ if not _RUNNING_TESTS:
                 st.rerun()
 
 
-    # Initialize What's New dialog state — auto-show once per session
-    if 'whats_new_shown' not in st.session_state:
-        st.session_state.whats_new_shown = True
-        st.session_state.show_whats_new = True
     if 'show_whats_new' not in st.session_state:
         st.session_state.show_whats_new = False
 
-    # Trigger What's New dialog if flagged
+    # Trigger What's New dialog if flagged (via footer button)
     if st.session_state.get('show_whats_new', False):
         st.session_state.show_whats_new = False
         whats_new_dialog()
@@ -2682,6 +2703,16 @@ if not _RUNNING_TESTS:
                 st.session_state.splash_dismissed = True
                 set_analytics_consent(True)
                 st.rerun()
+
+        _rn_content = load_release_notes()
+        if _rn_content:
+            _rn_marker = "## 🎯 Release Overview"
+            _rn_start = _rn_content.find(_rn_marker)
+            _rn_end = _rn_content.find("\n---", _rn_start) if _rn_start != -1 else -1
+            _rn_overview = _rn_content[_rn_start + len(_rn_marker):_rn_end].strip() if _rn_start != -1 and _rn_end != -1 else ""
+            if _rn_overview:
+                with st.expander(f"🆕 What's new in v{VERSION}"):
+                    st.markdown(_rn_overview)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
