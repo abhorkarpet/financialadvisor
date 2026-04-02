@@ -271,8 +271,6 @@ def switch_to_detailed_planning_from_chat() -> None:
     st.session_state.current_page = "onboarding"
     st.session_state.onboarding_step = 1
     st.rerun()
-
-
 # ---------------------------
 # Import refactored modules
 # ---------------------------
