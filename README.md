@@ -2,7 +2,7 @@
 
 A Python/Streamlit web app for projecting retirement savings with multi-asset tax optimization, Monte Carlo simulation, AI-powered statement processing, and a GPT-4 chat advisor.
 
-**Current version: 12.4.1**
+**Current version: 12.5.0**
 
 ---
 

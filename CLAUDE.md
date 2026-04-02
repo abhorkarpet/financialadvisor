@@ -4,7 +4,7 @@
 
 **Smart Retire AI** is a Streamlit-based retirement planning web app. It projects retirement savings across multiple asset types with IRS tax logic, Monte Carlo simulation, AI-powered financial statement processing, and a GPT-4 chat advisor.
 
-Current version: **12.4.1**
+Current version: **12.5.0**
 
 ---
 

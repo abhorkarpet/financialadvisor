@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 12.4.1
+Version: 12.5.0
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.4.1"
+VERSION = "12.5.0"
 
 # Streamlit import
 import streamlit as st
@@ -188,6 +188,89 @@ def extract_release_overview(
     return body or None
 
 
+def switch_to_simple_planning_from_onboarding() -> None:
+    """Move from detailed onboarding into chat mode while preserving key inputs."""
+    seeded_fields: Dict[str, object] = {}
+
+    country = st.session_state.get("country")
+    if country in {"US", "India"}:
+        seeded_fields["country"] = country
+
+    for source_key, target_key in (
+        ("birth_year", "birth_year"),
+        ("retirement_age", "retirement_age"),
+        ("life_expectancy", "life_expectancy"),
+        ("retirement_income_goal", "target_income"),
+        ("whatif_retirement_tax_rate", "tax_rate"),
+        ("whatif_retirement_growth_rate", "growth_rate"),
+        ("whatif_inflation_rate", "inflation_rate"),
+        ("legacy_goal", "legacy_goal"),
+        ("life_expenses", "life_expenses"),
+    ):
+        value = st.session_state.get(source_key)
+        if value is None:
+            continue
+        if target_key == "target_income" and float(value) <= 0:
+            continue
+        seeded_fields[target_key] = value
+
+    summary_lines = []
+    if "country" in seeded_fields:
+        summary_lines.append(f"- Country: {seeded_fields['country']}")
+    if "birth_year" in seeded_fields:
+        summary_lines.append(f"- Birth year: {seeded_fields['birth_year']}")
+    if "retirement_age" in seeded_fields:
+        summary_lines.append(f"- Retirement age: {seeded_fields['retirement_age']}")
+    if "life_expectancy" in seeded_fields:
+        summary_lines.append(f"- Life expectancy: {seeded_fields['life_expectancy']}")
+    if "target_income" in seeded_fields:
+        summary_lines.append(f"- Target income: {seeded_fields['target_income']}")
+
+    if summary_lines:
+        opening = (
+            "I’ve switched you to Simple Planning and carried over your current details:\n\n"
+            + "\n".join(summary_lines)
+            + "\n\nTell me anything you want to change, or continue from here."
+        )
+    else:
+        opening = (
+            "I’ve switched you to Simple Planning. Tell me your country, birth year, "
+            "and target retirement income to get started."
+        )
+
+    st.session_state.current_page = "chat_mode"
+    st.session_state.chat_fields = seeded_fields
+    st.session_state.chat_messages = [{"role": "assistant", "content": opening}]
+    st.session_state.chat_complete = False
+    st.session_state.pop("planning_mode_choice", None)
+    st.rerun()
+
+
+def switch_to_detailed_planning_from_chat() -> None:
+    """Move from chat mode into US-only detailed onboarding, preserving key inputs."""
+    fields = st.session_state.get("chat_fields", {})
+
+    for source_key, target_key in (
+        ("birth_year", "birth_year"),
+        ("retirement_age", "retirement_age"),
+        ("life_expectancy", "life_expectancy"),
+        ("target_income", "retirement_income_goal"),
+        ("legacy_goal", "legacy_goal"),
+        ("life_expenses", "life_expenses"),
+        ("tax_rate", "whatif_retirement_tax_rate"),
+        ("growth_rate", "whatif_retirement_growth_rate"),
+        ("inflation_rate", "whatif_inflation_rate"),
+    ):
+        value = fields.get(source_key)
+        if value is not None:
+            st.session_state[target_key] = value
+
+    st.session_state.country = "US"
+    st.session_state._prev_country = "US"
+    st.session_state.onboarding_complete = False
+    st.session_state.current_page = "onboarding"
+    st.session_state.onboarding_step = 1
+    st.rerun()
 # ---------------------------
 # Import refactored modules
 # ---------------------------
@@ -1464,7 +1547,7 @@ def show_mode_selection_page():
         )
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Start Chat →", type="primary", use_container_width=True, key="mode_select_simple"):
-            st.session_state.planning_mode_choice = "I have an income goal — show how much I need"
+            st.session_state.pop("planning_mode_choice", None)
             st.session_state.current_page = "chat_mode"
             st.session_state.chat_messages = []
             st.session_state.chat_fields = {}
@@ -1490,7 +1573,7 @@ def show_mode_selection_page():
         )
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Enter Details →", use_container_width=True, key="mode_select_detailed"):
-            st.session_state.planning_mode_choice = "I know my assets — show my income"
+            st.session_state.pop("planning_mode_choice", None)
             st.session_state.current_page = "onboarding"
             st.session_state.onboarding_step = 1
             st.rerun()
@@ -1518,9 +1601,14 @@ def show_chat_mode_page():
 
     # Header
     st.markdown("### 💬 Simple Retirement Planner")
-    if st.button("← Change planning mode", key="chat_back_to_mode_select"):
-        st.session_state.current_page = "mode_selection"
-        st.rerun()
+    _chat_nav_left, _chat_nav_mid, _chat_nav_right = st.columns([1.3, 1.6, 1.3])
+    with _chat_nav_left:
+        if st.button("← Change planning mode", key="chat_back_to_mode_select", use_container_width=True):
+            st.session_state.current_page = "mode_selection"
+            st.rerun()
+    with _chat_nav_right:
+        if st.button("Switch to Detailed Planning", key="chat_to_detailed", use_container_width=True):
+            switch_to_detailed_planning_from_chat()
 
     st.markdown("---")
 
@@ -1909,35 +1997,6 @@ def show_chat_mode_page():
                     st.caption(f"PDF generation failed: {_pdf_err}")
             else:
                 st.caption("Install `reportlab` to enable PDF export.")
-
-
-@st.dialog("How do you want to plan?")
-def planning_mode_dialog():
-    """Popup shown automatically at Step 2 entry — lets user choose forward or reverse planning mode."""
-    st.markdown("Choose how you'd like to approach your retirement plan:")
-    st.markdown("")
-
-    mode = st.radio(
-        "Planning approach",
-        ["I know my assets — show my income", "I have an income goal — show how much I need"],
-        index=0,
-        label_visibility="collapsed",
-        key="planning_mode_dialog_radio",
-    )
-
-    st.markdown("")
-    if mode == "I know my assets — show my income":
-        st.info("Enter your retirement accounts and we'll calculate your sustainable annual income.")
-    else:
-        st.info(
-            "Tell us your target after-tax income and we'll calculate the pre-tax portfolio you need. "
-            "Assumes 100% pre-tax accounts (e.g. 401k / Traditional IRA)."
-        )
-
-    st.markdown("---")
-    if st.button("Continue →", type="primary", use_container_width=True, key="planning_mode_dialog_confirm"):
-        st.session_state.planning_mode_choice = mode
-        st.rerun()
 
 
 @st.dialog("⚠️ Legal Disclaimer", width="large")
@@ -2833,64 +2892,30 @@ if not _RUNNING_TESTS:
             2: "🏦 Asset Configuration"
         }
         
-        st.subheader(f"📝 {step_titles[current_step]}")
+        _header_col, _switch_col = st.columns([4, 1.5])
+        with _header_col:
+            st.subheader(f"📝 {step_titles[current_step]}")
+        with _switch_col:
+            if st.button(
+                "Switch to Simple Planning",
+                use_container_width=True,
+                key=f"switch_to_simple_from_onboarding_{current_step}",
+            ):
+                switch_to_simple_planning_from_onboarding()
         st.markdown("---")
+        st.info("Detailed Planning currently supports US households only. Values and guidance below use USD. Use Simple Planning for India or quick estimates.")
         
         # ==========================================
         # STEP 1: Personal Information
         # ==========================================
         if current_step == 1:
             # Track step 1 started
-            track_onboarding_step_started(1, country=st.session_state.get('country', 'US'))
-
-            # Country selector — determines currency, terminology, and available modes
-            _country_options = ["🇺🇸 United States", "🇮🇳 India"]
-            _country_sel = st.selectbox(
-                "Country",
-                _country_options,
-                index=0 if st.session_state.get('country', 'US') == 'US' else 1,
-                key="country_select",
-                help="Select your country. India mode shows the Corpus Calculator with ₹ (INR) currency.",
-            )
-            st.session_state.country = "India" if "India" in _country_sel else "US"
-            _is_india = st.session_state.country == "India"
-            _sym = "₹" if _is_india else "$"
-            _corpus_label = "Corpus" if _is_india else "Portfolio"
-
-            # Reset defaults when country changes so the new country's values appear immediately
-            _prev_country = st.session_state.get('_prev_country', st.session_state.country)
-            if _prev_country != st.session_state.country:
-                if _is_india:
-                    st.session_state.retirement_age = 60
-                    st.session_state.life_expectancy = 85
-                    st.session_state.retirement_income_goal = 0
-                    st.session_state.whatif_retirement_growth_rate = 10.0
-                    st.session_state.whatif_inflation_rate = 7.0
-                    st.session_state.whatif_retirement_tax_rate = 10
-                else:
-                    st.session_state.retirement_age = 65
-                    st.session_state.life_expectancy = 90
-                    st.session_state.retirement_income_goal = 0
-                    st.session_state.whatif_retirement_growth_rate = 4.0
-                    st.session_state.whatif_inflation_rate = 3.0
-                    st.session_state.whatif_retirement_tax_rate = 22
-                # Delete all widget keys that carry country-specific defaults so they
-                # re-initialize from their country-aware value= parameters on the next run.
-                # (Streamlit forbids writing to widget keys after instantiation in the same run.)
-                for _k in (
-                    'goal_tax_rate', 'goal_growth_rate', 'goal_inflation_rate',
-                    'goal_retirement_age', 'goal_life_expectancy', 'goal_target_income',
-                    'retirement_income_goal_input',
-                ):
-                    st.session_state.pop(_k, None)
-                track_event(
-                    'country_selected',
-                    {'country': st.session_state.country, 'previous_country': _prev_country},
-                    user_properties={'country': st.session_state.country},
-                )
-                st.session_state._prev_country = st.session_state.country
-                st.rerun()
-            st.session_state._prev_country = st.session_state.country
+            st.session_state.country = "US"
+            st.session_state._prev_country = "US"
+            track_onboarding_step_started(1, country="US")
+            _is_india = False
+            _sym = "$"
+            _corpus_label = "Portfolio"
 
             col1, col2 = st.columns(2)
     
@@ -3107,399 +3132,9 @@ Modeled as a future-value target: the portfolio must end at life expectancy with
             if st.session_state.get('show_contribution_reminder', False):
                 contribution_reminder_dialog()
 
-            # ---- Planning mode: auto-show dialog on first visit to Step 2 ----
-            if "planning_mode_choice" not in st.session_state:
-                if st.session_state.get('country') == 'India':
-                    # India only supports the Income Goal (Corpus) Calculator
-                    st.session_state.planning_mode_choice = "I have an income goal — show how much I need"
-                else:
-                    planning_mode_dialog()
-                    st.stop()
-
-            planning_mode = st.session_state.planning_mode_choice
-
-            # Show current mode + allow switching (US only; India is locked to Income Goal mode)
-            if st.session_state.get('country') != 'India':
-                _mode_label = "Assets → Income" if "assets" in planning_mode else "Income Goal → Portfolio"
-                _col_mode_a, _col_mode_b = st.columns([5, 1])
-                _col_mode_a.caption(f"Planning mode: **{_mode_label}**")
-                if _col_mode_b.button("Change", key="change_planning_mode_btn"):
-                    del st.session_state["planning_mode_choice"]
-                    st.rerun()
-
-            # Currency / terminology helpers (used in Income Goal Calculator below)
             _is_india = st.session_state.get('country') == 'India'
             _sym = "₹" if _is_india else "$"
             _corpus_label = "Corpus" if _is_india else "Portfolio"
-
-            if planning_mode == "I have an income goal — show how much I need":
-                st.subheader("Income Goal Calculator" if not _is_india else "Corpus Calculator")
-                if _is_india:
-                    st.info(
-                        "Enter your desired retirement income and we'll calculate the **corpus** you need. "
-                        "Assumes corpus invested in NPS / EPF / PPF / Equity Mutual Funds. "
-                        "If you expect Pension or NPS annuity income, reduce your target accordingly."
-                    )
-                else:
-                    st.info(
-                        "Enter your desired retirement income and we'll calculate the pre-tax portfolio "
-                        "you need. **v1 assumes the entire portfolio is pre-tax** (e.g. 401k / Traditional IRA). "
-                        "If you expect Social Security or Roth income, reduce your target accordingly."
-                    )
-
-                # Results container declared here so it renders above the inputs
-                _goal_results_container = st.container()
-                st.markdown("---")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    _income_label = (
-                        "Desired after-tax annual income (₹) — Excluding Pension/NPS"
-                        if _is_india else
-                        "Desired after-tax annual income ($) — Excluding Social Security"
-                    )
-                    _income_help = (
-                        """Typical Annual Needs (India):
-• ₹3L–₹5L/yr:  Modest lifestyle
-• ₹5L–₹8L/yr:  Comfortable lifestyle
-• ₹8L–₹12L/yr: Enhanced lifestyle
-• ₹12L+/yr:    Premium lifestyle
-
-Consider:
-• Housing (rent/EMI, maintenance)
-• Healthcare (insurance, out-of-pocket)
-• Daily living (food, utilities)
-• Lifestyle (travel, family)
-
-💡 Exclude Pension / NPS annuity — enter only the income you need from your corpus.
-Use the Pension/NPS expander below to calculate your net target."""
-                        if _is_india else
-                        """Typical Annual Needs:
-• $40K–$60K: Modest lifestyle
-• $60K–$80K: Comfortable lifestyle
-• $80K–$100K: Enhanced lifestyle
-• $100K+: Premium lifestyle
-
-Consider:
-• Housing costs (rent/mortgage, taxes)
-• Healthcare (insurance, out-of-pocket)
-• Daily living (food, utilities)
-• Lifestyle (travel, hobbies)
-
-💡 Exclude Social Security — enter only the income you need from your portfolio.
-Use the Social Security expander below to calculate your net target."""
-                    )
-                    goal_target_income = st.number_input(
-                        _income_label,
-                        min_value=0,
-                        value=int(st.session_state.get("retirement_income_goal", 600000 if _is_india else 60000)),
-                        step=10000 if _is_india else 1000,
-                        key="goal_target_income",
-                        help=_income_help,
-                    )
-                    if goal_target_income > 0:
-                        st.info(f"💰 **Income Target**: {_fmt_currency(goal_target_income, _is_india)}/year from your {'corpus' if _is_india else 'portfolio'}")
-                    else:
-                        st.info("💡 **No target set** — enter a desired annual income above")
-
-                    _tax_help = (
-                        """Your effective tax rate on corpus withdrawals in retirement.
-
-India New Tax Regime typical rates:
-• 10–15%: Moderate income retiree
-• 20–25%: Higher income retiree
-• 30%+:   High income
-
-💡 EPF / PPF withdrawals are tax-free. NPS: 60% lump sum is tax-free; annuity income is taxable.
-Consult a tax professional for a personalized estimate."""
-                        if _is_india else
-                        """Your effective tax rate on withdrawals in retirement.
-
-Typical ranges:
-• 10–15%: Low income / heavy Roth
-• 22–24%: Middle income (most retirees)
-• 32%+: Higher income
-
-💡 This applies uniformly to all withdrawals (v1 assumes 100% pre-tax assets).
-Consult a tax professional for a personalized estimate."""
-                    )
-                    goal_tax_rate = st.slider(
-                        "Retirement tax rate (%)",
-                        min_value=0,
-                        max_value=99,
-                        value=int(st.session_state.get("whatif_retirement_tax_rate", 10 if _is_india else 22)),
-                        key="goal_tax_rate",
-                        help=_tax_help,
-                    )
-                    st.info(f"🧾 **Tax Rate**: {goal_tax_rate}% applied to all withdrawals")
-
-                    goal_legacy = st.number_input(
-                        f"Legacy / end-of-life {_corpus_label.lower()} goal ({_sym}) — Optional",
-                        min_value=0,
-                        value=int(st.session_state.get("legacy_goal", 0)),
-                        step=100000 if _is_india else 10000,
-                        key="goal_legacy",
-                        help=(
-                            f"""The amount you want remaining in your {_corpus_label.lower()} at end of life — this is NOT deducted at retirement.
-
-The withdrawal simulation will preserve this amount so it can be passed on.
-
-💡 Common range: ₹20L–₹2Cr
-   (e.g., ₹50L as an inheritance for your family)
-
-Modeled as a future-value target: the corpus must end at life expectancy with at least this balance."""
-                            if _is_india else
-                            f"""The amount you want remaining in your portfolio at end of life — this is NOT deducted at retirement.
-
-The withdrawal simulation will preserve this amount so it can be passed on.
-
-💡 Common range: $50,000–$500,000
-   (e.g., $200,000 as an inheritance for your family)
-
-Modeled as a future-value target: the portfolio must end at life expectancy with at least this balance."""
-                        ),
-                    )
-                    if goal_legacy > 0:
-                        st.info(f"🎯 **Legacy Goal**: {_fmt_currency(goal_legacy, _is_india)} remaining at end of plan")
-                    else:
-                        st.info(f"💡 **No legacy goal** — {_corpus_label.lower()} can be fully depleted at end of life")
-
-                    goal_life_expenses = st.number_input(
-                        f"One-Time Expenses at Retirement ({_sym}) — Optional",
-                        min_value=0,
-                        max_value=10_000_000,
-                        value=int(st.session_state.get("life_expenses", 0)),
-                        step=100_000 if _is_india else 10_000,
-                        key="goal_life_expenses",
-                        help=(
-                            f"""A lump-sum amount deducted from your corpus at the moment you retire.
-
-Examples:
-• Paying off a remaining home loan
-• Large medical or long-term care costs
-• Down payment on a retirement home
-
-💡 Common range: ₹5L–₹50L
-   (e.g., ₹15L to clear a remaining home loan)
-
-This amount is subtracted from your corpus before calculating sustainable income."""
-                            if _is_india else
-                            """A lump-sum amount deducted from your portfolio at the moment you retire.
-
-Examples:
-• Paying off a remaining mortgage
-• Large medical or long-term care costs
-• Down payment on a retirement home
-
-💡 Common range: $50,000–$300,000
-   (e.g., $150,000 to clear a remaining mortgage)
-
-This amount is subtracted from your portfolio before calculating sustainable income."""
-                        ),
-                    )
-                    if goal_life_expenses > 0:
-                        st.info(f"💸 **One-Time Deduction**: {_fmt_currency(goal_life_expenses, _is_india)} at retirement")
-                    else:
-                        st.info("💡 **No one-time expenses set** — no deduction at retirement")
-
-                with col2:
-                    goal_retirement_age = st.number_input(
-                        "Retirement age",
-                        min_value=50,
-                        max_value=80,
-                        value=int(st.session_state.get("retirement_age", 60 if _is_india else 65)),
-                        key="goal_retirement_age",
-                        help=f"The age at which you plan to retire and begin drawing from your {'corpus' if _is_india else 'portfolio'}.",
-                    )
-                    st.info(f"⏰ **Retiring at**: age {goal_retirement_age}")
-
-                    goal_life_expectancy = st.number_input(
-                        "Life expectancy (age)",
-                        min_value=60,
-                        max_value=110,
-                        value=int(st.session_state.get("life_expectancy", 85 if _is_india else 90)),
-                        key="goal_life_expectancy",
-                        help=(
-                            """Average Life Expectancy (India):
-• At birth: ~72 years (India avg)
-• At age 30: ~75 years
-• At age 60: ~80 years
-
-Factors to Consider:
-• Family history & health status
-• Lifestyle (exercise, diet)
-• Access to healthcare
-
-💡 Tip: Plan to age 85–90 for safety."""
-                            if _is_india else
-                            """Average Life Expectancy:
-• At birth: ~79 years (US avg)
-• At age 30: ~80 years
-• At age 50: ~82 years
-• At age 65: ~85 years
-
-Factors to Consider:
-• Family history & health status
-• Lifestyle (exercise, diet, smoking)
-• Gender (women live 3–5 yrs longer)
-
-💡 Tip: Add 5–10 years for safety."""
-                        ),
-                    )
-                    _goal_years_in_ret = goal_life_expectancy - goal_retirement_age
-                    st.info(f"⏳ **Years in Retirement**: {_goal_years_in_ret} years")
-
-                    goal_growth_rate = st.slider(
-                        f"{'Corpus' if _is_india else 'Portfolio'} growth rate in retirement (%)",
-                        min_value=0,
-                        max_value=15 if _is_india else 10,
-                        value=int(round(st.session_state.get("whatif_retirement_growth_rate", 10.0 if _is_india else 4.0))),
-                        key="goal_growth_rate",
-                        help=(
-                            """Expected annual corpus growth rate during retirement.
-
-Typical assumptions (India):
-• 6–7%:  Conservative (debt MF / FD-heavy)
-• 8–10%: Moderate (balanced MF)
-• 10–12%: Equity-heavy MF
-
-💡 A SWP (Systematic Withdrawal Plan) from equity MFs at 8–10% growth is a common Indian retirement strategy."""
-                            if _is_india else
-                            """Expected annual portfolio growth rate during retirement.
-
-Typical assumptions:
-• 3–4%: Conservative (bonds-heavy)
-• 5–6%: Moderate (balanced)
-• 7–8%: Aggressive (stocks-heavy)
-
-💡 Default 4% is a common conservative estimate for a balanced retirement portfolio."""
-                        ),
-                    )
-                    st.info(f"📈 **Growth Rate**: {goal_growth_rate}%/year on {'corpus' if _is_india else 'portfolio'}")
-
-                    goal_inflation_rate = st.slider(
-                        "Inflation rate (%)",
-                        min_value=0,
-                        max_value=15 if _is_india else 10,
-                        value=int(round(st.session_state.get("whatif_inflation_rate", 7.0 if _is_india else 3.0))),
-                        key="goal_inflation_rate",
-                        help=(
-                            """Expected average annual inflation rate over your retirement.
-
-Historical context (India):
-• Long-run CPI average: ~5–7%
-• Recent years: 4–7%
-• RBI target: 4%
-
-💡 Use 7% or above for conservative planning."""
-                            if _is_india else
-                            """Expected average annual inflation rate over your retirement.
-
-Historical context:
-• US long-run average: ~3%
-• Recent (2021–2023): 4–8%
-• Fed target: 2%
-
-💡 Higher inflation erodes purchasing power — use 3% or above for safety."""
-                        ),
-                    )
-                    st.info(f"💹 **Inflation Rate**: {goal_inflation_rate}%/year")
-
-                # Sync Income Goal Calculator values back to the shared session state keys
-                # so Personal Info, What-If analysis, and the forward calculator all stay in sync.
-                st.session_state.retirement_income_goal = goal_target_income
-                st.session_state.whatif_retirement_income_goal = goal_target_income
-                st.session_state.whatif_retirement_tax_rate = goal_tax_rate
-                st.session_state.legacy_goal = goal_legacy
-                st.session_state.whatif_legacy_goal = goal_legacy
-                st.session_state.life_expenses = goal_life_expenses
-                st.session_state.whatif_life_expenses = goal_life_expenses
-                st.session_state.retirement_age = goal_retirement_age
-                st.session_state.whatif_retirement_age = goal_retirement_age
-                st.session_state.life_expectancy = goal_life_expectancy
-                st.session_state.whatif_life_expectancy = goal_life_expectancy
-                st.session_state.whatif_retirement_growth_rate = goal_growth_rate
-                st.session_state.whatif_inflation_rate = goal_inflation_rate
-
-                # Validate before running
-                _goal_errors = []
-                if goal_life_expectancy <= goal_retirement_age:
-                    _goal_errors.append("Life expectancy must be greater than retirement age.")
-                if goal_target_income < 0:
-                    _goal_errors.append("Target income cannot be negative.")
-                if goal_legacy < 0:
-                    _goal_errors.append("Legacy goal cannot be negative.")
-
-                with _goal_results_container:
-                    if _goal_errors:
-                        for _err in _goal_errors:
-                            st.error(_err)
-                    else:
-                        _r = find_required_portfolio(
-                            target_after_tax_income=float(goal_target_income),
-                            retirement_age=int(goal_retirement_age),
-                            life_expectancy=int(goal_life_expectancy),
-                            retirement_tax_rate_pct=float(goal_tax_rate),
-                            growth_rate=float(goal_growth_rate) / 100.0,
-                            inflation_rate=float(goal_inflation_rate) / 100.0,
-                            legacy_goal=float(goal_legacy),
-                            life_expenses=float(goal_life_expenses),
-                        )
-                        st.markdown("#### Results")
-                        _rc1, _rc2 = st.columns(2)
-                        _rc1.metric(f"Required {_corpus_label} at Retirement", _fmt_currency(_r['required_pretax_portfolio'], _is_india))
-                        _rc2.metric("Modeled First-Year After-Tax Income", f"{_fmt_currency(_r['confirmed_income'], _is_india)}/yr")
-                        if goal_legacy > 0:
-                            st.caption(
-                                f"Includes a **{_fmt_currency(goal_legacy, _is_india)} legacy goal** remaining at end of plan. "
-                            )
-                        if goal_life_expenses > 0:
-                            st.caption(
-                                f"Includes a **{_fmt_currency(goal_life_expenses, _is_india)} one-time deduction** at retirement."
-                            )
-                        _assets_assumption = "NPS / EPF / PPF / Equity MF corpus" if _is_india else "100% pre-tax assets"
-                        st.caption(
-                            f"Assumptions: {goal_growth_rate}% {'corpus' if _is_india else 'portfolio'} growth · {goal_inflation_rate}% inflation · "
-                            f"{goal_tax_rate}% tax rate · {_r['years_in_retirement']} years in retirement · "
-                            f"{_assets_assumption}"
-                        )
-                        if _is_india:
-                            with st.expander("💡 How to account for Pension / NPS Annuity income"):
-                                st.markdown("""
-                                    Pension or NPS annuity income is **not included** in this calculation.
-                                    If you expect regular income from these sources, reduce your income target accordingly.
-
-                                    **Common sources of pension income in India:**
-                                    - **NPS (National Pension System)**: At maturity, 60% is a tax-free lump sum; the remaining
-                                      40% must be used to purchase an annuity (taxable income). Estimate your annuity income
-                                      as roughly 5–6% of the 40% annuity portion per year.
-                                    - **EPF Pension (EPS)**: If you contributed to EPS, you receive a monthly pension from age 58.
-                                      Check your estimated pension on the **[EPFO Member Portal](https://unifiedportal-mem.epfindia.gov.in/)**.
-                                    - **Government / Defence Pension**: If applicable, this is a fixed monthly pension.
-
-                                    **Example:** If your goal is ₹8,00,000/yr after-tax and you expect ₹2,40,000/yr from
-                                    NPS annuity + EPF pension, enter **₹5,60,000** as your income target here.
-                                """)
-                        else:
-                            with st.expander("💡 How to account for Social Security income"):
-                                st.markdown("""
-                                    Social Security benefits are **not included** in this calculation. If you expect to receive
-                                    Social Security, reduce your income target by your estimated annual benefit.
-
-                                    **How to find your estimated benefit:**
-                                    - Visit **[ssa.gov/myaccount](https://www.ssa.gov/myaccount)** and create a free account — it shows your personalized benefit estimates at different claiming ages (62, 67, 70, etc.)
-                                    - Alternatively, use the **[SSA Quick Calculator](https://www.ssa.gov/OACT/quickcalc/)** for a rough estimate without logging in
-
-                                    **Example:** If your goal is **US$80,000/yr** after-tax and you expect **US$24,000/yr**
-                                    from Social Security, enter **US$56,000** as your income target here.
-                                """)
-
-                st.markdown("---")
-                if st.button("← Previous: Personal Info", key="goal_mode_back_btn"):
-                    st.session_state.pop("planning_mode_choice", None)
-                    st.session_state.onboarding_step = 1
-                    st.rerun()
-                st.stop()
 
             # Simplified setup options (removed Default Portfolio and Legacy Mode)
             # Pre-select "Configure Individual Assets" if the user previously used it
@@ -4786,7 +4421,6 @@ Historical context:
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
                 if st.button("← Previous: Personal Info", use_container_width=True):
-                    st.session_state.pop("planning_mode_choice", None)
                     st.session_state.onboarding_step = 1
                     st.rerun()
             with col3:
