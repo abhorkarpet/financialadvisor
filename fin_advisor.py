@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 12.4.0
+Version: 12.4.1
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "12.4.0"
+VERSION = "12.4.1"
 
 # Streamlit import
 import streamlit as st
@@ -151,6 +151,41 @@ def load_release_notes() -> Optional[str]:
             return f.read()
     except FileNotFoundError:
         return None
+
+
+def extract_release_overview(
+    content: Optional[str],
+    *,
+    include_heading: bool = True,
+) -> Optional[str]:
+    """Extract the release overview section from release notes markdown."""
+    if not content:
+        return None
+
+    markers = ("## 🎯 Release Overview", "## Release Overview")
+    start = -1
+    marker_used = ""
+    for marker in markers:
+        start = content.find(marker)
+        if start != -1:
+            marker_used = marker
+            break
+
+    if start == -1:
+        fallback = content.strip()
+        return fallback or None
+
+    end = content.find("\n---", start)
+    section = content[start:end] if end != -1 else content[start:]
+    section = section.strip()
+    if not section:
+        return None
+
+    if include_heading:
+        return section
+
+    body = section[len(marker_used):].strip()
+    return body or None
 
 
 # ---------------------------
@@ -1932,11 +1967,8 @@ def legal_disclaimer_dialog():
 def whats_new_dialog():
     """Display the Release Overview section of the current version's release notes."""
     content = load_release_notes()
-    if content:
-        marker = "## 🎯 Release Overview"
-        start = content.find(marker)
-        end = content.find("\n---", start) if start != -1 else -1
-        overview = content[start:end] if start != -1 and end != -1 else content
+    overview = extract_release_overview(content, include_heading=True)
+    if overview:
         st.markdown(overview)
     else:
         st.info(f"Release notes for v{VERSION} are not yet available.")
@@ -2751,14 +2783,10 @@ if not _RUNNING_TESTS:
                 st.rerun()
 
         _rn_content = load_release_notes()
-        if _rn_content:
-            _rn_marker = "## 🎯 Release Overview"
-            _rn_start = _rn_content.find(_rn_marker)
-            _rn_end = _rn_content.find("\n---", _rn_start) if _rn_start != -1 else -1
-            _rn_overview = _rn_content[_rn_start + len(_rn_marker):_rn_end].strip() if _rn_start != -1 and _rn_end != -1 else ""
-            if _rn_overview:
-                with st.expander(f"🆕 What's new in v{VERSION}"):
-                    st.markdown(_rn_overview)
+        _rn_overview = extract_release_overview(_rn_content, include_heading=False)
+        if _rn_overview:
+            with st.expander(f"🆕 What's new in v{VERSION}", expanded=False):
+                st.markdown(_rn_overview)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
