@@ -6,11 +6,12 @@ tax-advantaged projections, and detailed explanations.
 """
 
 # Version
-__version__ = "12.2.0"
+__version__ = "12.4.0"
 
 # Domain models
 from financialadvisor.domain.models import (
     AssetType,
+    TaxBehavior,
     Asset,
     TaxBracket,
     UserInputs,
@@ -40,6 +41,7 @@ __all__ = [
 
     # Domain models
     "AssetType",
+    "TaxBehavior",
     "Asset",
     "TaxBracket",
     "UserInputs",

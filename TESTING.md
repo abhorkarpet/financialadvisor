@@ -106,7 +106,7 @@ Then restart the application.
 ## Running Tests
 
 ```bash
-python fin_advisor.py --run-tests
+python3 fin_advisor.py --run-tests
 ```
 
 ## Advanced Options
@@ -191,123 +191,6 @@ streamlit run fin_advisor.py --server.enableCORS false
 
 ## Version Information
 
-Current Version: **5.0.0**
+Current Version: **12.4.0**
 
-### What's New in 5.0.0
-**Interactive Calculation Explanation in UI:**
-- **New "How Are These Numbers Calculated?" section** in Results page
-  - Expandable panel with detailed calculation explanation
-  - "Show Detailed Calculation Explanation" button displays formula breakdown
-  - Download button to save explanation as text file
-  - Provides transparency into retirement projection methodology
-- **Modular Architecture** (from 4.6.0 refactoring)
-  - Core logic extracted into `financialadvisor/` package
-  - Can now use as library: `from financialadvisor import project`
-  - 100% backward compatible with existing code
-
-### What's New in 4.6.0
-**Projected Balance Explanation Module:**
-- **New explain_projected_balance() function** provides detailed breakdown of retirement calculations
-  - Shows complete mathematical formula: `FV = P × (1 + r)^t + C × [((1 + r)^t - 1) / r]`
-  - Step-by-step calculation with user's actual numbers
-  - Separates principal growth from contribution growth
-  - Explains how annual contributions are incorporated (end-of-year assumption)
-  - Tax treatment explanation for each asset type
-- **Example script** (examples/explain_projection.py) demonstrating various scenarios
-- **Comprehensive documentation** (EXPLANATION_MODULE.md) with usage guide
-
-### What's New in 4.5.0
-**Major UX Reorganization:**
-- **Separated Onboarding from Results** into distinct pages for clearer workflow
-  - Onboarding Page: Steps 1 & 2 for data entry only
-  - Results & Analysis Page: Projections, visualizations, and what-if scenarios
-  - Button navigation: "Complete Setup → View Results" and "← Back to Setup"
-
-**What-If Scenario Analysis:**
-- Moved all scenario controls from sidebar to main Results page
-- **Fixed Facts Section**: Displays non-editable baseline data from onboarding
-  - Birth year (fixed - cannot change)
-  - Current age (calculated from birth year)
-  - Baseline retirement age, life expectancy, and income goal
-  - Number of accounts configured
-- **What-If Scenario Knobs**: Adjustable parameters for exploring scenarios
-  - Retirement Age (adjustable slider)
-  - Life Expectancy (adjustable slider)
-  - Annual Retirement Income Goal (adjustable input)
-  - Current Tax Rate (adjustable slider)
-  - Retirement Tax Rate (adjustable slider)
-  - Inflation Rate (adjustable slider)
-- **Reset to Baseline** button to restore original onboarding values
-- All visualizations update instantly as you adjust what-if parameters
-
-**Improved Visual Design:**
-- Updated splash screen "Getting Started" section with green gradient background
-- More actionable income recommendations heading when there's a shortfall
-  - Shows: "🎯 Strategies to Close Your $X Income Gap" instead of generic "Income Optimization"
-- Clearer separation between real data (onboarding) and scenario exploration (results)
-
-**Removed:**
-- Sidebar "Advanced Settings" (functionality moved to Results page)
-- Confusion between editing real data vs. exploring scenarios
-
-### What's New in 4.0.0
-**Rebranding:**
-- Renamed application from "Financial Advisor" to **Smart Retire AI**
-- Updated all user-facing text, titles, and documentation
-- New brand identity across the entire application
-
-**User Feedback & Engagement:**
-- Added comprehensive **Share & Feedback** module in sidebar
-  - Social sharing (Twitter, LinkedIn, Facebook, Email)
-  - Thumbs up/down rating system
-  - Detailed feedback form with email/GitHub Issue submission
-  - Contact Us section with smartretireai@gmail.com
-- Added **AI Extraction Quality Feedback** after document processing
-  - Quick "Looks Good" / "Needs Work" buttons
-  - Detailed issue reporting form for extraction problems
-  - Helps improve AI accuracy over time
-  - Reports sent to smartretireai@gmail.com
-
-**Extraction Feedback Features:**
-- Rate extraction accuracy immediately after viewing extracted data
-- Report specific issues: wrong balances, incorrect types, missing accounts, etc.
-- Provide context about statement type and institution
-- Automated email generation with detailed issue information
-
-### What's New in 3.5.0
-**Onboarding Improvements:**
-- Reorganized flow into 2 clear sequential steps
-- Moved tax settings and inflation rate to "Advanced Settings" sidebar (collapsed by default)
-- Added progress indicator showing current step
-- Implemented step navigation (Next/Previous/Complete buttons)
-- Session state persistence across steps
-- Results shown only after onboarding completion
-- Added reset onboarding functionality
-
-**Simplified Personal Information:**
-- Removed "Annual Income" field (no longer needed)
-- Retirement income goal is now **optional** (can be set to $0)
-- Helpful guidance shows typical ranges ($40k-$100k+)
-- No more percentage-based calculations or replacement ratios
-- Simpler, more intuitive user experience
-
-**Asset Configuration Simplification:**
-- Removed confusing "Default Portfolio" option
-- Removed confusing "Legacy Mode (Simple)" option
-- Default growth rate moved to Advanced Settings sidebar
-- Reference note in Asset Configuration points to Advanced Settings
-- Only 3 clear setup options remain:
-  1. Upload Financial Statements (AI)
-  2. Upload CSV File
-  3. Configure Individual Assets
-- Consistent growth rate defaults across all methods
-
-**Advanced Settings Enhancements:**
-- Sidebar collapsed by default (cleaner look)
-- All settings consolidated in one place:
-  - Tax rates (current and retirement)
-  - Inflation rate
-  - Default investment growth rate ⭐ NEW
-- Settings easily accessible when needed
-- Reduced cognitive load with fewer fields
-- Better focus on essential information
+This guide is focused on current local testing rather than historical release notes.

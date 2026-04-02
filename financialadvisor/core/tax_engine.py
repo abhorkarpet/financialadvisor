@@ -2,7 +2,7 @@
 
 from typing import List, Tuple
 
-from financialadvisor.domain.models import Asset, AssetType, TaxBracket
+from financialadvisor.domain.models import Asset, AssetType, TaxBehavior, TaxBracket
 from financialadvisor.core.calculator import future_value_with_contrib
 
 
@@ -86,49 +86,67 @@ def apply_tax_logic(
     Raises:
         ValueError: If asset type is unknown
     """
-    # Handle both enum and string asset types for robustness
-    asset_type = asset.asset_type
-    if hasattr(asset_type, 'value'):
-        asset_type_value = asset_type.value
+    tax_behavior = getattr(asset, "tax_behavior", None)
+    if hasattr(tax_behavior, "value"):
+        tax_behavior_value = tax_behavior.value
     else:
-        asset_type_value = str(asset_type)
+        tax_behavior_value = str(tax_behavior) if tax_behavior is not None else None
 
-    if asset_type == AssetType.PRE_TAX or asset_type_value == "pre_tax":
+    if tax_behavior == TaxBehavior.PRE_TAX or tax_behavior_value == "pre_tax":
         # Pre-tax accounts: taxed at withdrawal
         tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
         after_tax_value = future_value - tax_liability
 
-    elif asset_type == AssetType.POST_TAX or asset_type_value == "post_tax":
-        if "Roth" in asset.name:
-            # Roth IRA: no tax on withdrawal
-            after_tax_value = future_value
-            tax_liability = 0.0
+    elif tax_behavior == TaxBehavior.TAX_FREE or tax_behavior_value == "tax_free":
+        # Roth-style accounts: no tax on withdrawal
+        after_tax_value = future_value
+        tax_liability = 0.0
+
+    elif tax_behavior == TaxBehavior.CAPITAL_GAINS or tax_behavior_value == "capital_gains":
+        # Brokerage: only capital gains are taxed
+        cost_basis = asset.current_balance + total_contributions
+        gains = max(0, future_value - cost_basis)
+        tax_liability = gains * (asset.tax_rate_pct / 100.0)
+        after_tax_value = future_value - tax_liability
+
+    elif tax_behavior == TaxBehavior.HSA_SPLIT or tax_behavior_value == "hsa_split":
+        # Simplified HSA rule: assume 50% medical (tax-free), 50% other (taxed)
+        other_portion = future_value * 0.5
+        tax_liability = other_portion * (retirement_tax_rate_pct / 100.0)
+        after_tax_value = future_value - tax_liability
+
+    elif tax_behavior == TaxBehavior.ORDINARY_INCOME or tax_behavior_value == "ordinary_income":
+        tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
+        after_tax_value = future_value - tax_liability
+
+    elif tax_behavior == TaxBehavior.NO_ADDITIONAL_TAX or tax_behavior_value == "no_additional_tax":
+        after_tax_value = future_value
+        tax_liability = 0.0
+
+    else:
+        # Backward-compatible fallback for older serialized assets without tax_behavior
+        asset_type = asset.asset_type
+        if hasattr(asset_type, 'value'):
+            asset_type_value = asset_type.value
         else:
-            # Brokerage: only capital gains are taxed
-            # Cost basis = initial balance + all contributions (money actually put in)
+            asset_type_value = str(asset_type)
+
+        if asset_type == AssetType.PRE_TAX or asset_type_value == "pre_tax":
+            tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
+            after_tax_value = future_value - tax_liability
+        elif asset_type == AssetType.POST_TAX or asset_type_value == "post_tax":
             cost_basis = asset.current_balance + total_contributions
             gains = max(0, future_value - cost_basis)
             tax_liability = gains * (asset.tax_rate_pct / 100.0)
             after_tax_value = future_value - tax_liability
-
-    elif asset_type == AssetType.TAX_DEFERRED or asset_type_value == "tax_deferred":
-        # Annuities, HSA: complex rules, simplified for now
-        if "HSA" in asset.name:
-            # HSA: tax-free for medical expenses, taxed for other withdrawals
-            # Simplified: assume 50% medical, 50% other
-            medical_portion = future_value * 0.5
-            other_portion = future_value * 0.5
-            tax_liability = other_portion * (retirement_tax_rate_pct / 100.0)
-            after_tax_value = future_value - tax_liability
-        else:
-            # Annuities: taxed as ordinary income
+        elif asset_type == AssetType.TAX_DEFERRED or asset_type_value == "tax_deferred":
             tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
             after_tax_value = future_value - tax_liability
-    else:
-        raise ValueError(
-            f"Unknown asset type: {asset.asset_type} "
-            f"(type: {type(asset.asset_type)}, value: {asset_type_value})"
-        )
+        else:
+            raise ValueError(
+                f"Unknown asset type: {asset.asset_type} "
+                f"(type: {type(asset.asset_type)}, value: {asset_type_value})"
+            )
 
     return after_tax_value, tax_liability
 
