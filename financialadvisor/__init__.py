@@ -6,7 +6,7 @@ tax-advantaged projections, and detailed explanations.
 """
 
 # Version
-__version__ = "12.4.0"
+__version__ = "12.4.1"
 
 # Domain models
 from financialadvisor.domain.models import (
