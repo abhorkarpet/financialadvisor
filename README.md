@@ -69,7 +69,7 @@ python3 fin_advisor.py --run-tests
 
 The app opens at `http://localhost:8501`.
 
-For statement uploader setup, see [SETUP_STATEMENT_UPLOADER.md](SETUP_STATEMENT_UPLOADER.md).
+For statement uploader setup, see [docs/SETUP_STATEMENT_UPLOADER.md](docs/SETUP_STATEMENT_UPLOADER.md).
 
 ---
 
@@ -96,6 +96,9 @@ integrations/
 workflows/                      # n8n workflow JSON definitions
 tests/
   test_fin_advisor.py           # Unit test suite
+docs/                           # Supplementary docs (deployment, setup guides, analysis)
+release-notes/                  # Historical release notes (prior versions)
+RELEASE_NOTES_v12.5.1.md        # Current release notes
 ```
 
 ---
@@ -141,7 +144,7 @@ CI runs the test suite against Python 3.9–3.12 on every push via GitHub Action
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for Streamlit Community Cloud deployment instructions.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Streamlit Community Cloud deployment instructions.
 
 ---
 

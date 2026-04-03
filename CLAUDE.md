@@ -80,6 +80,9 @@ integrations/
 tests/
   test_fin_advisor.py           # 19+ unit tests covering math, tax behavior, and planning handoff helpers
 workflows/                      # n8n workflow JSON definitions
+docs/                           # Supplementary documentation (deployment, analytics, setup guides)
+release-notes/                  # Historical release notes (all versions prior to current)
+RELEASE_NOTES_v12.5.1.md        # Current release notes
 ```
 
 ---
