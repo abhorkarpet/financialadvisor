@@ -200,3 +200,198 @@ def chat_with_advisor(
 def fields_are_complete(fields: dict) -> bool:
     """True when all required fields have non-null confirmed values."""
     return all(fields.get(f) is not None for f in _REQUIRED_FIELDS)
+
+
+# ---------------------------------------------------------------------------
+# Detailed Planning — setup advisor (personal info collection)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Detailed Planning — post-results chat advisor
+# ---------------------------------------------------------------------------
+
+def _parse_whatif_block(text: str) -> tuple[str, dict]:
+    """Extract and remove a __whatif__ JSON tag from the assistant message.
+
+    Returns (clean_message, whatif_dict) where whatif_dict contains only the
+    non-null keys from the tag, or an empty dict if no tag was found.
+    """
+    pattern = r"__whatif__:\s*(\{.*?\})\s*$"
+    match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
+    if not match:
+        return text.strip(), {}
+
+    clean = text[: match.start()].strip()
+    try:
+        raw = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse __whatif__ block: %s", match.group(1))
+        return clean, {}
+
+    # Only keep keys with non-null values
+    changes = {k: v for k, v in raw.items() if v is not None}
+    return clean, changes
+
+
+def _load_results_advisor_prompt() -> str:
+    """Load the detailed planning results system prompt from file."""
+    import pathlib
+    prompt_path = pathlib.Path(__file__).parent / "detailed_planning_system_prompt.txt"
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def chat_with_results_advisor(
+    messages: list[dict],
+    calc_context: str,
+    openai_api_key: Optional[str] = None,
+) -> tuple[str, dict]:
+    """Post-results chat advisor for Detailed Planning.
+
+    The advisor can explain calculations, answer questions about RMDs, Social
+    Security, tax efficiency, and run what-if scenarios.
+
+    Args:
+        messages:        Conversation history (role/content dicts).
+        calc_context:    Portfolio context string from build_detailed_chat_context().
+        openai_api_key:  Optional override; falls back to OPENAI_API_KEY env var.
+
+    Returns:
+        display_message: Assistant text with __whatif__ tag stripped.
+        whatif_changes:  Dict of parameter overrides (empty if no what-if requested).
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError("openai package is required. Run: pip install openai>=1.0.0")
+
+    api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY not set. Add it to your .env file or Streamlit secrets."
+        )
+
+    client = OpenAI(api_key=api_key)
+    system_prompt = _load_results_advisor_prompt()
+
+    full_messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": calc_context},
+    ]
+    full_messages += messages
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=full_messages,
+        temperature=0.3,
+        max_tokens=1200,
+    )
+
+    raw = response.choices[0].message.content or ""
+    display_message, whatif_changes = _parse_whatif_block(raw)
+    return display_message, whatif_changes
+
+
+_SETUP_REQUIRED_FIELDS = {"birth_year", "retirement_age", "life_expectancy"}
+
+def _load_detailed_setup_prompt() -> str:
+    """Load the detailed setup system prompt from file."""
+    import pathlib
+    prompt_path = pathlib.Path(__file__).parent / "detailed_setup_system_prompt.txt"
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def chat_with_setup_advisor(
+    messages: list[dict],
+    openai_api_key: Optional[str] = None,
+) -> tuple[str, dict]:
+    """Collect personal retirement info for Detailed Planning via a short GPT conversation.
+
+    messages: list of {"role": "user"/"assistant", "content": "..."}
+    Returns:
+        display_message: assistant text with __data__ block stripped
+        extracted_fields: dict of confirmed field values (nulls filtered out), plus "done" bool
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError("openai package is required. Run: pip install openai>=1.0.0")
+
+    api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY not set. Add it to your .env file or Streamlit secrets."
+        )
+
+    client = OpenAI(api_key=api_key)
+    from datetime import date
+    _today = date.today()
+    _current_year = _today.year
+
+    # Pre-compute age/years-to-retirement so the model never does arithmetic itself.
+    # Strategy: prefer __data__ blocks (most reliable), then fall back to scanning raw text.
+    _age_hint = ""
+    _found_by: int | None = None
+    _found_ra: int | None = None
+
+    # Pass 1: __data__ blocks in assistant messages (most reliable)
+    for msg in reversed(messages):
+        _m = re.search(r"__data__:\s*(\{.*\})", msg.get("content", ""), re.DOTALL)
+        if _m:
+            try:
+                _d = json.loads(_m.group(1))
+                if _d.get("birth_year"):
+                    _found_by = int(_d["birth_year"])
+                    _found_ra = int(_d.get("retirement_age") or 65)
+                    break
+            except (ValueError, json.JSONDecodeError):
+                pass
+
+    # Pass 2: scan all messages for a plausible birth year (1920–2010) if not yet found
+    if _found_by is None:
+        all_text = " ".join(msg.get("content", "") for msg in messages)
+        _by_match = re.search(r"\b(19[2-9]\d|200\d|201[0-9])\b", all_text)
+        if _by_match:
+            _found_by = int(_by_match.group(1))
+
+    # Pass 3: scan for explicit retirement age mention ("retire at 55", "retiring at 62", etc.)
+    if _found_ra is None:
+        all_text = " ".join(msg.get("content", "") for msg in messages)
+        _ra_match = re.search(r"retir(?:e|ing|ement)\s+at\s+(\d{2})", all_text, re.IGNORECASE)
+        if _ra_match:
+            _found_ra = int(_ra_match.group(1))
+        else:
+            _found_ra = 65  # default
+
+    if _found_by is not None:
+        _age = _current_year - _found_by
+        _ytr = max(0, _found_ra - _age)
+        _age_hint = (
+            f"\n\nPre-computed facts (do NOT recalculate — use these exact numbers):\n"
+            f"  birth_year={_found_by}, current_year={_current_year}, "
+            f"  current_age={_age}, retirement_age={_found_ra}, "
+            f"  years_to_retirement={_ytr}"
+        )
+
+    system_prompt = (
+        _load_detailed_setup_prompt()
+        + f"\n\nToday's date: {_today.isoformat()}. Current year: {_current_year}."
+        + _age_hint
+    )
+
+    full_messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    full_messages += messages
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=full_messages,
+        temperature=0.4,
+        max_tokens=600,
+    )
+
+    raw = response.choices[0].message.content or ""
+    display_message, fields = _parse_data_block(raw)
+
+    confirmed = {k: v for k, v in fields.items() if v is not None and k != "done"}
+    confirmed["done"] = bool(fields.get("done", False))
+
+    return display_message, confirmed

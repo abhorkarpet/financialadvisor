@@ -654,7 +654,7 @@ def display_results(data, format_type='csv', warnings=None):
 
         st.dataframe(
             display_df,
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
 
@@ -699,7 +699,7 @@ def display_results(data, format_type='csv', warnings=None):
                         'balance': 'Balance'
                     })
 
-                    st.dataframe(bucket_df, use_container_width=True, hide_index=True)
+                    st.dataframe(bucket_df, width='stretch', hide_index=True)
 
                     # Show total
                     if 'balance' in locals():
@@ -719,7 +719,7 @@ def display_results(data, format_type='csv', warnings=None):
             col1, col2 = st.columns(2)
 
             with col1:
-                st.dataframe(tax_summary, use_container_width=True, hide_index=True)
+                st.dataframe(tax_summary, width='stretch', hide_index=True)
 
             with col2:
                 # Bar chart with humanized labels
@@ -742,7 +742,7 @@ def display_results(data, format_type='csv', warnings=None):
             col1, col2 = st.columns(2)
 
             with col1:
-                st.dataframe(eligibility_summary, use_container_width=True, hide_index=True)
+                st.dataframe(eligibility_summary, width='stretch', hide_index=True)
 
             with col2:
                 # Bar chart with humanized labels
@@ -1106,7 +1106,7 @@ def main():
             )
 
             # Process button
-            if st.button("🚀 Extract & Categorize", type="primary", use_container_width=True):
+            if st.button("🚀 Extract & Categorize", type="primary", width='stretch'):
 
                 # Progress tracking
                 progress_bar = st.progress(0)

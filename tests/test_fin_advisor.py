@@ -15,6 +15,12 @@ from fin_advisor import (
     TaxBehavior,
     UserInputs,
     _asset_from_editor_row,
+    _dedupe_ai_editor_rows,
+    _dedupe_uploaded_file_payloads,
+    _format_money_input,
+    _humanize_ai_account_name,
+    _humanize_ai_account_type,
+    _parse_money_input,
     apply_tax_logic,
     clear_detailed_planning_asset_state,
     collect_detailed_planning_handoff_fields,
@@ -198,6 +204,63 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(asset.asset_type, AssetType.POST_TAX)
         self.assertEqual(asset.tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
         self.assertEqual(asset.tax_rate_pct, 0.0)
+
+    def test_parse_money_input_accepts_human_formats(self):
+        """Natural money parsing should handle k/m/$/comma formats."""
+        self.assertEqual(_parse_money_input("$200k", "Income Goal"), 200000.0)
+        self.assertEqual(_parse_money_input("2.5m", "Income Goal"), 2500000.0)
+        self.assertEqual(_parse_money_input("150,000", "Income Goal"), 150000.0)
+        self.assertEqual(_parse_money_input("5000", "Income Goal"), 5000.0)
+
+    def test_parse_money_input_rejects_bad_formats(self):
+        """Malformed money input should raise a clear validation error."""
+        with self.assertRaises(ValueError):
+            _parse_money_input("abc", "Income Goal")
+        with self.assertRaises(ValueError):
+            _parse_money_input("-10k", "Income Goal")
+
+    def test_format_money_input(self):
+        """Formatted money text should be friendly for text inputs."""
+        self.assertEqual(_format_money_input(0), "0")
+        self.assertEqual(_format_money_input(200000), "200,000")
+        self.assertEqual(_format_money_input(2500.5), "2,500.5")
+
+    def test_dedupe_uploaded_file_payloads(self):
+        """Byte-identical uploads should be skipped before sending to AI extraction."""
+        files, skipped = _dedupe_uploaded_file_payloads(
+            [
+                ("stmt1.pdf", b"abc"),
+                ("stmt2.pdf", b"abc"),
+                ("stmt3.pdf", b"xyz"),
+            ]
+        )
+        self.assertEqual([name for name, _ in files], ["stmt1.pdf", "stmt3.pdf"])
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("stmt2.pdf", skipped[0])
+
+    def test_dedupe_ai_editor_rows(self):
+        """Likely duplicate extracted account rows should be removed with a warning."""
+        import pandas as pd
+
+        df = pd.DataFrame(
+            [
+                {"#": "#1", "Institution": "Fidelity", "Account Name": "IRA", "Last 4": "1234", "Current Balance": 1000.0},
+                {"#": "#2", "Institution": "Fidelity", "Account Name": "IRA", "Last 4": "1234", "Current Balance": 1000.0},
+                {"#": "#3", "Institution": "Vanguard", "Account Name": "Brokerage", "Last 4": "5678", "Current Balance": 2000.0},
+            ]
+        )
+        deduped, warnings = _dedupe_ai_editor_rows(df)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(list(deduped["#"]), ["#1", "#2"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Potential duplicate removed", warnings[0])
+
+    def test_humanize_ai_labels(self):
+        """Extracted account labels should preserve IRA and 401(K) capitalization."""
+        self.assertEqual(_humanize_ai_account_type("ira"), "IRA")
+        self.assertEqual(_humanize_ai_account_type("401k"), "401(K)")
+        self.assertEqual(_humanize_ai_account_name("IRA"), "IRA")
+        self.assertEqual(_humanize_ai_account_name("401K"), "401(K)")
 
     def test_parse_uploaded_csv_preserves_tax_behaviors(self):
         """CSV parsing should resolve Roth, brokerage, and savings deterministically."""
