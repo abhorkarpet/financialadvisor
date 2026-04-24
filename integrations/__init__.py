@@ -7,5 +7,7 @@ This package contains integrations with external services:
 """
 
 from .n8n_client import N8NClient, N8NError
+from .statement_processor import StatementProcessor, StatementProcessorError
+from .processor_factory import get_processor
 
-__all__ = ['N8NClient', 'N8NError']
+__all__ = ['N8NClient', 'N8NError', 'StatementProcessor', 'StatementProcessorError', 'get_processor']

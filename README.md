@@ -2,7 +2,7 @@
 
 A Python/Streamlit web app for projecting retirement savings with multi-asset tax optimization, Monte Carlo simulation, AI-powered statement processing, and a GPT-4 chat advisor.
 
-**Current version: 12.5.1**
+**Current version: 14.0.0**
 
 ---
 
@@ -20,9 +20,10 @@ A Python/Streamlit web app for projecting retirement savings with multi-asset ta
 
 ### AI-Powered Statement Processing
 - Upload PDF financial statements; GPT-4.1 extracts and categorizes accounts automatically
-- Automatic tax classification (pre_tax / post_tax)
+- Automatic tax classification (pre_tax / post_tax / tax_free) with tax bucket decomposition for 401k/403b accounts
+- Account-number-based deduplication — survives generic AI-assigned names across multi-file batches
 - PII removal, multi-file batch processing, CSV/JSON export
-- Powered by n8n workflow automation
+- Two processor backends, switchable via env var: **Python processor** (no n8n required) or **n8n webhook**
 
 ### Reporting
 - Real-time charts and visualizations
@@ -46,11 +47,14 @@ pip install -r requirements.txt
 Copy `.env.example` to `.env` and fill in:
 
 ```
-OPENAI_API_KEY=               # Required for chat advisor
-N8N_WEBHOOK_URL=              # Required for statement processing
-N8N_STATEMENT_UPLOADER_URL=   # Optional separate uploader webhook
-N8N_WEBHOOK_TOKEN=            # Optional auth token
+OPENAI_API_KEY=                    # Required for chat advisor and Python statement processor
+PYTHON_STATEMENT_PROCESSOR=true    # Use built-in Python processor (no n8n needed)
+N8N_WEBHOOK_URL=                   # Required only when using n8n processor
+N8N_STATEMENT_UPLOADER_URL=        # Optional separate uploader webhook (n8n mode)
+N8N_WEBHOOK_TOKEN=                 # Optional auth token (n8n mode)
 ```
+
+Set `PYTHON_STATEMENT_PROCESSOR=true` to process statements without n8n. Leave it unset to fall back to the n8n webhook.
 
 ---
 
@@ -91,6 +95,8 @@ financialadvisor/
     analytics.py                # PostHog event tracking
 integrations/
   n8n_client.py                 # n8n webhook HTTP client
+  statement_processor.py        # Pure Python statement processor (no n8n)
+  processor_factory.py          # Returns active processor based on env var
   chat_advisor.py               # GPT-4 conversational planning
   gpt_system_prompt.txt         # Chat advisor system prompt
 workflows/                      # n8n workflow JSON definitions
@@ -98,7 +104,7 @@ tests/
   test_fin_advisor.py           # Unit test suite
 docs/                           # Supplementary docs (deployment, setup guides, analysis)
 release-notes/                  # Historical release notes (prior versions)
-RELEASE_NOTES_v12.5.1.md        # Current release notes
+RELEASE_NOTES_v14.0.0.md        # Current release notes
 ```
 
 ---

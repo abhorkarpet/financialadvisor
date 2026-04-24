@@ -12,10 +12,19 @@ import io
 import re
 import pandas as pd
 import streamlit as st
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from pypdf import PdfReader
 from integrations.n8n_client import N8NClient, N8NError
+from integrations.statement_processor import StatementProcessor, StatementProcessorError
+from integrations.processor_factory import get_processor
+
+_USE_PYTHON_PROCESSOR = True  # TESTING: forced on; restore to env-var check when done
+_N8N_URL = None #os.getenv("N8N_STATEMENT_UPLOADER_URL") or os.getenv("N8N_WEBHOOK_URL")
+_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+# Comparison mode is possible only when both backends are configured
+_COMPARISON_AVAILABLE = False  # TESTING: disabled while Python-only mode is forced
 
 
 # Page configuration
@@ -298,13 +307,18 @@ def load_custom_css():
 
 def check_configuration():
     """
-    Check if n8n webhook is properly configured.
+    Check if the statement processor is properly configured.
 
     Returns:
-        tuple: (is_configured: bool, webhook_url: str, error_message: str)
+        tuple: (is_configured: bool, webhook_url_or_mode: str, error_message: str)
     """
-    # Try statement-uploader-specific URL first, then fall back to general webhook URL
-    webhook_url = os.getenv('N8N_STATEMENT_UPLOADER_URL') or os.getenv('N8N_WEBHOOK_URL')
+    if _USE_PYTHON_PROCESSOR:
+        if not os.getenv('OPENAI_API_KEY'):
+            return False, None, "OPENAI_API_KEY not set (required for Python processor)"
+        return True, 'python-processor', None
+
+    # n8n mode — try statement-uploader-specific URL first, then fall back to general webhook URL
+    webhook_url = _N8N_URL #os.getenv('N8N_STATEMENT_UPLOADER_URL') or os.getenv('N8N_WEBHOOK_URL')
 
     if not webhook_url:
         return False, None, "N8N_STATEMENT_UPLOADER_URL or N8N_WEBHOOK_URL environment variable not set"
@@ -317,11 +331,27 @@ def check_configuration():
 
 
 def display_configuration_help():
-    """Display help for configuring the n8n webhook"""
+    """Display help for configuring the statement processor."""
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.markdown("### ⚙️ Configuration Required")
 
-    st.markdown("""
+    if _USE_PYTHON_PROCESSOR:
+        st.markdown("""
+    The Python processor is enabled (`PYTHON_STATEMENT_PROCESSOR=true`) but `OPENAI_API_KEY` is missing.
+
+    **Fix:** Add your OpenAI API key to your `.env` file:
+    ```bash
+    OPENAI_API_KEY=sk-...
+    PYTHON_STATEMENT_PROCESSOR=true
+    ```
+
+    Then restart the app:
+    ```bash
+    streamlit run statement_uploader.py
+    ```
+    """)
+    else:
+        st.markdown("""
     To use this app, you need to set up the n8n workflow webhook:
 
     **Step 1: Deploy n8n Workflow**
@@ -344,23 +374,16 @@ def display_configuration_help():
     N8N_WEBHOOK_TOKEN=your_optional_auth_token
     ```
 
+    Alternatively, skip n8n entirely with the Python processor:
+    ```bash
+    PYTHON_STATEMENT_PROCESSOR=true
+    OPENAI_API_KEY=sk-...
+    ```
+
     **Step 3: Load Environment**
     ```bash
-    # Install python-dotenv if needed
-    pip install python-dotenv
-
-    # Run the app
     streamlit run statement_uploader.py
     ```
-
-    **For Testing:**
-    You can also set the environment variable directly:
-    ```bash
-    export N8N_STATEMENT_UPLOADER_URL="https://your-webhook-url"
-    streamlit run statement_uploader.py
-    ```
-
-    **Note:** The app will use `N8N_STATEMENT_UPLOADER_URL` if set, otherwise falls back to `N8N_WEBHOOK_URL`.
     """)
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -465,7 +488,7 @@ def humanize_value(value: str) -> str:
     return value_str
 
 
-def display_results(data, format_type='csv', warnings=None):
+def display_results(data, format_type='csv', warnings=None, key_prefix=''):
     """
     Display extracted financial data in a formatted table.
 
@@ -763,7 +786,8 @@ def display_results(data, format_type='csv', warnings=None):
                 label="📥 Download CSV",
                 data=csv_download,
                 file_name=f"financial_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key=f"{key_prefix}_dl_csv" if key_prefix else None,
             )
 
         with col2:
@@ -773,7 +797,8 @@ def display_results(data, format_type='csv', warnings=None):
                 label="📥 Download JSON",
                 data=json_data,
                 file_name=f"financial_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
+                mime="application/json",
+                key=f"{key_prefix}_dl_json" if key_prefix else None,
             )
 
         # Add Excel export if openpyxl is available
@@ -801,7 +826,8 @@ def display_results(data, format_type='csv', warnings=None):
                 data=excel_buffer,
                 file_name=f"financial_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="Download as Excel with separate sheets for tax buckets"
+                help="Download as Excel with separate sheets for tax buckets",
+                key=f"{key_prefix}_dl_xlsx" if key_prefix else None,
             )
         except ImportError:
             st.info("💡 Install openpyxl to enable Excel export: `pip install openpyxl`")
@@ -889,6 +915,243 @@ def display_file_preview_cards(uploaded_files, validation):
             st.markdown("---")
 
 
+# ---------------------------------------------------------------------------
+# Comparison helpers
+# ---------------------------------------------------------------------------
+
+_INSTITUTION_DROP_WORDS = {
+    "brokerage", "services", "service", "financial", "bank", "investments",
+    "investment", "securities", "advisors", "advisory", "group", "trust",
+    "wealth", "management", "asset", "assets", "fund", "funds", "capital",
+}
+
+def _normalize_institution(inst: str) -> str:
+    """
+    Reduce institution name to its first significant word so that
+    'Vanguard' and 'Vanguard Brokerage Services' both key to 'vanguard'.
+    """
+    words = inst.lower().strip().split()
+    # Keep only the first word that isn't a generic suffix
+    for word in words:
+        clean = re.sub(r"[^a-z0-9]", "", word)
+        if clean and clean not in _INSTITUTION_DROP_WORDS:
+            return clean
+    return words[0] if words else "unknown"
+
+
+def _account_key(account: Dict) -> str:
+    """Soft match key: normalized_institution + account_type."""
+    inst = _normalize_institution(account.get("institution") or "unknown")
+    atype = (account.get("account_type") or "unknown").lower().strip()
+    return f"{inst}|{atype}"
+
+
+def compare_accounts(n8n_accounts: List[Dict], py_accounts: List[Dict]) -> Dict:
+    """
+    Match accounts from both processors and produce a structured diff.
+
+    Matching strategy: group by (institution, account_type). Within each group
+    pair by list index so the Nth n8n account matches the Nth Python account.
+    Unmatched extras are reported as only-in-one-processor.
+    """
+    from collections import defaultdict
+
+    def group_by_key(accounts):
+        groups: Dict[str, List[Dict]] = defaultdict(list)
+        for a in accounts:
+            groups[_account_key(a)].append(a)
+        return groups
+
+    n8n_groups = group_by_key(n8n_accounts)
+    py_groups  = group_by_key(py_accounts)
+    all_keys   = set(n8n_groups) | set(py_groups)
+
+    only_n8n:   List[Dict] = []
+    only_python: List[Dict] = []
+    matched:    List[Dict] = []   # accounts present in both, with diff details
+    identical:  int = 0
+
+    for key in sorted(all_keys):
+        n8n_list = n8n_groups.get(key, [])
+        py_list  = py_groups.get(key, [])
+        pair_count = min(len(n8n_list), len(py_list))
+
+        for i in range(pair_count):
+            na, pa = n8n_list[i], py_list[i]
+            diffs = {}
+
+            nb = na.get("ending_balance") or 0
+            pb = pa.get("ending_balance") or 0
+            if abs(nb - pb) > 0.01:
+                diffs["ending_balance"] = {
+                    "n8n": nb, "python": pb,
+                    "delta": pb - nb,
+                    "delta_pct": ((pb - nb) / nb * 100) if nb else None,
+                }
+
+            for field in ("tax_treatment", "balance_as_of_date", "account_type",
+                          "purpose", "income_eligibility"):
+                nv = na.get(field)
+                pv = pa.get(field)
+                if nv != pv:
+                    diffs[field] = {"n8n": nv, "python": pv}
+
+            entry = {
+                "n8n_account": na,
+                "python_account": pa,
+                "diffs": diffs,
+                "label": na.get("account_name") or pa.get("account_name") or key,
+            }
+            matched.append(entry)
+            if not diffs:
+                identical += 1
+
+        for extra in n8n_list[pair_count:]:
+            only_n8n.append(extra)
+        for extra in py_list[pair_count:]:
+            only_python.append(extra)
+
+    return {
+        "only_n8n":    only_n8n,
+        "only_python": only_python,
+        "matched":     matched,
+        "identical":   identical,
+        "total_n8n":   len(n8n_accounts),
+        "total_python": len(py_accounts),
+    }
+
+
+def display_comparison(n8n_result: Dict, py_result: Dict) -> None:
+    """Render side-by-side results and a structured diff section."""
+
+    n8n_ok = n8n_result.get("success", False)
+    py_ok  = py_result.get("success", False)
+
+    # --- status banners ---
+    c1, c2 = st.columns(2)
+    with c1:
+        if not n8n_ok:
+            st.error(f"n8n failed: {n8n_result.get('error', 'unknown error')}")
+    with c2:
+        if not py_ok:
+            st.error(f"Python failed: {py_result.get('error', 'unknown error')}")
+
+    # --- timing metrics ---
+    n8n_time = n8n_result.get("execution_time", 0.0)
+    py_time  = py_result.get("execution_time", 0.0)
+    time_delta = py_time - n8n_time  # positive = Python slower, negative = Python faster
+
+    t1, t2, t3 = st.columns(3)
+    t1.metric("n8n time",    f"{n8n_time:.1f}s")
+    t2.metric("Python time", f"{py_time:.1f}s",
+              delta=f"{time_delta:+.1f}s vs n8n",
+              delta_color="inverse")   # green when Python is faster (negative delta)
+    if n8n_time > 0:
+        faster = "n8n" if n8n_time < py_time else "Python"
+        ratio  = max(n8n_time, py_time) / min(n8n_time, py_time)
+        t3.metric("Faster", faster, delta=f"{ratio:.1f}× faster")
+
+    # --- token usage (Python only — n8n doesn't expose this) ---
+    py_tokens = py_result.get("token_usage")
+    if py_tokens and py_tokens.get("total_tokens"):
+        st.markdown("**OpenAI token usage (Python processor)**")
+        u1, u2, u3 = st.columns(3)
+        u1.metric("Prompt tokens",     f"{py_tokens['prompt_tokens']:,}")
+        u2.metric("Completion tokens", f"{py_tokens['completion_tokens']:,}")
+        u3.metric("Total tokens",      f"{py_tokens['total_tokens']:,}")
+
+    if not (n8n_ok and py_ok):
+        st.warning("One processor failed — diff not available.")
+        if n8n_ok:
+            st.markdown("### n8n results")
+            display_results(n8n_result["data"], format_type=n8n_result.get("format", "json"),
+                            warnings=n8n_result.get("warnings", []), key_prefix="n8n")
+        if py_ok:
+            st.markdown("### Python results")
+            display_results(py_result["data"], format_type="json",
+                            warnings=py_result.get("warnings", []), key_prefix="python")
+        return
+
+    n8n_accounts = n8n_result["data"] if isinstance(n8n_result["data"], list) else []
+    py_accounts  = py_result["data"]
+
+    diff = compare_accounts(n8n_accounts, py_accounts)
+
+    # --- diff summary ---
+    st.markdown("---")
+    st.markdown("## Diff Summary")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("n8n accounts",    diff["total_n8n"])
+    m2.metric("Python accounts", diff["total_python"],
+              delta=diff["total_python"] - diff["total_n8n"])
+    m3.metric("Matched pairs",   len(diff["matched"]))
+    m4.metric("Identical",       diff["identical"],
+              delta=f"{diff['identical']}/{len(diff['matched'])} matched" if diff["matched"] else None)
+
+    # --- accounts only in one processor ---
+    if diff["only_n8n"]:
+        st.warning(f"**{len(diff['only_n8n'])} account(s) found by n8n only** (Python missed these):")
+        for a in diff["only_n8n"]:
+            name = a.get("account_name") or a.get("account_type") or "Unknown"
+            bal  = a.get("ending_balance")
+            st.markdown(f"- **{name}** ({a.get('institution') or '?'}) — "
+                        f"${bal:,.2f}" if bal is not None else f"- **{name}** — balance unknown")
+
+    if diff["only_python"]:
+        st.info(f"**{len(diff['only_python'])} account(s) found by Python only** (n8n missed these):")
+        for a in diff["only_python"]:
+            name = a.get("account_name") or a.get("account_type") or "Unknown"
+            bal  = a.get("ending_balance")
+            st.markdown(f"- **{name}** ({a.get('institution') or '?'}) — "
+                        f"${bal:,.2f}" if bal is not None else f"- **{name}** — balance unknown")
+
+    # --- matched account diffs ---
+    differing = [m for m in diff["matched"] if m["diffs"]]
+    if not differing and not diff["only_n8n"] and not diff["only_python"]:
+        st.success("Results are identical across both processors.")
+    elif differing:
+        st.markdown(f"### {len(differing)} matched account(s) with differences")
+        for entry in differing:
+            label = entry["label"]
+            with st.expander(f"**{label}**", expanded=True):
+                for field, vals in entry["diffs"].items():
+                    nv, pv = vals["n8n"], vals["python"]
+                    if field == "ending_balance":
+                        delta = vals["delta"]
+                        pct   = vals["delta_pct"]
+                        pct_str = f" ({pct:+.1f}%)" if pct is not None else ""
+                        st.markdown(
+                            f"- **Balance**: n8n `${nv:,.2f}` → Python `${pv:,.2f}` "
+                            f"(**{'+' if delta >= 0 else ''}{delta:,.2f}{pct_str}**)"
+                        )
+                    else:
+                        field_label = field.replace("_", " ").title()
+                        st.markdown(f"- **{field_label}**: n8n `{nv}` → Python `{pv}`")
+
+    # --- warnings from both ---
+    all_warnings = []
+    for w in n8n_result.get("warnings", []):
+        all_warnings.append(("n8n", w))
+    for w in py_result.get("warnings", []):
+        all_warnings.append(("Python", w))
+    if all_warnings:
+        with st.expander(f"Warnings ({len(all_warnings)})"):
+            for source, w in all_warnings:
+                st.caption(f"[{source}] {w}")
+
+    # --- full side-by-side tables ---
+    st.markdown("---")
+    st.markdown("## Full Results")
+    col_n8n, col_py = st.columns(2)
+    with col_n8n:
+        st.markdown("### n8n")
+        display_results(n8n_accounts, format_type="json", warnings=[], key_prefix="n8n")
+    with col_py:
+        st.markdown("### Python")
+        display_results(py_accounts, format_type="json", warnings=[], key_prefix="python")
+
+
 def main():
     """Main application"""
 
@@ -909,7 +1172,21 @@ def main():
     # Sidebar
     with st.sidebar:
         st.markdown("## About")
-        st.info("""
+        if _USE_PYTHON_PROCESSOR:
+            st.info("""
+        This tool uses AI to extract structured data from financial statements including:
+        - Account balances
+        - Tax treatment classification
+        - Account types (401k, IRA, etc.)
+        - PII removal for privacy
+
+        **Powered by:**
+        - Pure Python processor (no n8n)
+        - OpenAI GPT-4.1-mini
+        - pypdf text extraction
+        """)
+        else:
+            st.info("""
         This tool uses AI to extract structured data from financial statements including:
         - Account balances
         - Tax treatment classification
@@ -947,6 +1224,23 @@ def main():
             help="Show detailed scoring breakdown for document detection"
         )
 
+        st.markdown("---")
+        st.markdown("## Comparison Mode")
+        if _COMPARISON_AVAILABLE:
+            comparison_mode = st.checkbox(
+                "Compare n8n vs Python processor",
+                value=False,
+                help="Run both processors on the same files and show a side-by-side diff. Useful for validating the Python processor."
+            )
+        else:
+            comparison_mode = False
+            missing = []
+            if not _N8N_URL:
+                missing.append("N8N_WEBHOOK_URL")
+            if not _OPENAI_KEY:
+                missing.append("OPENAI_API_KEY")
+            st.caption(f"Set {' and '.join(missing)} to enable comparison mode.")
+
     # Check configuration
     is_configured, webhook_url, error_msg = check_configuration()
 
@@ -957,19 +1251,31 @@ def main():
 
     # Show configuration status
     with st.expander("ℹ️ Configuration Status"):
-        st.success(f"✓ Webhook configured: {webhook_url}")
+        if _USE_PYTHON_PROCESSOR:
+            st.success("✓ Python processor active (no n8n required)")
+            if st.button("Test OpenAI API Key"):
+                with st.spinner("Testing API key..."):
+                    try:
+                        import openai
+                        client_test = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                        client_test.models.list()
+                        st.success("✓ OpenAI API key is valid!")
+                    except Exception as e:
+                        st.error(f"✗ API key test failed: {str(e)}")
+        else:
+            st.success(f"✓ Webhook configured: {webhook_url}")
 
-        # Test connection
-        if st.button("Test Webhook Connection"):
-            with st.spinner("Testing connection..."):
-                try:
-                    client = N8NClient(webhook_url=webhook_url)
-                    if client.test_connection():
-                        st.success("✓ Webhook is reachable!")
-                    else:
-                        st.error("✗ Cannot reach webhook. Check your n8n instance.")
-                except Exception as e:
-                    st.error(f"✗ Connection test failed: {str(e)}")
+            # Test connection
+            if st.button("Test Webhook Connection"):
+                with st.spinner("Testing connection..."):
+                    try:
+                        client = N8NClient(webhook_url=webhook_url)
+                        if client.test_connection():
+                            st.success("✓ Webhook is reachable!")
+                        else:
+                            st.error("✗ Cannot reach webhook. Check your n8n instance.")
+                    except Exception as e:
+                        st.error(f"✗ Connection test failed: {str(e)}")
 
     # Main upload interface
     st.markdown("---")
@@ -1102,18 +1408,18 @@ def main():
             include_all = st.checkbox(
                 f"Override: Include all {stats['total']} files (not recommended)",
                 value=False,
-                help="This will send all files to n8n, including non-financial documents, which may waste API credits."
+                help="This will process all files, including non-financial documents, which may waste API credits."
             )
 
-            # Process button
-            if st.button("🚀 Extract & Categorize", type="primary", width='stretch'):
+            btn_label = "🔍 Compare n8n vs Python" if comparison_mode else "🚀 Extract & Categorize"
+            if st.button(btn_label, type="primary", width='stretch'):
 
                 # Progress tracking
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
                 try:
-                    # Determine which files to upload
+                    # Determine which files to process
                     if include_all:
                         files_to_process = uploaded_files
                         st.info(f"Processing all {len(uploaded_files)} file(s) (override enabled)")
@@ -1122,52 +1428,84 @@ def main():
                         if invalid_files:
                             st.info(f"Skipping {len(invalid_files)} non-financial file(s)")
 
-                    # Initialize client
-                    status_text.text("Initializing connection to n8n workflow...")
-                    progress_bar.progress(10)
-
-                    client = N8NClient(webhook_url=webhook_url)
-
-                    # Prepare files
-                    status_text.text(f"Uploading {len(files_to_process)} file(s)...")
-                    progress_bar.progress(30)
-
-                    # Upload to n8n
                     files_to_upload = [(f.name, f.getvalue()) for f in files_to_process]
 
-                    result = client.upload_statements(files_to_upload)
+                    if comparison_mode:
+                        # ---- Run both processors sequentially then compare ----
+                        status_text.text("Running n8n processor...")
+                        progress_bar.progress(10)
+                        n8n_client = N8NClient(webhook_url=_N8N_URL)
+                        n8n_result = n8n_client.upload_statements(files_to_upload)
+                        progress_bar.progress(50)
 
-                    progress_bar.progress(90)
+                        status_text.text("Running Python processor...")
+                        py_client = StatementProcessor()
+                        py_result = py_client.upload_statements(files_to_upload)
+                        progress_bar.progress(90)
 
-                    # Handle result
-                    if result['success']:
                         progress_bar.progress(100)
-                        status_text.text("✓ Processing complete!")
+                        status_text.text("✓ Both processors complete!")
 
-                        # Display results
                         st.markdown("---")
-                        st.markdown("## Results")
-
-                        # Show execution time
-                        st.caption(f"Processed in {result['execution_time']:.2f} seconds")
-
-                        # Display extracted data (warnings will be shown within display_results)
-                        format_type = result.get('format', 'csv')
-                        warnings = result.get('warnings', [])
-                        display_results(result['data'], format_type=format_type, warnings=warnings)
+                        display_comparison(n8n_result, py_result)
 
                     else:
-                        progress_bar.progress(100)
-                        status_text.text("✗ Processing failed")
+                        # ---- Single processor ----
+                        if _USE_PYTHON_PROCESSOR:
+                            status_text.text("Initializing Python processor...")
+                        else:
+                            status_text.text("Initializing connection to n8n workflow...")
+                        progress_bar.progress(10)
 
-                        st.markdown('<div class="error-box">', unsafe_allow_html=True)
-                        st.markdown("### ❌ Processing Error")
-                        st.error(result.get('error', 'Unknown error occurred'))
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        client = StatementProcessor() if _USE_PYTHON_PROCESSOR else get_processor()
 
-                        # Troubleshooting tips
-                        st.markdown("### Troubleshooting")
-                        st.info("""
+                        if _USE_PYTHON_PROCESSOR:
+                            status_text.text(f"Extracting and analysing {len(files_to_process)} file(s)...")
+                        else:
+                            status_text.text(f"Uploading {len(files_to_process)} file(s)...")
+                        progress_bar.progress(30)
+
+                        result = client.upload_statements(files_to_upload)
+                        progress_bar.progress(90)
+
+                        if result['success']:
+                            progress_bar.progress(100)
+                            status_text.text("✓ Processing complete!")
+
+                            st.markdown("---")
+                            st.markdown("## Results")
+                            st.caption(f"Processed in {result['execution_time']:.2f} seconds")
+
+                            token_usage = result.get("token_usage")
+                            if token_usage and token_usage.get("total_tokens"):
+                                u1, u2, u3 = st.columns(3)
+                                u1.metric("Prompt tokens",     f"{token_usage['prompt_tokens']:,}")
+                                u2.metric("Completion tokens", f"{token_usage['completion_tokens']:,}")
+                                u3.metric("Total tokens",      f"{token_usage['total_tokens']:,}")
+
+                            format_type = result.get('format', 'csv')
+                            warnings = result.get('warnings', [])
+                            display_results(result['data'], format_type=format_type, warnings=warnings)
+
+                        else:
+                            progress_bar.progress(100)
+                            status_text.text("✗ Processing failed")
+
+                            st.markdown('<div class="error-box">', unsafe_allow_html=True)
+                            st.markdown("### ❌ Processing Error")
+                            st.error(result.get('error', 'Unknown error occurred'))
+                            st.markdown('</div>', unsafe_allow_html=True)
+
+                            st.markdown("### Troubleshooting")
+                            if _USE_PYTHON_PROCESSOR:
+                                st.info("""
+                        **Common issues:**
+                        - Ensure OPENAI_API_KEY is valid and has available credits
+                        - Verify the PDFs contain selectable text (not scanned images)
+                        - Check that the PDF is a financial statement with explicit balances
+                        """)
+                            else:
+                                st.info("""
                         **Common issues:**
                         - Ensure your n8n workflow is active
                         - Check OpenAI API credentials in n8n
@@ -1175,7 +1513,7 @@ def main():
                         - Check n8n execution logs for detailed errors
                         """)
 
-                except N8NError as e:
+                except (N8NError, StatementProcessorError) as e:
                     progress_bar.progress(100)
                     status_text.text("✗ Configuration error")
                     st.error(f"Configuration Error: {str(e)}")
@@ -1210,7 +1548,7 @@ def main():
 
         **Supported formats:** PDF only
         **Multiple files:** Yes
-        **Max file size:** Check your n8n instance limits
+        **Max file size:** No hard limit (selectable-text PDFs work best)
         """)
         st.markdown('</div>', unsafe_allow_html=True)
 

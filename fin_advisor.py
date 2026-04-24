@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 13.0.0
+Version: 14.0.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "13.0.0"
+VERSION = "14.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -85,9 +85,11 @@ except ImportError:
     def get_session_replay_script() -> str: return ""
     def reset_analytics_session() -> None: pass
 
-# n8n integration for financial statement upload
+# n8n / Python statement processor integration
 try:
-    from integrations.n8n_client import N8NClient, N8NError
+    from integrations.n8n_client import N8NError
+    from integrations.statement_processor import StatementProcessor, StatementProcessorError
+    from integrations.processor_factory import get_processor
     from pypdf import PdfReader
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file
@@ -1791,11 +1793,11 @@ def generate_report_dialog():
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("❌ Cancel", width='stretch'):
+        if st.button("❌ Cancel",use_container_width=True):
             st.rerun()
 
     with col2:
-        if st.button("📥 Generate PDF", type="primary", width='stretch'):
+        if st.button("📥 Generate PDF", type="primary",use_container_width=True):
             if not _REPORTLAB_AVAILABLE:
                 st.error("⚠️ **PDF generation not available.** Install reportlab to enable PDF downloads:")
                 st.code("pip install reportlab", language="bash")
@@ -1843,7 +1845,7 @@ def generate_report_dialog():
                     data=pdf_bytes,
                     file_name=filename,
                     mime="application/pdf",
-                    width='stretch'
+                    use_container_width=True
                 )
 
             except Exception as e:
@@ -1894,11 +1896,11 @@ def monte_carlo_dialog():
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("❌ Cancel", width='stretch'):
+        if st.button("❌ Cancel",use_container_width=True):
             st.rerun()
 
     with col2:
-        if st.button("🚀 Run Analysis", type="primary", width='stretch'):
+        if st.button("🚀 Run Analysis", type="primary",use_container_width=True):
             # Store configuration in session state and navigate to Monte Carlo page
             st.session_state.monte_carlo_config = {
                 'num_simulations': num_simulations,
@@ -1949,9 +1951,9 @@ def cashflow_dialog():
         })
 
     df_withdrawals = pd.DataFrame(withdrawal_data)
-    st.dataframe(df_withdrawals, width='stretch', hide_index=True, column_config=_col_cfg)
+    st.dataframe(df_withdrawals,use_container_width=True, hide_index=True, column_config=_col_cfg)
 
-    if st.button("Close", width='stretch'):
+    if st.button("Close",use_container_width=True):
         st.rerun()
 
 
@@ -1980,14 +1982,14 @@ def contribution_reminder_dialog():
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("← Go Back and Adjust", width='stretch', type="primary"):
+        if st.button("← Go Back and Adjust",use_container_width=True, type="primary"):
             # Clear the flag and close dialog
             if 'show_contribution_reminder' in st.session_state:
                 del st.session_state.show_contribution_reminder
             st.rerun()
 
     with col2:
-        if st.button("Continue Anyway →", width='stretch'):
+        if st.button("Continue Anyway →",use_container_width=True):
             # User chose to proceed without adjusting contributions
             st.session_state.contribution_reminder_dismissed = True
             if 'show_contribution_reminder' in st.session_state:
@@ -2032,7 +2034,7 @@ def show_mode_selection_page():
             unsafe_allow_html=True,
         )
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Start Chat →", type="primary", width='stretch', key="mode_select_simple"):
+        if st.button("Start Chat →", type="primary",use_container_width=True, key="mode_select_simple"):
             st.session_state.pop("planning_mode_choice", None)
             st.session_state.current_page = "chat_mode"
             st.session_state.chat_messages = []
@@ -2058,7 +2060,7 @@ def show_mode_selection_page():
             unsafe_allow_html=True,
         )
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Enter Details →", width='stretch', key="mode_select_detailed"):
+        if st.button("Enter Details →",use_container_width=True, key="mode_select_detailed"):
             st.session_state.pop("planning_mode_choice", None)
             st.session_state.current_page = "onboarding"
             st.session_state.onboarding_step = 1
@@ -2089,11 +2091,11 @@ def show_chat_mode_page():
     st.markdown("### 💬 Simple Retirement Planner")
     _chat_nav_left, _chat_nav_mid, _chat_nav_right = st.columns([1.3, 1.6, 1.3])
     with _chat_nav_left:
-        if st.button("← Change planning mode", key="chat_back_to_mode_select", width='stretch'):
+        if st.button("← Change planning mode", key="chat_back_to_mode_select",use_container_width=True):
             st.session_state.current_page = "mode_selection"
             st.rerun()
     with _chat_nav_right:
-        if st.button("Switch to Detailed Planning (US-only)", key="chat_to_detailed", width='stretch', disabled=is_india):
+        if st.button("Switch to Detailed Planning (US-only)", key="chat_to_detailed",use_container_width=True, disabled=is_india):
             switch_to_detailed_planning_from_chat()
 
     st.markdown("---")
@@ -2213,7 +2215,7 @@ def show_chat_mode_page():
                 data=_transcript,
                 file_name=_fname,
                 mime="text/markdown",
-                width='stretch',
+                use_container_width=True,
                 key="chat_download_btn",
             )
 
@@ -2356,7 +2358,7 @@ def show_chat_mode_page():
                 if st.button(
                     "Switch to Detailed Planning",
                     key="results_to_detailed",
-                    width='stretch',
+                    use_container_width=True,
                 ):
                     switch_to_detailed_planning_from_chat()
 
@@ -2487,7 +2489,7 @@ def show_chat_mode_page():
                         data=_pdf_bytes,
                         file_name=_pdf_fname,
                         mime="application/pdf",
-                        width='stretch',
+                        use_container_width=True,
                         key="chat_pdf_download",
                     )
                 except Exception as _pdf_err:
@@ -2539,7 +2541,7 @@ def show_detailed_setup_chat() -> None:
     with _header_col:
         st.subheader("📝 Your Retirement Goals")
     with _switch_col:
-        if st.button("Switch to Simple Planning", width='stretch', key="switch_from_setup_chat"):
+        if st.button("Switch to Simple Planning",use_container_width=True, key="switch_from_setup_chat"):
             switch_to_simple_planning_from_onboarding()
 
     st.info(
@@ -2566,7 +2568,7 @@ def show_detailed_setup_chat() -> None:
                     st.markdown(msg["content"])
 
         if st.session_state.setup_fields_locked:
-            if st.button("Continue: Set Up Accounts →", type="primary", width='stretch', key="setup_continue_btn"):
+            if st.button("Continue: Set Up Accounts →", type="primary",use_container_width=True, key="setup_continue_btn"):
                 _apply_setup_fields_to_session(st.session_state.setup_fields)
                 track_onboarding_step_completed(
                     1,
@@ -2583,7 +2585,7 @@ def show_detailed_setup_chat() -> None:
                 st.warning("⚠️ Chat advisor requires `OPENAI_API_KEY`. Set it in your `.env` file.")
             else:
                 if st.session_state.setup_messages:
-                    if st.button("↩ Start over", key="setup_start_over", width='content'):
+                    if st.button("↩ Start over", key="setup_start_over"):
                         st.session_state.setup_messages = []
                         st.session_state.setup_fields = {}
                         st.session_state.setup_fields_locked = False
@@ -2733,7 +2735,6 @@ def _render_results_chat_panel(opening_message: str) -> None:
             data=_transcript_md,
             file_name="smart_retire_chat.md",
             mime="text/markdown",
-            width="content",
             key="download_chat_transcript",
         )
 
@@ -2770,7 +2771,7 @@ def legal_disclaimer_dialog():
 
     **By using this application, you acknowledge and agree to these terms.**
     """)
-    if st.button("Close", width='stretch', type="primary", key="close_legal_disclaimer"):
+    if st.button("Close",use_container_width=True, type="primary", key="close_legal_disclaimer"):
         st.rerun()
 
 
@@ -2784,7 +2785,7 @@ def whats_new_dialog():
     else:
         st.info(f"Release notes for v{VERSION} are not yet available.")
     st.markdown("---")
-    if st.button("Close", width='stretch', type="primary", key="close_whats_new"):
+    if st.button("Close",use_container_width=True, type="primary", key="close_whats_new"):
         st.rerun()
 
 
@@ -2858,7 +2859,7 @@ if not _RUNNING_TESTS:
         """)
     
         # Privacy policy link
-        if st.button("📄 Read Full Privacy Policy", width='stretch', key="analytics_privacy_link"):
+        if st.button("📄 Read Full Privacy Policy",use_container_width=True, key="analytics_privacy_link"):
             show_privacy_policy()
     
         st.markdown("---")
@@ -2867,7 +2868,7 @@ if not _RUNNING_TESTS:
         col1, col2 = st.columns(2)
     
         with col1:
-            if st.button("✅ I Accept", type="primary", width='stretch', key="analytics_accept"):
+            if st.button("✅ I Accept", type="primary",use_container_width=True, key="analytics_accept"):
                 set_analytics_consent(True)
                 track_event('analytics_consent_shown')
                 st.success("✅ Thank you! Analytics enabled.")
@@ -2875,7 +2876,7 @@ if not _RUNNING_TESTS:
                 st.rerun()
     
         with col2:
-            if st.button("❌ No Thanks", width='stretch', key="analytics_decline"):
+            if st.button("❌ No Thanks",use_container_width=True, key="analytics_decline"):
                 set_analytics_consent(False)
                 st.info("ℹ️ You can enable analytics later in Advanced Settings.")
                 time.sleep(0.5)  # Brief pause to show info message
@@ -3118,7 +3119,7 @@ if not _RUNNING_TESTS:
         **Thank you for trusting Smart Retire AI with your retirement planning!**
         """)
     
-        if st.button("Close", width='stretch', type="primary"):
+        if st.button("Close",use_container_width=True, type="primary"):
             st.rerun()
 
 
@@ -3219,7 +3220,7 @@ if not _RUNNING_TESTS:
             edited_df = st.data_editor(
                 df_display,
                 column_config=column_config,
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
                 num_rows="dynamic",
                 key="ai_table_modal_editor"
@@ -3229,17 +3230,17 @@ if not _RUNNING_TESTS:
 
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("✅ Save Changes", type="primary", width='stretch'):
+                if st.button("✅ Save Changes", type="primary",use_container_width=True):
                     st.session_state.ai_edited_table = edited_df
                     st.session_state.dialog_open = False
                     st.rerun()
             with col2:
-                if st.button("❌ Cancel", width='stretch'):
+                if st.button("❌ Cancel",use_container_width=True):
                     st.session_state.dialog_open = False
                     st.rerun()
         else:
             st.warning("No extracted data available to edit.")
-            if st.button("Close", width='stretch'):
+            if st.button("Close",use_container_width=True):
                 st.session_state.dialog_open = False
                 st.rerun()
 
@@ -3259,13 +3260,13 @@ if not _RUNNING_TESTS:
 
         col_reuse, col_fresh, col_cancel = st.columns(3)
         with col_reuse:
-            if st.button("Reuse existing accounts", type="primary", width='stretch'):
+            if st.button("Reuse existing accounts", type="primary",use_container_width=True):
                 _apply_detailed_planning_handoff(reuse_existing_assets=True)
         with col_fresh:
-            if st.button("Start fresh", width='stretch'):
+            if st.button("Start fresh",use_container_width=True):
                 _apply_detailed_planning_handoff(reuse_existing_assets=False)
         with col_cancel:
-            if st.button("Stay in Simple Planning", width='stretch'):
+            if st.button("Stay in Simple Planning",use_container_width=True):
                 st.session_state.show_detailed_asset_choice_dialog = False
                 st.session_state.pending_detailed_switch_fields = None
                 st.session_state.pending_detailed_switch_source_country = None
@@ -3515,18 +3516,18 @@ if not _RUNNING_TESTS:
                 st.info("ℹ️ **Analytics Disabled** - No usage data is collected")
     
             # Privacy policy link
-            if st.button("📄 View Privacy Policy", width='stretch', key="sidebar_privacy_policy"):
+            if st.button("📄 View Privacy Policy",use_container_width=True, key="sidebar_privacy_policy"):
                 show_privacy_policy()
     
             # Opt-out/Opt-in toggle
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("❌ Disable Analytics", width='stretch', disabled=not analytics_enabled):
+                if st.button("❌ Disable Analytics",use_container_width=True, disabled=not analytics_enabled):
                     opt_out()
                     st.success("✅ Analytics disabled")
                     st.rerun()
             with col2:
-                if st.button("✅ Enable Analytics", width='stretch', disabled=analytics_enabled):
+                if st.button("✅ Enable Analytics",use_container_width=True, disabled=analytics_enabled):
                     opt_in()
                     st.success("✅ Analytics enabled")
                     st.rerun()
@@ -3534,7 +3535,7 @@ if not _RUNNING_TESTS:
             # Reset analytics session (for testing)
             with st.expander("🔧 Advanced: Reset Analytics Session"):
                 st.caption("Clear all analytics session data and start fresh. Useful for testing or privacy reset.")
-                if st.button("🔄 Reset Analytics Session", width='stretch', key="reset_analytics"):
+                if st.button("🔄 Reset Analytics Session",use_container_width=True, key="reset_analytics"):
                     reset_analytics_session()
                     st.success("✅ Analytics session reset")
                     st.info("ℹ️ Refresh the page to see the analytics consent screen again.")
@@ -3546,14 +3547,14 @@ if not _RUNNING_TESTS:
     # Home button — visible from sub-pages so users can always return to Results
     if st.session_state.get('current_page') in ('detailed_analysis', 'monte_carlo', 'full_details'):
         st.sidebar.markdown("---")
-        if st.sidebar.button("🏠 Results Dashboard", width='stretch', type="primary"):
+        if st.sidebar.button("🏠 Results Dashboard",use_container_width=True, type="primary"):
             st.session_state.current_page = 'results'
             st.rerun()
 
     # Reset button — show during onboarding and after completion
     if st.session_state.onboarding_complete or st.session_state.get('current_page') == 'onboarding':
         st.sidebar.markdown("---")
-        if st.sidebar.button("🔄 Reset Onboarding", width='stretch'):
+        if st.sidebar.button("🔄 Reset Onboarding",use_container_width=True):
             st.session_state.onboarding_step = 1
             st.session_state.onboarding_complete = False
             st.session_state.setup_messages = []
@@ -3648,7 +3649,7 @@ if not _RUNNING_TESTS:
         # Continue button
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            if st.button("✅ Get Started", type="primary", width='stretch'):
+            if st.button("✅ Get Started", type="primary",use_container_width=True):
                 st.session_state.splash_dismissed = True
                 set_analytics_consent(True)
                 st.rerun()
@@ -3696,7 +3697,7 @@ if not _RUNNING_TESTS:
             st.progress(1.0, text="**Step 2 of 2**")
             _back_col, _header_col, _switch_col = st.columns([1, 3, 1.5])
             with _back_col:
-                if st.button("← Back", key="back_to_personal_info", width='stretch'):
+                if st.button("← Back", key="back_to_personal_info",use_container_width=True):
                     st.session_state.onboarding_step = 1
                     st.rerun()
             with _header_col:
@@ -3704,7 +3705,7 @@ if not _RUNNING_TESTS:
             with _switch_col:
                 if st.button(
                     "Switch to Simple Planning",
-                    width='stretch',
+                    use_container_width=True,
                     key="switch_to_simple_from_onboarding_2",
                 ):
                     switch_to_simple_planning_from_onboarding()
@@ -3982,7 +3983,7 @@ if not _RUNNING_TESTS:
                                     st.dataframe(
                                         df_display,
                                         column_config=column_config,
-                                        width='stretch',
+                                        use_container_width=True,
                                         hide_index=True
                                     )
                             else:
@@ -4013,7 +4014,7 @@ if not _RUNNING_TESTS:
                         )
         
                         if uploaded_files:
-                            if st.button("🚀 Extract Account Data", type="primary", width='stretch'):
+                            if st.button("🚀 Extract Account Data", type="primary",use_container_width=True):
                                 import time
         
                                 progress_bar = st.progress(0)
@@ -4026,8 +4027,8 @@ if not _RUNNING_TESTS:
                                     status_text.markdown("**📤 Phase 1/2: Uploading Files**")
                                     progress_bar.progress(10)
         
-                                    # Initialize n8n client and prepare files
-                                    client = N8NClient()
+                                    # Initialize processor (Python or n8n based on PYTHON_STATEMENT_PROCESSOR env var)
+                                    client = get_processor()
                                     files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
                                     files_to_upload, skipped_names = _dedupe_uploaded_file_payloads(files_to_upload)
                                     if skipped_names:
@@ -4409,7 +4410,7 @@ if not _RUNNING_TESTS:
                                             edited_df = st.data_editor(
                                                 st.session_state.ai_edited_table if st.session_state.ai_edited_table is not None else df_table,
                                                 column_config=column_config,
-                                                width='stretch',
+                                                use_container_width=True,
                                                 hide_index=True,
                                                 num_rows="dynamic",
                                                 key="ai_table_data"
@@ -4426,7 +4427,7 @@ if not _RUNNING_TESTS:
                                             feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
         
                                             with feedback_col1:
-                                                if st.button("👍 Looks Good", key="extraction_feedback_good", width='stretch', type="secondary"):
+                                                if st.button("👍 Looks Good", key="extraction_feedback_good",use_container_width=True, type="secondary"):
                                                     # Positive feedback - send email
                                                     subject = "AI Extraction Feedback - Accurate Data"
                                                     body = f"""Hi Smart Retire AI team,
@@ -4446,7 +4447,7 @@ if not _RUNNING_TESTS:
                                                     st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
         
                                             with feedback_col2:
-                                                if st.button("👎 Needs Work", key="extraction_feedback_bad", width='stretch', type="secondary"):
+                                                if st.button("👎 Needs Work", key="extraction_feedback_bad",use_container_width=True, type="secondary"):
                                                     # Negative feedback - show form
                                                     st.session_state.show_extraction_feedback_form = True
         
@@ -4481,7 +4482,7 @@ if not _RUNNING_TESTS:
                                                         placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
                                                     )
         
-                                                    submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary", width='stretch')
+                                                    submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary",use_container_width=True)
         
                                                     if submit_feedback:
                                                         if issue_type and specific_issues:
@@ -4565,7 +4566,7 @@ if not _RUNNING_TESTS:
                                                             'balance': 'Balance'
                                                         })
         
-                                                        st.dataframe(bucket_df, width='stretch', hide_index=True)
+                                                        st.dataframe(bucket_df,use_container_width=True, hide_index=True)
         
                                                         # Show total
                                                         st.metric("Total", f"${total_bucket_balance:,.2f}")
@@ -4596,15 +4597,15 @@ if not _RUNNING_TESTS:
                                         status_text.text("✗ Extraction failed")
                                         st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
         
-                                except N8NError as e:
-                                    # Track N8N configuration error
+                                except (N8NError, StatementProcessorError) as e:
+                                    # Track processor configuration error
                                     track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
                                     track_error('statement_upload_n8n_error', str(e), {'num_files': len(uploaded_files)})
-    
+
                                     progress_bar.progress(100)
                                     status_text.text("✗ Configuration error")
                                     st.error(f"Configuration Error: {str(e)}")
-                                    st.info("💡 Make sure your .env file has the N8N_WEBHOOK_URL configured.")
+                                    st.info("💡 Check your .env file: set PYTHON_STATEMENT_PROCESSOR=true and OPENAI_API_KEY, or set N8N_WEBHOOK_URL for n8n.")
     
                                 except Exception as e:
                                     # Track unexpected error
@@ -4735,7 +4736,7 @@ if not _RUNNING_TESTS:
                             edited_df = st.data_editor(
                                 initial_data,
                                 column_config=column_config,
-                                width='stretch',
+                                use_container_width=True,
                                 hide_index=True,
                                 num_rows="dynamic",
                                 key="csv_uploaded_assets_table"  # Unique key for this table
@@ -4915,7 +4916,7 @@ if not _RUNNING_TESTS:
     
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
-                if st.button("← Previous: Personal Info", width='stretch'):
+                if st.button("← Previous: Personal Info",use_container_width=True):
                     st.session_state.onboarding_step = 1
                     st.rerun()
             with col3:
@@ -4926,7 +4927,7 @@ if not _RUNNING_TESTS:
                 if st.button(
                     "Complete Setup → View Results",
                     type="primary",
-                    width='stretch',
+                    use_container_width=True,
                     disabled=button_disabled,
                     help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
                 ):
@@ -4991,7 +4992,7 @@ if not _RUNNING_TESTS:
         track_page_view('results')
     
         # Add navigation button to go back to setup
-        if st.button("← Back to Setup", width='content'):
+        if st.button("← Back to Setup"):
             track_event('navigation_back_to_setup')
             # Return to whichever page last navigated to results
             if st.session_state.get('results_source') == 'chat_mode':
@@ -5347,7 +5348,7 @@ if not _RUNNING_TESTS:
         # ==========================================
         # FULL DETAILS PAGE
         # ==========================================
-        if st.button("← Back to Results", width='content'):
+        if st.button("← Back to Results"):
             st.session_state.current_page = 'results'
             st.rerun()
 
@@ -5634,7 +5635,7 @@ if not _RUNNING_TESTS:
                     """)
     
                     # Add button to go back to setup to edit contributions
-                    if st.button("📝 Edit Portfolio Contributions", type="secondary", width='stretch'):
+                    if st.button("📝 Edit Portfolio Contributions", type="secondary",use_container_width=True):
                         track_event('edit_contributions_from_recommendations')
                         st.session_state.current_page = 'onboarding'
                         st.rerun()
@@ -5672,7 +5673,7 @@ if not _RUNNING_TESTS:
         
         # Navigate to Detailed Analysis page
         st.markdown("---")
-        if st.button("📈 View Detailed Analysis", width='stretch', type="primary", key="go_detailed_analysis"):
+        if st.button("📈 View Detailed Analysis",use_container_width=True, type="primary", key="go_detailed_analysis"):
             st.session_state.current_page = 'detailed_analysis'
             st.rerun()
 
@@ -5687,19 +5688,19 @@ if not _RUNNING_TESTS:
         with col1:
             st.markdown("### 📄 Generate Report")
             st.markdown("Create a comprehensive PDF report with your complete retirement analysis.")
-            if st.button("📥 Create PDF Report", width='stretch', type="primary", key="next_steps_report"):
+            if st.button("📥 Create PDF Report",use_container_width=True, type="primary", key="next_steps_report"):
                 generate_report_dialog()
     
         with col2:
             st.markdown("### 🎲 Scenario Analysis")
             st.markdown("Explore thousands of scenarios and see how market volatility affects your plan.")
-            if st.button("🚀 Run Scenarios", width='stretch', type="primary", key="next_steps_monte_carlo"):
+            if st.button("🚀 Run Scenarios",use_container_width=True, type="primary", key="next_steps_monte_carlo"):
                 monte_carlo_dialog()
     
         with col3:
             st.markdown("### 📊 Cash Flow Projection")
             st.markdown("Visualize year-by-year income and expenses throughout retirement.")
-            if st.button("📊 View Cash Flow", width='stretch', type="primary", key="next_steps_cashflow"):
+            if st.button("📊 View Cash Flow",use_container_width=True, type="primary", key="next_steps_cashflow"):
                 cashflow_dialog()
     
         # Share & Feedback section - Simple and clean
@@ -5721,7 +5722,7 @@ if not _RUNNING_TESTS:
                     twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
                     twitter_encoded = urllib.parse.quote(twitter_text)
                     twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
-                    if st.button("🐦 Twitter", width='stretch', key="share_twitter"):
+                    if st.button("🐦 Twitter",use_container_width=True, key="share_twitter"):
                         components.html(
                             f"""<script>window.open("{twitter_url}", "_blank");</script>""",
                             height=0
@@ -5731,7 +5732,7 @@ if not _RUNNING_TESTS:
                 with col2:
                     # LinkedIn with professional messaging
                     linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-                    if st.button("💼 LinkedIn", width='stretch', key="share_linkedin"):
+                    if st.button("💼 LinkedIn",use_container_width=True, key="share_linkedin"):
                         components.html(
                             f"""<script>window.open("{linkedin_url}", "_blank");</script>""",
                             height=0
@@ -5740,7 +5741,7 @@ if not _RUNNING_TESTS:
 
                 with col3:
                     facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-                    if st.button("📘 Facebook", width='stretch', key="share_facebook"):
+                    if st.button("📘 Facebook",use_container_width=True, key="share_facebook"):
                         components.html(
                             f"""<script>window.open("{facebook_url}", "_blank");</script>""",
                             height=0
@@ -5748,7 +5749,7 @@ if not _RUNNING_TESTS:
                         st.success("Opening Facebook in new tab...")
 
                 with col4:
-                    if st.button("📧 Email", width='stretch', key="share_email"):
+                    if st.button("📧 Email",use_container_width=True, key="share_email"):
                         # Enhanced email with detailed value proposition
                         email_subject = "Powerful FREE Retirement Planning Tool - Smart Retire AI"
                         email_body = (
@@ -5781,11 +5782,11 @@ if not _RUNNING_TESTS:
                 # Quick rating
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("👍 Love it!", width='stretch', key="feedback_love"):
+                    if st.button("👍 Love it!",use_container_width=True, key="feedback_love"):
                         st.success("Thank you! 💚")
                         st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
                 with col2:
-                    if st.button("👎 Could improve", width='stretch', key="feedback_improve"):
+                    if st.button("👎 Could improve",use_container_width=True, key="feedback_improve"):
                         st.info("Thanks for the feedback!")
                         st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
     
@@ -5819,7 +5820,7 @@ if not _RUNNING_TESTS:
 
         track_page_view('detailed_analysis')
 
-        if st.button("← Back to Results", width='content'):
+        if st.button("← Back to Results"):
             st.session_state.current_page = 'results'
             st.rerun()
 
@@ -5883,7 +5884,7 @@ if not _RUNNING_TESTS:
                         "After-Tax Value": f"${total_after_tax:,.0f}"
                     })
                     st.info("💡 **How to read this table**: Current Balance → Add Your Contributions → Add Investment Growth = Pre-Tax Value → Subtract Taxes = After-Tax Value")
-                    st.dataframe(pd.DataFrame(asset_data), width='stretch', hide_index=True)
+                    st.dataframe(pd.DataFrame(asset_data),use_container_width=True, hide_index=True)
                 else:
                     st.info("No individual asset breakdown available")
             else:
@@ -5896,7 +5897,7 @@ if not _RUNNING_TESTS:
                             "After-Tax Value": f"${value:,.0f}"
                         })
                 if asset_data:
-                    st.dataframe(pd.DataFrame(asset_data), width='stretch', hide_index=True)
+                    st.dataframe(pd.DataFrame(asset_data),use_container_width=True, hide_index=True)
                 else:
                     st.info("No individual asset breakdown available")
 
@@ -5992,7 +5993,7 @@ if not _RUNNING_TESTS:
                     f"{result['Tax Efficiency (%)']:.1f}%"
                 ]
             }
-            st.dataframe(pd.DataFrame(summary_data), width='stretch', hide_index=True)
+            st.dataframe(pd.DataFrame(summary_data),use_container_width=True, hide_index=True)
 
     elif st.session_state.current_page == 'monte_carlo':
         # Show analytics consent dialog on first load
@@ -6009,7 +6010,7 @@ if not _RUNNING_TESTS:
         # Add navigation buttons to go back
         col1, col2 = st.columns([1, 5])
         with col1:
-            if st.button("← Back to Results", width='stretch'):
+            if st.button("← Back to Results",use_container_width=True):
                 track_event('navigation_back_to_results')
                 st.session_state.current_page = 'results'
                 st.rerun()
@@ -6081,7 +6082,7 @@ if not _RUNNING_TESTS:
         st.markdown("---")
     
         # Run Simulation Button
-        if st.button("🎲 Run Monte Carlo Simulation", type="primary", width='stretch', key="run_monte_carlo_main"):
+        if st.button("🎲 Run Monte Carlo Simulation", type="primary",use_container_width=True, key="run_monte_carlo_main"):
             try:
                 from financialadvisor.core.monte_carlo import (
                     run_monte_carlo_simulation,
@@ -6358,7 +6359,7 @@ if not _RUNNING_TESTS:
         st.markdown("---")
         _, col_center, _ = st.columns([3, 2, 3])
         with col_center:
-            if st.button(f"📋 What's new in v{VERSION}", width='stretch'):
+            if st.button(f"📋 What's new in v{VERSION}",use_container_width=True):
                 st.session_state.show_whats_new = True
                 st.rerun()
         st.markdown(
