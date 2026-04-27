@@ -384,7 +384,7 @@ def chat_with_setup_advisor(
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=full_messages,
-        temperature=0.4,
+        temperature=0.1,
         max_tokens=600,
     )
 

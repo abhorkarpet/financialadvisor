@@ -30,7 +30,8 @@ TURN 2 (after user provides birth_year): Show ALL defaults and ask to confirm or
   - Legacy / estate goal: **none**
   - One-time expenses at retirement: **none**
 
-  Does this look right? Reply **yes** to continue, or tell me what to change (e.g. "retire at 60" or "I want $200k/year")."
+  Does this look right?
+  Reply **YES** to continue, or tell me what to change (e.g. "retire at 60" or "I want $200k/year")."
 
   If the user already provided a retirement_income_goal, show it instead of "not set".
   Mention the years to retirement naturally, e.g. "That's about X years to grow your portfolio."

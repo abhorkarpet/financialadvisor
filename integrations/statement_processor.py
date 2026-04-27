@@ -15,7 +15,7 @@ import re
 import json
 import time
 import logging
-from typing import List, Dict, Optional, Tuple, Union, BinaryIO
+from typing import Callable, List, Dict, Optional, Tuple, Union, BinaryIO
 
 from pypdf import PdfReader
 import openai
@@ -315,7 +315,13 @@ class StatementProcessor:
     def upload_statements(
         self,
         files: Union[List[BinaryIO], List[bytes], List[tuple]],
+        progress_callback: Optional[Callable[[str, int, int, str, int, int], None]] = None,
     ) -> Dict:
+        """Process uploaded statement files.
+
+        progress_callback(stage, file_index, total_files, filename, chunk_index, total_chunks)
+        Stages: "text_extract", "ai_call", "file_done"
+        """
         start = time.time()
         self._token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         try:
@@ -325,12 +331,20 @@ class StatementProcessor:
 
         all_accounts: List[Dict] = []
         all_warnings: List[str] = []
+        total_files = len(normalised)
 
-        for filename, file_bytes in normalised:
+        for file_index, (filename, file_bytes) in enumerate(normalised):
             try:
-                accounts, warnings = self._process_file(filename, file_bytes)
+                accounts, warnings = self._process_file(
+                    filename, file_bytes,
+                    file_index=file_index,
+                    total_files=total_files,
+                    progress_callback=progress_callback,
+                )
                 all_accounts.extend(accounts)
                 all_warnings.extend(warnings)
+                if progress_callback:
+                    progress_callback("file_done", file_index, total_files, filename, 0, 1)
             except Exception as exc:
                 all_warnings.append(f"Error processing {filename}: {exc}")
                 logger.exception("Error processing %s", filename)
@@ -382,8 +396,18 @@ class StatementProcessor:
     # File-level processing
     # ------------------------------------------------------------------
 
-    def _process_file(self, filename: str, file_bytes: bytes) -> Tuple[List[Dict], List[str]]:
+    def _process_file(
+        self,
+        filename: str,
+        file_bytes: bytes,
+        file_index: int = 0,
+        total_files: int = 1,
+        progress_callback: Optional[Callable[[str, int, int, str, int, int], None]] = None,
+    ) -> Tuple[List[Dict], List[str]]:
         warnings: List[str] = []
+
+        if progress_callback:
+            progress_callback("text_extract", file_index, total_files, filename, 0, 1)
 
         text, extract_warnings = self._extract_text(file_bytes, filename)
         warnings.extend(extract_warnings)
@@ -393,9 +417,12 @@ class StatementProcessor:
             return [], warnings
 
         chunks = self._chunk_text(text, filename)
+        total_chunks = len(chunks)
         all_accounts: List[Dict] = []
 
-        for chunk_text, chunk_label in chunks:
+        for chunk_idx, (chunk_text, chunk_label) in enumerate(chunks):
+            if progress_callback:
+                progress_callback("ai_call", file_index, total_files, filename, chunk_idx, total_chunks)
             raw, ai_warnings = self._call_ai(chunk_text, chunk_label)
             warnings.extend(ai_warnings)
             if raw is None:
@@ -452,41 +479,21 @@ class StatementProcessor:
         except Exception as exc:
             return "", [f"{filename}: could not open PDF — {exc}"]
 
-        # Attach a handler directly to pypdf._cmap (propagate=False child logger)
-        # so encoding warnings surface with file+page context in both the terminal
-        # and the in-app warnings list.
-        class _LogCapture(logging.Handler):
-            def __init__(self):
-                super().__init__()
-                self.records: List[str] = []
-            def emit(self, record: logging.LogRecord) -> None:
-                self.records.append(record.getMessage())
-
+        # Silence pypdf._cmap encoding noise — these warnings ("illegal character",
+        # "could not find 'cmap'", etc.) are internal PDF renderer issues that the
+        # user cannot act on.  Route them to debug-level logging only.
         cmap_logger = logging.getLogger("pypdf._cmap")
-        capture = _LogCapture()
-        capture.setLevel(logging.WARNING)
-        cmap_logger.addHandler(capture)
+        cmap_logger.setLevel(logging.ERROR)
 
         page_texts: List[str] = []
-        try:
-            for i, page in enumerate(reader.pages, start=1):
-                capture.records.clear()
-                logger.debug("pypdf extracting: %s — page %d/%d", filename, i, len(reader.pages))
-                try:
-                    text = page.extract_text() or ""
-                except Exception:
-                    text = ""
-                for msg in capture.records:
-                    warnings.append(f"{filename} page {i}: {msg} (some characters may be missing)")
-                    logger.debug("pypdf encoding issue — %s page %d: %s", filename, i, msg)
-                if len(text.replace(" ", "").replace("\n", "")) < 50:
-                    warnings.append(
-                        f"Page {i} of {filename} yielded no extractable text — may be a scanned image."
-                    )
-                else:
-                    page_texts.append(text)
-        finally:
-            cmap_logger.removeHandler(capture)
+        for i, page in enumerate(reader.pages, start=1):
+            logger.debug("pypdf extracting: %s — page %d/%d", filename, i, len(reader.pages))
+            try:
+                text = page.extract_text() or ""
+            except Exception:
+                text = ""
+            if text.replace(" ", "").replace("\n", ""):
+                page_texts.append(text)
 
         return "\n".join(page_texts), warnings
 

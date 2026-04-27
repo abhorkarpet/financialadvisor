@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 14.0.0
+Version: 15.0.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "14.0.0"
+VERSION = "15.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -75,7 +75,7 @@ except ImportError:
     def track_onboarding_step_completed(step: int, **kwargs: any) -> None: pass
     def track_pdf_generation(success: bool) -> None: pass
     def track_monte_carlo_run(num_simulations: int, **kwargs: any) -> None: pass
-    def track_statement_upload(success: bool, num_statements: int, num_accounts: int) -> None: pass
+    def track_statement_upload(success: bool, num_statements: int = 0, num_accounts: int = 0, **kwargs: Any) -> None: pass
     def track_error(error_type: str, error_message: str, context: Optional[Dict[str, any]] = None) -> None: pass
     def is_analytics_enabled() -> bool: return False
     def opt_out() -> None: pass
@@ -1921,6 +1921,15 @@ def cashflow_dialog():
 
     import pandas as pd
 
+    chart_df = pd.DataFrame({
+        "Portfolio Balance": [row["total_portfolio_end"] for row in sim_data],
+        "Annual After-Tax Income": [row["actual_aftertax"] for row in sim_data],
+    }, index=[row["age"] for row in sim_data])
+    chart_df.index.name = "Age"
+    st.caption("Portfolio balance and annual after-tax income over retirement (age on x-axis)")
+    st.line_chart(chart_df)
+    st.markdown("---")
+
     _col_cfg = {
         "Year":          st.column_config.NumberColumn("Year",          format="%d"),
         "Age":           st.column_config.NumberColumn("Age",           format="%d"),
@@ -2022,7 +2031,7 @@ def show_mode_selection_page():
             <div style='border:2px solid #1f77b4; border-radius:12px; padding:28px 24px; min-height:220px;'>
                 <div style='font-size:2.2em; text-align:center;'>💬</div>
                 <h3 style='text-align:center; color:#1f77b4;'>Simple Planning</h3>
-                <p style='text-align:center; color:#444;'>
+                <p style='text-align:center; color:inherit;'>
                     Tell me your <strong>income goal</strong> and I'll calculate
                     how much you need to retire. Guided chat — no forms.
                 </p>
@@ -2048,7 +2057,7 @@ def show_mode_selection_page():
             <div style='border:2px solid #2ca02c; border-radius:12px; padding:28px 24px; min-height:220px;'>
                 <div style='font-size:2.2em; text-align:center;'>📊</div>
                 <h3 style='text-align:center; color:#2ca02c;'>Detailed Planning</h3>
-                <p style='text-align:center; color:#444;'>
+                <p style='text-align:center; color:inherit;'>
                     Enter your <strong>actual US retirement accounts</strong> and see
                     detailed projections, tax analysis, and withdrawal strategy.
                 </p>
@@ -2716,40 +2725,54 @@ def _render_results_chat_panel(opening_message: str) -> None:
                 })
             st.rerun()
 
-    # Render all messages (including the just-appended user message on Pass 1)
-    msg_container = st.container(height=380)
-    with msg_container:
-        for msg in st.session_state.results_chat_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        # Show a spinner inside the container while waiting for the API response
-        if st.session_state.get("results_chat_pending"):
-            with st.chat_message("assistant"):
-                st.markdown("_Thinking…_")
+    chat_col, action_col = st.columns([3, 2], gap="medium")
+#chat_col, action_col = st.columns([3, 1])
 
-    # Download transcript button (only when there's more than the opening message)
-    if len(st.session_state.results_chat_messages) > 1:
-        _transcript_md = _build_chat_transcript_md(st.session_state.results_chat_messages)
-        st.download_button(
-            "⬇️ Download chat transcript",
-            data=_transcript_md,
-            file_name="smart_retire_chat.md",
-            mime="text/markdown",
-            key="download_chat_transcript",
-        )
+    with action_col:
+        st.markdown("### What you can do next")
+        if st.button("📥 PDF Report", use_container_width=True, key="results_pdf_report"):
+            generate_report_dialog()
+        if st.button("📊 View Cash Flow", use_container_width=True, key="results_cashflow"):
+            cashflow_dialog()
+        if st.button("📈 Detailed Analysis", use_container_width=True, key="results_detailed_analysis"):
+            st.session_state.current_page = 'detailed_analysis'
+            st.rerun()
 
-    if not _CHAT_AVAILABLE:
-        st.warning("⚠️ Chat advisor requires `OPENAI_API_KEY`. Set it in your `.env` file.")
-        return
+    with chat_col:
+        # Render all messages (including the just-appended user message on Pass 1)
+        msg_container = st.container(height=380)
+        with msg_container:
+            for msg in st.session_state.results_chat_messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+            # Show a spinner inside the container while waiting for the API response
+            if st.session_state.get("results_chat_pending"):
+                with st.chat_message("assistant"):
+                    st.markdown("_Thinking…_")
 
-    # Pass 1: capture input, echo immediately, then trigger API pass
-    if user_input := st.chat_input(
-        "Ask about your results, run what-ifs, or ask about RMDs, Social Security...",
-        key="results_chat_input",
-    ):
-        st.session_state.results_chat_messages.append({"role": "user", "content": user_input})
-        st.session_state.results_chat_pending = True
-        st.rerun()
+        # Download transcript button (only when there's more than the opening message)
+        if len(st.session_state.results_chat_messages) > 1:
+            _transcript_md = _build_chat_transcript_md(st.session_state.results_chat_messages)
+            st.download_button(
+                "⬇️ Download chat transcript",
+                data=_transcript_md,
+                file_name="smart_retire_chat.md",
+                mime="text/markdown",
+                key="download_chat_transcript",
+            )
+
+        if not _CHAT_AVAILABLE:
+            st.warning("⚠️ Chat advisor requires `OPENAI_API_KEY`. Set it in your `.env` file.")
+            return
+
+        # Pass 1: capture input, echo immediately, then trigger API pass (inline since inside a column)
+        if user_input := st.chat_input(
+            "Ask about your results, run what-ifs, or ask about RMDs, Social Security...",
+            key="results_chat_input",
+        ):
+            st.session_state.results_chat_messages.append({"role": "user", "content": user_input})
+            st.session_state.results_chat_pending = True
+            st.rerun()
 
 
 @st.dialog("⚠️ Legal Disclaimer", width="large")
@@ -3202,19 +3225,9 @@ if not _RUNNING_TESTS:
 
             # Add optional column configs if they exist
             if "Income Eligibility" in df_display.columns:
-                column_config["Income Eligibility"] = st.column_config.TextColumn(
-                    "Income Eligibility",
-                    disabled=True,
-                    help="Income restrictions for this account type",
-                    width="small"
-                )
+                column_config["Income Eligibility"] = None
             if "Purpose" in df_display.columns:
-                column_config["Purpose"] = st.column_config.TextColumn(
-                    "Purpose",
-                    disabled=True,
-                    help="Primary purpose of this account",
-                    width="small"
-                )
+                column_config["Purpose"] = None
 
             # Display editable table in modal
             edited_df = st.data_editor(
@@ -3545,7 +3558,7 @@ if not _RUNNING_TESTS:
             st.markdown("**💡 Tip:** Adjust these settings anytime during the onboarding process.")
     
     # Home button — visible from sub-pages so users can always return to Results
-    if st.session_state.get('current_page') in ('detailed_analysis', 'monte_carlo', 'full_details'):
+    if st.session_state.get('current_page') in ('detailed_analysis', 'monte_carlo'):
         st.sidebar.markdown("---")
         if st.sidebar.button("🏠 Results Dashboard",use_container_width=True, type="primary"):
             st.session_state.current_page = 'results'
@@ -3963,21 +3976,11 @@ if not _RUNNING_TESTS:
                                         )
                                     }
 
-                                    # Add optional column configs if they exist in the data
+                                    # Hide noisy metadata columns — keep data, suppress display
                                     if "Income Eligibility" in df_display.columns:
-                                        column_config["Income Eligibility"] = st.column_config.TextColumn(
-                                            "Income Eligibility",
-                                            disabled=True,
-                                            help="Income restrictions for this account type",
-                                            width="small"
-                                        )
+                                        column_config["Income Eligibility"] = None
                                     if "Purpose" in df_display.columns:
-                                        column_config["Purpose"] = st.column_config.TextColumn(
-                                            "Purpose",
-                                            disabled=True,
-                                            help="Primary purpose of this account",
-                                            width="small"
-                                        )
+                                        column_config["Purpose"] = None
 
                                     # Display read-only table - use Edit button above to modify
                                     st.dataframe(
@@ -4022,13 +4025,19 @@ if not _RUNNING_TESTS:
         
                                 try:
                                     start_time = time.time()
-        
+
                                     # Phase 1: Upload (0-30%)
                                     status_text.markdown("**📤 Phase 1/2: Uploading Files**")
                                     progress_bar.progress(10)
-        
+
                                     # Initialize processor (Python or n8n based on PYTHON_STATEMENT_PROCESSOR env var)
                                     client = get_processor()
+                                    _processor_type = "python" if client.__class__.__name__ == "StatementProcessor" else "n8n"
+                                    track_event('statement_extraction_initiated', {
+                                        'num_files': len(uploaded_files),
+                                        'processor_type': _processor_type,
+                                    })
+
                                     files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
                                     files_to_upload, skipped_names = _dedupe_uploaded_file_payloads(files_to_upload)
                                     if skipped_names:
@@ -4039,38 +4048,68 @@ if not _RUNNING_TESTS:
                                     status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor...")
                                     progress_bar.progress(25)
         
-                                    # Phase 2: Processing (30-90%)
-                                    status_text.markdown("**🤖 Phase 2/2: AI Processing** - Analyzing statements with GPT-4...may take up to one-to-two minutes")
+                                    # Phase 2: Processing (40-90%) — live per-file progress via callback
+                                    _total_files = len(files_to_upload)
+                                    # 40% base; each file gets an equal slice of the 40→88% band
+                                    _progress_per_file = 48 / max(_total_files, 1)
+
+                                    def _make_progress_callback(
+                                        _status=status_text,
+                                        _bar=progress_bar,
+                                        _slice=_progress_per_file,
+                                        _ai_start=time.time(),
+                                    ):
+                                        def _cb(stage, file_idx, total_files, filename, chunk_idx, total_chunks):
+                                            short_name = filename if len(filename) <= 30 else f"…{filename[-27:]}"
+                                            elapsed = int(time.time() - _ai_start)
+                                            file_label = f"file {file_idx + 1}/{total_files}"
+                                            # Progress: 40 + files_done*slice + within-file fraction
+                                            files_done_pct = file_idx * _slice
+                                            if stage == "text_extract":
+                                                within = 0.05 * _slice
+                                                pct = int(40 + files_done_pct + within)
+                                                _status.markdown(
+                                                    f"**📄 Phase 2/2: AI Processing** ({file_label}) "
+                                                    f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
+                                                )
+                                            elif stage == "ai_call":
+                                                chunk_label = (
+                                                    f" (part {chunk_idx + 1}/{total_chunks})"
+                                                    if total_chunks > 1 else ""
+                                                )
+                                                within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
+                                                pct = int(40 + files_done_pct + within)
+                                                _status.markdown(
+                                                    f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
+                                                    f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
+                                                )
+                                            elif stage == "file_done":
+                                                within = _slice
+                                                pct = int(40 + files_done_pct + within)
+                                                _status.markdown(
+                                                    f"**✅ Phase 2/2: AI Processing** ({file_label}) "
+                                                    f"— Done: **{short_name}** ⏱️ {elapsed}s"
+                                                )
+                                            else:
+                                                pct = int(40 + files_done_pct)
+                                            _bar.progress(min(pct, 88))
+                                        return _cb
+
+                                    _progress_cb = _make_progress_callback() if _processor_type == "python" else None
+
+                                    # Initial Phase 2 message (shown before first callback fires)
+                                    status_text.markdown(
+                                        f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
+                                    )
                                     progress_bar.progress(40)
-
-                                    # Create placeholder for timer that we can clear later
-                                    timer_placeholder = st.empty()
-
-                                    # Add live timer using components.html for immediate rendering
-                                    with timer_placeholder.container():
-                                        components.html("""
-                                            <div id="ai-timer" style="font-size: 1.2em; color: #0066CC; font-weight: 600; margin: 10px 0; font-family: 'Source Sans Pro', sans-serif;">
-                                                ⏱️ Processing time: <span id="timer-value">0s</span>
-                                            </div>
-                                            <script>
-                                                let startTime = Date.now();
-                                                setInterval(function() {
-                                                    let elapsed = Math.floor((Date.now() - startTime) / 1000);
-                                                    let timerElement = document.getElementById('timer-value');
-                                                    if (timerElement) {
-                                                        timerElement.textContent = elapsed + 's';
-                                                    }
-                                                }, 1000);
-                                            </script>
-                                        """, height=50)
 
                                     # Make the actual API call (blocking)
                                     ai_start_time = time.time()
-                                    result = client.upload_statements(files_to_upload)
+                                    if _processor_type == "python":
+                                        result = client.upload_statements(files_to_upload, progress_callback=_progress_cb)
+                                    else:
+                                        result = client.upload_statements(files_to_upload)
                                     ai_elapsed = time.time() - ai_start_time
-
-                                    # Hide the timer now that processing is complete
-                                    timer_placeholder.empty()
 
                                     # Show completion with total time
                                     total_time = time.time() - start_time
@@ -4188,7 +4227,11 @@ if not _RUNNING_TESTS:
                                         track_statement_upload(
                                             success=True,
                                             num_statements=len(files_to_upload),
-                                            num_accounts=len(df_extracted)
+                                            num_accounts=len(df_extracted),
+                                            processor_type=_processor_type,
+                                            execution_time_secs=result.get('execution_time', total_time),
+                                            num_warnings=len(result.get('warnings', [])),
+                                            token_usage=result.get('token_usage'),
                                         )
     
                                         st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
@@ -4309,7 +4352,7 @@ if not _RUNNING_TESTS:
                                                         "Current Balance": current_balance,
                                                         "Annual Contribution": 0.0,  # User needs to fill
                                                         "Growth Rate (%)": account_growth_rate,
-                                                        "Tax Rate on Gains (%)": default_tax_rate
+                                                        "Tax Rate on Gains (%)": 15.0 if inferred_behavior == TaxBehavior.CAPITAL_GAINS else default_tax_rate
                                                     }
             
                                                     # Add income eligibility if available
@@ -4393,17 +4436,9 @@ if not _RUNNING_TESTS:
                                                     max_value=50,
                                                     format="%.1f%%",
                                                     help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                                                ),
-                                                "Income Eligibility": st.column_config.TextColumn(
-                                                    "Income Eligibility",
-                                                    disabled=True,
-                                                    help="Can this account be used for retirement income? ✅ Eligible, ⚠️ Conditionally Eligible, ❌ Not Eligible"
-                                                ),
-                                                "Purpose": st.column_config.TextColumn(
-                                                    "Purpose",
-                                                    disabled=True,
-                                                    help="Primary purpose of this account (e.g., Retirement Income, Healthcare, Education)"
                                                 )
+                                                ,"Income Eligibility": None,
+                                                "Purpose": None
                                             }
 
                                             # Display editable table - auto-saves on every change
@@ -4420,156 +4455,102 @@ if not _RUNNING_TESTS:
                                             st.session_state.ai_edited_table = edited_df
 
                                             # Extraction Quality Feedback Module
-                                            st.markdown("---")
-                                            st.markdown("#### 💬 Data Extraction Feedback")
-                                            st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
-        
-                                            feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
-        
-                                            with feedback_col1:
-                                                if st.button("👍 Looks Good", key="extraction_feedback_good",use_container_width=True, type="secondary"):
-                                                    # Positive feedback - send email
-                                                    subject = "AI Extraction Feedback - Accurate Data"
-                                                    body = f"""Hi Smart Retire AI team,
-        
+                                            with st.expander("💬 Data Extraction Feedback", expanded=False):
+                                                st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
+
+                                                feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
+
+                                                with feedback_col1:
+                                                    if st.button("👍 Looks Good", key="extraction_feedback_good",use_container_width=True, type="secondary"):
+                                                        # Positive feedback - send email
+                                                        subject = "AI Extraction Feedback - Accurate Data"
+                                                        body = f"""Hi Smart Retire AI team,
+
         The AI extraction worked great! Here are the details:
-        
+
         Number of accounts extracted: {len(edited_df)}
         Institution(s): {', '.join(edited_df['Institution'].unique())}
-        
+
         The extracted data was accurate and saved me time.
-        
+
         Thank you!
         """
-                                                    # URL encode the body
-                                                    body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                    email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                    st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
-        
-                                            with feedback_col2:
-                                                if st.button("👎 Needs Work", key="extraction_feedback_bad",use_container_width=True, type="secondary"):
-                                                    # Negative feedback - show form
-                                                    st.session_state.show_extraction_feedback_form = True
-        
-                                            # Show detailed feedback form if user clicked "Needs Work"
-                                            if st.session_state.get('show_extraction_feedback_form', False):
-                                                st.markdown("---")
-                                                st.markdown("##### 📝 Tell us what went wrong")
-        
-                                                with st.form("extraction_feedback_form", clear_on_submit=True):
-                                                    issue_type = st.multiselect(
-                                                        "What issues did you encounter? (Select all that apply)",
-                                                        [
-                                                            "Wrong account balances",
-                                                            "Incorrect account types",
-                                                            "Wrong tax classification",
-                                                            "Missing accounts",
-                                                            "Duplicate accounts",
-                                                            "Wrong institution name",
-                                                            "Account numbers incorrect",
-                                                            "Other"
-                                                        ]
-                                                    )
-        
-                                                    specific_issues = st.text_area(
-                                                        "Specific details about the issue:",
-                                                        placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
-                                                        height=100
-                                                    )
-        
-                                                    statement_type = st.text_input(
-                                                        "Statement type/institution (optional):",
-                                                        placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
-                                                    )
-        
-                                                    submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary",use_container_width=True)
-        
-                                                    if submit_feedback:
-                                                        if issue_type and specific_issues:
-                                                            # Generate email
-                                                            subject = "AI Extraction Issue Report"
-                                                            issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
-                                                            body = f"""Hi Smart Retire AI team,
-        
+                                                        # URL encode the body
+                                                        body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                                        email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                                        st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
+
+                                                with feedback_col2:
+                                                    if st.button("👎 Needs Work", key="extraction_feedback_bad",use_container_width=True, type="secondary"):
+                                                        # Negative feedback - show form
+                                                        st.session_state.show_extraction_feedback_form = True
+
+                                                # Show detailed feedback form if user clicked "Needs Work"
+                                                if st.session_state.get('show_extraction_feedback_form', False):
+                                                    st.markdown("---")
+                                                    st.markdown("##### 📝 Tell us what went wrong")
+
+                                                    with st.form("extraction_feedback_form", clear_on_submit=True):
+                                                        issue_type = st.multiselect(
+                                                            "What issues did you encounter? (Select all that apply)",
+                                                            [
+                                                                "Wrong account balances",
+                                                                "Incorrect account types",
+                                                                "Wrong tax classification",
+                                                                "Missing accounts",
+                                                                "Duplicate accounts",
+                                                                "Wrong institution name",
+                                                                "Account numbers incorrect",
+                                                                "Other"
+                                                            ]
+                                                        )
+
+                                                        specific_issues = st.text_area(
+                                                            "Specific details about the issue:",
+                                                            placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
+                                                            height=100
+                                                        )
+
+                                                        statement_type = st.text_input(
+                                                            "Statement type/institution (optional):",
+                                                            placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
+                                                        )
+
+                                                        submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary",use_container_width=True)
+
+                                                        if submit_feedback:
+                                                            if issue_type and specific_issues:
+                                                                # Generate email
+                                                                subject = "AI Extraction Issue Report"
+                                                                issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
+                                                                body = f"""Hi Smart Retire AI team,
+
         I encountered issues with the AI extraction feature:
-        
+
         ISSUES ENCOUNTERED:
         {issues_list}
-        
+
         SPECIFIC DETAILS:
         {specific_issues}
-        
+
         STATEMENT INFO:
         {statement_type if statement_type else 'Not provided'}
-        
+
         NUMBER OF ACCOUNTS: {len(edited_df)}
         INSTITUTIONS: {', '.join(edited_df['Institution'].unique())}
-        
+
         Please investigate and improve the extraction accuracy.
-        
+
         Thank you!
         """
-                                                            # URL encode the body
-                                                            body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                            email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                            st.success("✅ Thank you for the detailed feedback!")
-                                                            st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
-                                                            st.session_state.show_extraction_feedback_form = False
-                                                        else:
-                                                            st.error("⚠️ Please select at least one issue type and provide specific details.")
-        
-                                            # Display tax bucket breakdowns if available
-                                            if tax_buckets_by_account:
-                                                st.markdown("---")
-                                                st.markdown("#### 🔍 Tax Bucket Breakdown")
-                                                st.info("**Detailed tax source breakdown for retirement accounts with multiple tax treatments**")
-        
-                                                for account_id, buckets in tax_buckets_by_account.items():
-                                                    # Find account name in DataFrame
-                                                    account_row = df_extracted[df_extracted.get('account_id') == account_id] if 'account_id' in df_extracted.columns else None
-                                                    if account_row is not None and not account_row.empty:
-                                                        account_name = account_row.iloc[0].get('label', account_id)
-                                                    else:
-                                                        account_name = account_id
-        
-                                                    with st.expander(f"📊 {account_name}"):
-                                                        # Create DataFrame for buckets
-                                                        bucket_df = pd.DataFrame(buckets)
-        
-                                                        # Humanize bucket_type and tax_treatment
-                                                        def humanize_bucket(value: str) -> str:
-                                                            mappings = {
-                                                                'traditional_401k': 'Traditional 401(k)',
-                                                                'roth_in_plan_conversion': 'Roth In-Plan Conversion',
-                                                                'after_tax_401k': 'After-Tax 401(k)',
-                                                                'tax_deferred': 'Tax-Deferred',
-                                                                'tax_free': 'Tax-Free',
-                                                                'post_tax': 'Post-Tax',
-                                                                'pre_tax': 'Pre-Tax'
-                                                            }
-                                                            return mappings.get(str(value).lower(), value)
-        
-                                                        if 'bucket_type' in bucket_df.columns:
-                                                            bucket_df['bucket_type'] = bucket_df['bucket_type'].apply(humanize_bucket)
-                                                        if 'tax_treatment' in bucket_df.columns:
-                                                            bucket_df['tax_treatment'] = bucket_df['tax_treatment'].apply(humanize_bucket)
-        
-                                                        # Format balance as currency
-                                                        if 'balance' in bucket_df.columns:
-                                                            total_bucket_balance = bucket_df['balance'].sum()
-                                                            bucket_df['balance'] = bucket_df['balance'].apply(lambda x: f"${x:,.2f}")
-        
-                                                        # Rename columns
-                                                        bucket_df = bucket_df.rename(columns={
-                                                            'bucket_type': 'Tax Bucket',
-                                                            'tax_treatment': 'Tax Treatment',
-                                                            'balance': 'Balance'
-                                                        })
-        
-                                                        st.dataframe(bucket_df,use_container_width=True, hide_index=True)
-        
-                                                        # Show total
-                                                        st.metric("Total", f"${total_bucket_balance:,.2f}")
+                                                                # URL encode the body
+                                                                body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
+                                                                email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
+                                                                st.success("✅ Thank you for the detailed feedback!")
+                                                                st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
+                                                                st.session_state.show_extraction_feedback_form = False
+                                                            else:
+                                                                st.error("⚠️ Please select at least one issue type and provide specific details.")
         
                                             # Convert edited dataframe to Asset objects
                                             if not edited_df.empty:
@@ -4587,20 +4568,32 @@ if not _RUNNING_TESTS:
                                         track_statement_upload(
                                             success=False,
                                             num_statements=len(uploaded_files),
-                                            num_accounts=0
+                                            num_accounts=0,
+                                            processor_type=_processor_type,
+                                            execution_time_secs=result.get('execution_time', 0.0),
+                                            num_warnings=len(result.get('warnings', [])),
                                         )
                                         track_error('statement_upload_failed', result.get('error', 'Unknown error'), {
-                                            'num_files': len(uploaded_files)
+                                            'num_files': len(uploaded_files),
+                                            'processor_type': _processor_type,
                                         })
-    
+
                                         progress_bar.progress(100)
                                         status_text.text("✗ Extraction failed")
                                         st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
-        
+
                                 except (N8NError, StatementProcessorError) as e:
                                     # Track processor configuration error
-                                    track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
-                                    track_error('statement_upload_n8n_error', str(e), {'num_files': len(uploaded_files)})
+                                    track_statement_upload(
+                                        success=False,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=0,
+                                        processor_type=_processor_type,
+                                    )
+                                    track_error('statement_upload_n8n_error', str(e), {
+                                        'num_files': len(uploaded_files),
+                                        'processor_type': _processor_type,
+                                    })
 
                                     progress_bar.progress(100)
                                     status_text.text("✗ Configuration error")
@@ -4609,8 +4602,16 @@ if not _RUNNING_TESTS:
     
                                 except Exception as e:
                                     # Track unexpected error
-                                    track_statement_upload(success=False, num_statements=len(uploaded_files), num_accounts=0)
-                                    track_error('statement_upload_error', str(e), {'num_files': len(uploaded_files)})
+                                    track_statement_upload(
+                                        success=False,
+                                        num_statements=len(uploaded_files),
+                                        num_accounts=0,
+                                        processor_type=_processor_type,
+                                    )
+                                    track_error('statement_upload_error', str(e), {
+                                        'num_files': len(uploaded_files),
+                                        'processor_type': _processor_type,
+                                    })
     
                                     progress_bar.progress(100)
                                     status_text.text("✗ Unexpected error")
@@ -4884,7 +4885,7 @@ if not _RUNNING_TESTS:
 
                     #### **Post-Tax Accounts**
                     **Roth IRA:**
-                    - **Tax Rate**: `0%`
+                    - **Tax Rate**: `0%` (always tax-free)
                     - **Why**: No tax on withdrawals (contributions already taxed)
                     - **Example**: Withdraw $100,000 tax-free
 
@@ -4892,9 +4893,9 @@ if not _RUNNING_TESTS:
                     - **Tax Rate**: `15%` (default capital gains rate)
                     - **Why**: Only the **gains** are taxed, not original contributions
                     - **Example**:
-                      - Contributed $50,000, grew to $100,000
-                      - Only $50,000 gain taxed at 15% = $7,500 tax
-                      - You keep $92,500
+                      - Contributed \$50,000, grew to \$100,000
+                      - Only \$50,000 gain taxed at 15% = \$7,500 tax
+                      - You keep \$92,500
 
                     #### **Tax-Deferred Accounts (HSA, Annuities)**
                     - **Tax Rate**: Varies by account type
@@ -5160,6 +5161,13 @@ if not _RUNNING_TESTS:
                     legacy_goal=legacy_goal,
                 )
 
+            # Persist gap-closing values so detailed_analysis Income & Gap tab can read them
+            st.session_state.last_breakeven_age = _breakeven_age
+            st.session_state.last_income_at_breakeven = _income_at_breakeven
+            st.session_state.last_breakeven_contrib = _breakeven_contrib
+            st.session_state.last_contrib_breakdown = _contrib_breakdown
+            st.session_state.last_contrib_irs_maxed = _contrib_irs_maxed
+
             # --- Quick Monte Carlo for chat context (500 sims, reproducible seed) ---
             _mc_summary: dict = {}
             try:
@@ -5307,13 +5315,6 @@ if not _RUNNING_TESTS:
                     "Use **Reset to Baseline** in the sidebar to restore original values."
                 )
 
-            # --- Full details navigation ---
-            st.markdown("---")
-            if st.button("📊 View Full Details ▼", key="view_full_details"):
-                st.session_state.current_page = 'full_details'
-                st.rerun()
-
-            # --- Results chat panel (open by default) ---
             _co_income = f"\\${annual_retirement_income:,.0f}"
             _co_goal = f"\\${retirement_income_goal:,.0f}"
             _co_gap = f"\\${retirement_income_goal - annual_retirement_income:,.0f}"
@@ -5322,497 +5323,120 @@ if not _RUNNING_TESTS:
                     f"Your portfolio projects **{_co_income}/year** — "
                     f"**{_co_gap} below** your {_co_goal} goal.\n\n"
                     f"I can explain how this is calculated, help you understand RMDs and Social Security, "
-                    f"or run what-if scenarios. What would you like to explore?"
+                    f"run what-if scenarios, or **run 1,000 Monte Carlo simulations** to see a range of outcomes. "
+                    f"What would you like to explore?"
                 )
             elif retirement_income_goal > 0:
                 _chat_opener = (
                     f"Great news — your portfolio projects **{_co_income}/year**, "
                     f"exceeding your {_co_goal} goal!\n\n"
-                    f"I can explain the calculation, discuss RMDs, Social Security, or explore what-ifs. "
+                    f"I can explain the calculation, discuss RMDs, Social Security, explore what-ifs, "
+                    f"or **run 1,000 Monte Carlo simulations** to stress-test your plan. "
                     f"What would you like to know?"
                 )
             else:
                 _chat_opener = (
                     f"Your portfolio is projected to generate **{_co_income}/year** in retirement.\n\n"
                     f"Ask me anything — how this is calculated, RMDs, Social Security, what-if scenarios, "
-                    f"or which account has the highest balance."
+                    f"which account has the highest balance, or **run Monte Carlo simulations** to see a range of outcomes."
                 )
             _render_results_chat_panel(opening_message=_chat_opener)
+
+            # --- Share & Feedback ---
+            st.markdown("---")
+            with st.expander("💬 Share & Feedback", expanded=False):
+                feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
+
+                with feedback_tab1:
+                    st.markdown("**Share Smart Retire AI with others:** (Tip: Turn the pop-up blocker off for best results)")
+
+                    app_url = "https://smartretireai.streamlit.app"
+
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
+                        twitter_encoded = urllib.parse.quote(twitter_text)
+                        twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
+                        if st.button("🐦 Twitter", use_container_width=True, key="share_twitter"):
+                            components.html(f"""<script>window.open("{twitter_url}", "_blank");</script>""", height=0)
+                            st.success("Opening Twitter in new tab...")
+
+                    with col2:
+                        linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
+                        if st.button("💼 LinkedIn", use_container_width=True, key="share_linkedin"):
+                            components.html(f"""<script>window.open("{linkedin_url}", "_blank");</script>""", height=0)
+                            st.success("Opening LinkedIn in new tab...")
+
+                    with col3:
+                        facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
+                        if st.button("📘 Facebook", use_container_width=True, key="share_facebook"):
+                            components.html(f"""<script>window.open("{facebook_url}", "_blank");</script>""", height=0)
+                            st.success("Opening Facebook in new tab...")
+
+                    with col4:
+                        if st.button("📧 Email", use_container_width=True, key="share_email"):
+                            email_subject = "Powerful FREE Retirement Planning Tool - Smart Retire AI"
+                            email_body = (
+                                "Hi!%0A%0A"
+                                "I discovered Smart Retire AI and thought you might find it helpful for retirement planning.%0A%0A"
+                                "✨ What makes it special:%0A"
+                                "• AI-powered financial statement analysis%0A"
+                                "• Tax-optimized retirement projections%0A"
+                                "• Monte Carlo simulations for risk assessment%0A"
+                                "• Personalized recommendations based on your goals%0A"
+                                "• PDF reports with detailed breakdowns%0A"
+                                "• Completely FREE to use%0A%0A"
+                                "Check it out: " + app_url + "%0A%0A"
+                                "Best regards"
+                            )
+                            email_url = f"mailto:?subject={email_subject}&body={email_body}"
+                            components.html(f"""<script>window.location.href="{email_url}";</script>""", height=0)
+                            st.success("Opening email client...")
+
+                    st.markdown("---")
+                    st.markdown("**Or copy and share the link:**")
+                    st.code(app_url, language=None)
+
+                with feedback_tab2:
+                    st.markdown("**We'd love to hear from you!**")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("👍 Love it!", use_container_width=True, key="feedback_love"):
+                            st.success("Thank you! 💚")
+                            st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
+                    with col2:
+                        if st.button("👎 Could improve", use_container_width=True, key="feedback_improve"):
+                            st.info("Thanks for the feedback!")
+                            st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
+
+                    st.markdown("---")
+
+                    with st.form("simple_feedback_nextsteps"):
+                        feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
+                        if st.form_submit_button("📧 Send Feedback"):
+                            if feedback_msg:
+                                email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
+                                st.success("Ready to send!")
+                                st.markdown(f"[Click to open email →]({email_url})")
+
+                with feedback_tab3:
+                    st.markdown("""
+                    **Get in touch:**
+
+                    📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
+                    ⏱️ **Response time:** 24-48 hours
+                    🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
+
+                    We're here to help with questions, bugs, or feature requests!
+                    """)
 
         except Exception as e:
             st.error(f"❌ **Error in calculation**: {e}")
             with st.expander("🔍 Error Details", expanded=False):
                 st.exception(e)
 
-    elif st.session_state.current_page == 'full_details':
-        # ==========================================
-        # FULL DETAILS PAGE
-        # ==========================================
-        if st.button("← Back to Results"):
-            st.session_state.current_page = 'results'
-            st.rerun()
-
-        st.markdown("---")
-        st.header("📊 Full Details")
-
-        result = st.session_state.get('last_result')
-        inputs = st.session_state.get('last_inputs')
-        if not result or not inputs:
-            st.warning("No analysis data found. Please run a retirement analysis first.")
-            st.stop()
-
-        annual_retirement_income = st.session_state.get('last_annual_retirement_income', 0)
-        retirement_age       = st.session_state.whatif_retirement_age
-        life_expectancy      = st.session_state.whatif_life_expectancy
-        retirement_income_goal = st.session_state.whatif_retirement_income_goal
-        retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
-        inflation_rate       = st.session_state.whatif_inflation_rate
-        life_expenses        = st.session_state.whatif_life_expenses
-        legacy_goal          = st.session_state.get('whatif_legacy_goal', 0)
-        assets               = st.session_state.assets
-        age                  = datetime.now().year - st.session_state.birth_year
-        years_in_retirement  = life_expectancy - retirement_age
-        total_after_tax      = result['Total After-Tax Balance'] - life_expenses
-
-        # r, i, n used by recommendations section (inverse annuity formula)
-        r = retirement_growth_rate / 100.0
-        i = inflation_rate / 100.0
-        n = years_in_retirement
-        
-        # Only show income goal comparison if user set a goal
-        if retirement_income_goal > 0:
-            # Calculate shortfall or surplus
-            income_shortfall = retirement_income_goal - annual_retirement_income
-            income_ratio = (annual_retirement_income / retirement_income_goal) * 100
-        
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric(
-                    "Projected Annual Income",
-                    f"${annual_retirement_income:,.0f}",
-                    help=f"First-year after-tax income. Modeled with optimal withdrawal sequencing (taxable → pre-tax → Roth) and IRS RMDs starting at age 73. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})."
-                )
-            with col2:
-                st.metric(
-                    "Income Goal",
-                    f"${retirement_income_goal:,.0f}",
-                    help="Your desired retirement income"
-                )
-            with col3:
-                if income_shortfall > 0:
-                    st.metric(
-                        "Annual Shortfall",
-                        f"${income_shortfall:,.0f}",
-                        delta=f"-{income_ratio:.1f}%",
-                        delta_color="inverse"
-                    )
-                else:
-                    surplus = -income_shortfall
-                    st.metric(
-                        "Annual Surplus",
-                        f"${surplus:,.0f}",
-                        delta=f"+{income_ratio:.1f}%",
-                        delta_color="normal"
-                    )
-        
-            # Income status analysis
-            if income_ratio >= 100:
-                st.success(f"🎉 **Excellent!** You're projected to exceed your retirement income goal by {income_ratio-100:.1f}%!")
-            elif income_ratio >= 80:
-                st.warning(f"⚠️ **Good progress!** You're on track for {income_ratio:.1f}% of your retirement income goal.")
-            elif income_ratio >= 60:
-                st.warning(f"🚨 **Needs attention!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
-            else:
-                st.error(f"❌ **Significant shortfall!** You're only projected to achieve {income_ratio:.1f}% of your retirement income goal.")
-        else:
-            # No income goal set - just show projected income
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    "Projected Annual Income",
-                    f"${annual_retirement_income:,.0f}",
-                    help=f"First-year after-tax income. Modeled with optimal withdrawal sequencing (taxable → pre-tax → Roth) and IRS RMDs starting at age 73. Based on {years_in_retirement}-year retirement (age {retirement_age} to {life_expectancy})."
-                )
-            with col2:
-                st.info("💡 **No income goal set** - Set a retirement income goal in Step 1 to see how your portfolio measures up!")
-    
-        # Recommendations based on income analysis (only if goal is set)
-        if retirement_income_goal > 0:
-            # Use actionable heading when there's a shortfall
-            if income_shortfall > 0:
-                expander_title = f"🎯 Strategies to Close Your ${income_shortfall:,.0f} Income Gap"
-            else:
-                expander_title = "💡 Income Optimization Recommendations"
-    
-            with st.expander(expander_title, expanded=False):
-                if income_shortfall > 0:
-                    # Calculate required after-tax balance to meet income goal
-                    # Use INVERSE annuity formula to account for growth during retirement
-                    # PV = PMT × [(1 - ((1+i)/(1+r))^n) / (r - i)]
-    
-                    if abs(r - i) < 0.0001:  # If growth rate equals inflation rate
-                        # Simple multiplication when growth = inflation
-                        required_balance_for_income = retirement_income_goal * n
-                    else:
-                        # Inverse annuity formula
-                        numerator = 1 - ((1 + i) / (1 + r)) ** n
-                        denominator = r - i
-                        required_balance_for_income = retirement_income_goal * (numerator / denominator)
-    
-                    # Add life expenses (one-time deduction at retirement) and legacy goal
-                    # (present value of holding `legacy_goal` at end of retirement)
-                    legacy_goal_pv = legacy_goal / ((1 + r) ** n) if n > 0 else legacy_goal
-                    required_after_tax_balance = required_balance_for_income + life_expenses + legacy_goal_pv
-    
-                    additional_balance_needed = required_after_tax_balance - total_after_tax
-    
-                    # Helper function to calculate required contribution increase (NPV-based)
-                    def calculate_contribution_increase(assets, years_to_retirement, additional_balance_needed_aftertax, tax_efficiency_pct):
-                        """Calculate additional annual contribution needed using NPV formula.
-    
-                        Key insight: We need additional_balance_needed in AFTER-TAX dollars, but
-                        contributions grow PRE-TAX and then get taxed. So we must:
-                        1. Convert after-tax target to pre-tax target
-                        2. Calculate contributions needed for pre-tax target
-                        3. Return the contribution amount
-    
-                        For each asset, we need to solve for additional contribution C:
-                        FV_needed_pretax = P*(1+r)^t + (C_current + C_additional) * [((1+r)^t - 1)/r]
-    
-                        Rearranging: C_additional = [FV_needed_pretax - P*(1+r)^t] / [((1+r)^t - 1)/r] - C_current
-                        """
-                        # Convert after-tax target to pre-tax target
-                        # If tax efficiency is 85%, and we need $100k after-tax, we need $117.6k pre-tax
-                        additional_balance_needed_pretax = additional_balance_needed_aftertax / (tax_efficiency_pct / 100.0)
-    
-                        # Calculate weighted average growth rate
-                        weighted_avg_rate = 0
-                        total_balance = sum(a.current_balance for a in assets)
-                        if total_balance > 0:
-                            for asset in assets:
-                                weight = asset.current_balance / total_balance
-                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
-                        else:
-                            weighted_avg_rate = 0.07  # default 7%
-    
-                        # Solve for additional contribution using future value of annuity formula
-                        # FV = C * [((1+r)^t - 1)/r]
-                        # C = FV / [((1+r)^t - 1)/r]
-                        if weighted_avg_rate > 0 and years_to_retirement > 0:
-                            growth_factor = (1.0 + weighted_avg_rate) ** years_to_retirement
-                            annuity_factor = (growth_factor - 1.0) / weighted_avg_rate
-                            total_additional_contribution = additional_balance_needed_pretax / annuity_factor
-                        else:
-                            total_additional_contribution = additional_balance_needed_pretax / max(years_to_retirement, 1)
-    
-                        return total_additional_contribution, weighted_avg_rate * 100
-    
-                    # Helper function to calculate additional years needed
-                    def calculate_additional_years(assets, current_age, retirement_age, life_expectancy, income_goal, tax_efficiency_pct, retirement_growth_rate, inflation_rate, life_expenses, legacy_goal=0.0):
-                        """Calculate additional years needed to work.
-
-                        Key insight: Working longer has TWO benefits:
-                        1. Portfolio grows longer (more years of contributions + growth)
-                        2. Retirement period is shorter (need less total balance)
-
-                        Solve for t in: FV = P*(1+r)^t + C * [((1+r)^t - 1)/r]
-                        where FV is calculated using INVERSE annuity formula to account for
-                        portfolio growth and inflation-adjusted withdrawals during retirement.
-
-                        Must account for:
-                        - Taxes by converting pre-tax FV to after-tax FV
-                        - One-time life expenses deducted at retirement
-                        - Legacy goal (present value of terminal portfolio target)
-                        """
-                        # Calculate weighted average growth rate and total current contributions
-                        weighted_avg_rate = 0
-                        total_current_contribution = 0
-                        total_balance = sum(a.current_balance for a in assets)
-    
-                        if total_balance > 0:
-                            for asset in assets:
-                                weight = asset.current_balance / total_balance
-                                weighted_avg_rate += weight * (asset.growth_rate_pct / 100.0)
-                                total_current_contribution += asset.annual_contribution
-                        else:
-                            weighted_avg_rate = 0.07
-                            total_current_contribution = sum(a.annual_contribution for a in assets)
-    
-                        # Current projection data
-                        total_current_balance = total_balance
-    
-                        # Helper to calculate future value (pre-tax)
-                        def calculate_fv(years, principal, contribution, rate):
-                            if rate == 0:
-                                return principal + contribution * years
-                            growth = (1.0 + rate) ** years
-                            return principal * growth + contribution * ((growth - 1.0) / rate)
-    
-                        # Iteratively test additional years with 0.1 year increments for precision
-                        # For each additional year, recalculate BOTH:
-                        # 1. Higher FV (more growth time)
-                        # 2. Lower required balance (fewer retirement years)
-                        for additional_tenths in range(0, 500):  # 0 to 50 years in 0.1 year increments
-                            additional_years = additional_tenths / 10.0
-                            test_retirement_age = retirement_age + additional_years
-                            test_years_to_retirement = test_retirement_age - current_age
-                            test_years_in_retirement = life_expectancy - test_retirement_age
-    
-                            # Skip if retirement age exceeds life expectancy
-                            if test_years_in_retirement <= 0:
-                                continue
-    
-                            # Calculate what we'd have at this retirement age (PRE-TAX)
-                            test_fv_pretax = calculate_fv(test_years_to_retirement, total_current_balance,
-                                                  total_current_contribution, weighted_avg_rate)
-    
-                            # Convert to AFTER-TAX using tax efficiency ratio
-                            test_fv_aftertax = test_fv_pretax * (tax_efficiency_pct / 100.0)
-    
-                            # Subtract life expenses - this is the actual available balance for generating income
-                            available_balance_aftertax = test_fv_aftertax - life_expenses
-    
-                            # Calculate what we'd need for this shorter retirement period (AFTER-TAX)
-                            # This is just the amount needed to generate income via annuity
-                            # Use INVERSE annuity formula to account for growth during retirement
-                            r_ret = retirement_growth_rate / 100.0
-                            i_ret = inflation_rate / 100.0
-    
-                            if abs(r_ret - i_ret) < 0.0001:
-                                # Simple multiplication when growth = inflation
-                                required_balance_for_income = income_goal * test_years_in_retirement
-                            else:
-                                # Inverse annuity formula
-                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** test_years_in_retirement
-                                denominator = r_ret - i_ret
-                                required_balance_for_income = income_goal * (numerator / denominator)
-    
-                            # Total required = income-generating balance + life expenses + legacy PV
-                            legacy_goal_pv_iter = legacy_goal / ((1 + r_ret) ** test_years_in_retirement) if test_years_in_retirement > 0 else legacy_goal
-                            required_balance_aftertax = required_balance_for_income + life_expenses + legacy_goal_pv_iter
-
-                            # Found solution? Compare available balance (after life expenses) to required balance for income
-                            if available_balance_aftertax >= required_balance_for_income + legacy_goal_pv_iter:
-                                return additional_years, weighted_avg_rate * 100, test_retirement_age, required_balance_aftertax
-
-                        # If no solution found in 50 years, return 50
-                        # Calculate required balance using inverse annuity formula
-                        final_years_in_retirement = max(0, life_expectancy - retirement_age - 50)
-                        if final_years_in_retirement > 0:
-                            if abs(r_ret - i_ret) < 0.0001:
-                                final_required_balance_for_income = income_goal * final_years_in_retirement
-                            else:
-                                numerator = 1 - ((1 + i_ret) / (1 + r_ret)) ** final_years_in_retirement
-                                denominator = r_ret - i_ret
-                                final_required_balance_for_income = income_goal * (numerator / denominator)
-                            legacy_goal_pv_final = legacy_goal / ((1 + r_ret) ** final_years_in_retirement) if final_years_in_retirement > 0 else legacy_goal
-                            final_required_balance = final_required_balance_for_income + life_expenses + legacy_goal_pv_final
-                        else:
-                            final_required_balance = life_expenses + legacy_goal  # Still need both even with 0 years in retirement
-    
-                        return 50.0, weighted_avg_rate * 100, retirement_age + 50, final_required_balance
-    
-                    # Calculate recommendations
-                    years_to_retirement = retirement_age - age
-                    tax_efficiency = result['Tax Efficiency (%)']
-    
-                    additional_contribution, avg_growth_rate_1 = calculate_contribution_increase(
-                        inputs.assets, years_to_retirement, additional_balance_needed, tax_efficiency
-                    )
-                    additional_years, avg_growth_rate_2, new_retirement_age, required_balance_for_option2 = calculate_additional_years(
-                        inputs.assets, age, retirement_age, life_expectancy, retirement_income_goal, tax_efficiency, retirement_growth_rate, inflation_rate, life_expenses, legacy_goal
-                    )
-    
-                    # Calculate new years in retirement for option 2
-                    new_years_in_retirement = life_expectancy - new_retirement_age
-    
-                    st.markdown(f"""
-                    **To close the ${income_shortfall:,.0f} annual shortfall:**
-    
-                    1. **Increase contributions**: Boost annual savings by **${additional_contribution:,.0f} per year**
-                       - Assumes {avg_growth_rate_1:.1f}% average growth rate across your portfolio
-                       - Required total after-tax balance: ${required_after_tax_balance:,.0f}
-                    """)
-    
-                    # Add button to go back to setup to edit contributions
-                    if st.button("📝 Edit Portfolio Contributions", type="secondary",use_container_width=True):
-                        track_event('edit_contributions_from_recommendations')
-                        st.session_state.current_page = 'onboarding'
-                        st.rerun()
-    
-                    st.markdown(f"""
-                    2. **Extend retirement age**: Work **{additional_years:.1f} additional years** (retire at age {new_retirement_age:.0f})
-                       - Assumes {avg_growth_rate_2:.1f}% average growth rate with current contribution levels
-                       - Reduces retirement period to {new_years_in_retirement:.0f} years
-                       - Required total after-tax balance: ${required_balance_for_option2:,.0f}
-
-                    3. **Optimize asset allocation**: Consider higher-growth investments
-
-                    4. **Reduce retirement expenses**: Lower your income goal to ${retirement_income_goal - income_shortfall:,.0f}/year (reduce by ${income_shortfall:,.0f})
-
-                    5. **Consider part-time work**: Supplement retirement income
-                    """)
-                    if legacy_goal > 0:
-                        annuity_factor = (total_after_tax / annual_retirement_income) if annual_retirement_income > 0 else 1
-                        legacy_reduction_needed = min(income_shortfall * annuity_factor, legacy_goal)
-                        new_legacy = legacy_goal - legacy_reduction_needed
-                        st.info(
-                            f"💡 **Alternatively**, reducing your legacy goal from **${legacy_goal:,.0f}** to "
-                            f"**${new_legacy:,.0f}** (−${legacy_reduction_needed:,.0f}) would free up enough "
-                            f"portfolio to close the income gap."
-                        )
-                else:
-                    st.markdown("""
-                    **You're on track! Consider these optimizations:**
-        
-                    1. **Tax optimization**: Maximize Roth contributions
-                    2. **Asset allocation**: Balance growth vs. preservation
-                    3. **Estate planning**: Consider legacy goals
-                    4. **Lifestyle upgrades**: You may be able to increase retirement spending
-                    """)
-        
-        # Navigate to Detailed Analysis page
-        st.markdown("---")
-        if st.button("📈 View Detailed Analysis",use_container_width=True, type="primary", key="go_detailed_analysis"):
-            st.session_state.current_page = 'detailed_analysis'
-            st.rerun()
-
-        # Next Steps Section
-        st.markdown("---")
-        st.subheader("🎯 Next Steps")
-        st.markdown("Take your retirement planning to the next level:")
-    
-        # Create three columns for the Next Steps buttons
-        col1, col2, col3 = st.columns(3)
-    
-        with col1:
-            st.markdown("### 📄 Generate Report")
-            st.markdown("Create a comprehensive PDF report with your complete retirement analysis.")
-            if st.button("📥 Create PDF Report",use_container_width=True, type="primary", key="next_steps_report"):
-                generate_report_dialog()
-    
-        with col2:
-            st.markdown("### 🎲 Scenario Analysis")
-            st.markdown("Explore thousands of scenarios and see how market volatility affects your plan.")
-            if st.button("🚀 Run Scenarios",use_container_width=True, type="primary", key="next_steps_monte_carlo"):
-                monte_carlo_dialog()
-    
-        with col3:
-            st.markdown("### 📊 Cash Flow Projection")
-            st.markdown("Visualize year-by-year income and expenses throughout retirement.")
-            if st.button("📊 View Cash Flow",use_container_width=True, type="primary", key="next_steps_cashflow"):
-                cashflow_dialog()
-    
-        # Share & Feedback section - Simple and clean
-        st.markdown("---")
-        with st.expander("💬 Share & Feedback", expanded=False):
-            # Create tabs for better organization
-            feedback_tab1, feedback_tab2, feedback_tab3 = st.tabs(["📤 Share", "⭐ Feedback", "📧 Contact"])
-    
-            with feedback_tab1:
-                st.markdown("**Share Smart Retire AI with others:** (Tip: Turn the pop-up blocker off for best results)")
-    
-                app_url = "https://smartretireai.streamlit.app"
-    
-                # Social share buttons - simple button layout
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    # Enhanced Twitter message with key features and value prop
-                    twitter_text = "Just planned my retirement with Smart Retire AI! 🎯 FREE tool featuring:\n✅ AI-powered analysis\n✅ Tax optimization\n✅ Monte Carlo simulations\n✅ Personalized insights\n\nPlan your financial future →"
-                    twitter_encoded = urllib.parse.quote(twitter_text)
-                    twitter_url = f"https://twitter.com/intent/tweet?text={twitter_encoded}&url={app_url}"
-                    if st.button("🐦 Twitter",use_container_width=True, key="share_twitter"):
-                        components.html(
-                            f"""<script>window.open("{twitter_url}", "_blank");</script>""",
-                            height=0
-                        )
-                        st.success("Opening Twitter in new tab...")
-
-                with col2:
-                    # LinkedIn with professional messaging
-                    linkedin_url = f"https://www.linkedin.com/sharing/share-offsite/?url={app_url}"
-                    if st.button("💼 LinkedIn",use_container_width=True, key="share_linkedin"):
-                        components.html(
-                            f"""<script>window.open("{linkedin_url}", "_blank");</script>""",
-                            height=0
-                        )
-                        st.success("Opening LinkedIn in new tab...")
-
-                with col3:
-                    facebook_url = f"https://www.facebook.com/sharer/sharer.php?u={app_url}"
-                    if st.button("📘 Facebook",use_container_width=True, key="share_facebook"):
-                        components.html(
-                            f"""<script>window.open("{facebook_url}", "_blank");</script>""",
-                            height=0
-                        )
-                        st.success("Opening Facebook in new tab...")
-
-                with col4:
-                    if st.button("📧 Email",use_container_width=True, key="share_email"):
-                        # Enhanced email with detailed value proposition
-                        email_subject = "Powerful FREE Retirement Planning Tool - Smart Retire AI"
-                        email_body = (
-                            "Hi!%0A%0A"
-                            "I discovered Smart Retire AI and thought you might find it helpful for retirement planning.%0A%0A"
-                            "✨ What makes it special:%0A"
-                            "• AI-powered financial statement analysis%0A"
-                            "• Tax-optimized retirement projections%0A"
-                            "• Monte Carlo simulations for risk assessment%0A"
-                            "• Personalized recommendations based on your goals%0A"
-                            "• PDF reports with detailed breakdowns%0A"
-                            "• Completely FREE to use%0A%0A"
-                            "Check it out: " + app_url + "%0A%0A"
-                            "Best regards"
-                        )
-                        email_url = f"mailto:?subject={email_subject}&body={email_body}"
-                        components.html(
-                            f"""<script>window.location.href="{email_url}";</script>""",
-                            height=0
-                        )
-                        st.success("Opening email client...")
-    
-                st.markdown("---")
-                st.markdown("**Or copy and share the link:**")
-                st.code(app_url, language=None)
-    
-            with feedback_tab2:
-                st.markdown("**We'd love to hear from you!**")
-    
-                # Quick rating
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("👍 Love it!",use_container_width=True, key="feedback_love"):
-                        st.success("Thank you! 💚")
-                        st.markdown("[Tell us what you love →](mailto:smartretireai@gmail.com?subject=Positive%20Feedback)")
-                with col2:
-                    if st.button("👎 Could improve",use_container_width=True, key="feedback_improve"):
-                        st.info("Thanks for the feedback!")
-                        st.markdown("[Share suggestions →](mailto:smartretireai@gmail.com?subject=Suggestions)")
-    
-                st.markdown("---")
-    
-                # Simple feedback form
-                with st.form("simple_feedback_nextsteps"):
-                    feedback_msg = st.text_area("Your feedback:", placeholder="Share your thoughts, report bugs, or request features...", height=100)
-                    if st.form_submit_button("📧 Send Feedback"):
-                        if feedback_msg:
-                            email_url = f"mailto:smartretireai@gmail.com?subject=Smart%20Retire%20AI%20Feedback&body={feedback_msg}"
-                            st.success("Ready to send!")
-                            st.markdown(f"[Click to open email →]({email_url})")
-    
-            with feedback_tab3:
-                st.markdown("""
-                **Get in touch:**
-    
-                📧 **Email:** [smartretireai@gmail.com](mailto:smartretireai@gmail.com)
-                ⏱️ **Response time:** 24-48 hours
-                🐙 **GitHub:** [Report Issues](https://github.com/abhorkarpet/financialadvisor/issues)
-    
-                We're here to help with questions, bugs, or feature requests!
-                """)
-    
-    
     elif st.session_state.current_page == 'detailed_analysis':
         # ==========================================
         # DETAILED ANALYSIS PAGE
@@ -5834,7 +5458,7 @@ if not _RUNNING_TESTS:
             st.warning("No analysis data found. Please run a retirement analysis first.")
             st.stop()
 
-        detail_tab1, detail_tab2, detail_tab3 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary"])
+        detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs(["💰 Asset Breakdown", "📊 Tax Analysis", "📋 Summary", "🎯 Income & Gap"])
 
         with detail_tab1:
             st.write("**Individual Asset Values at Retirement**")
@@ -5994,6 +5618,107 @@ if not _RUNNING_TESTS:
                 ]
             }
             st.dataframe(pd.DataFrame(summary_data),use_container_width=True, hide_index=True)
+
+        with detail_tab4:
+            _da_income = st.session_state.get('last_annual_retirement_income', 0)
+            _da_goal = st.session_state.get('whatif_retirement_income_goal', 0)
+            _da_ret_age = st.session_state.get('whatif_retirement_age', 65)
+            _da_life_exp = st.session_state.get('whatif_life_expectancy', 90)
+            _da_years_in_ret = _da_life_exp - _da_ret_age
+            _da_breakeven_age = st.session_state.get('last_breakeven_age')
+            _da_income_at_breakeven = st.session_state.get('last_income_at_breakeven', 0.0)
+            _da_breakeven_contrib = st.session_state.get('last_breakeven_contrib')
+            _da_contrib_breakdown = st.session_state.get('last_contrib_breakdown', {})
+            _da_contrib_irs_maxed = st.session_state.get('last_contrib_irs_maxed', False)
+
+            if _da_goal <= 0:
+                st.info("💡 Set a retirement income goal during setup to see gap analysis here.")
+            else:
+                _da_shortfall = _da_goal - _da_income
+                _da_ratio = (_da_income / _da_goal * 100) if _da_goal > 0 else 0.0
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Projected Annual Income",
+                        f"${_da_income:,.0f}",
+                        help=f"First-year after-tax income from optimal withdrawal sequencing over a {_da_years_in_ret}-year retirement.",
+                    )
+                with col2:
+                    st.metric("Income Goal", f"${_da_goal:,.0f}", help="Your desired annual retirement income.")
+                with col3:
+                    if _da_shortfall > 0:
+                        st.metric(
+                            "Annual Shortfall",
+                            f"${_da_shortfall:,.0f}",
+                            delta=f"-{100 - _da_ratio:.1f}% of goal",
+                            delta_color="inverse",
+                        )
+                    else:
+                        st.metric(
+                            "Annual Surplus",
+                            f"${-_da_shortfall:,.0f}",
+                            delta=f"+{_da_ratio - 100:.1f}% above goal",
+                            delta_color="normal",
+                        )
+
+                if _da_ratio >= 100:
+                    st.success(f"🎉 You're projected to exceed your goal by {_da_ratio - 100:.1f}%.")
+                elif _da_ratio >= 80:
+                    st.warning(f"⚠️ On track for {_da_ratio:.1f}% of your goal.")
+                elif _da_ratio >= 60:
+                    st.warning(f"🚨 Projected to achieve {_da_ratio:.1f}% of your goal.")
+                else:
+                    st.error(f"❌ Projected to achieve only {_da_ratio:.1f}% of your goal.")
+
+                if _da_shortfall > 0:
+                    st.markdown("---")
+                    st.subheader("Gap-Closing Options")
+
+                    gap_rows = []
+                    if _da_breakeven_age is not None:
+                        gap_rows.append({
+                            "Option": "Retire later",
+                            "Detail": f"Retire at age {_da_breakeven_age}",
+                            "Projected Income": f"${_da_income_at_breakeven:,.0f}/yr",
+                            "Note": f"+{_da_breakeven_age - _da_ret_age} year(s) vs current plan",
+                        })
+                    else:
+                        gap_rows.append({
+                            "Option": "Retire later",
+                            "Detail": "Goal not reachable by age 80",
+                            "Projected Income": f"${_da_income_at_breakeven:,.0f}/yr at 80",
+                            "Note": "Consider adjusting income goal",
+                        })
+
+                    if _da_breakeven_contrib is not None:
+                        if _da_contrib_irs_maxed:
+                            gap_rows.append({
+                                "Option": "Save more",
+                                "Detail": "IRS contribution limits already maxed",
+                                "Projected Income": "—",
+                                "Note": "Consider taxable brokerage contributions",
+                            })
+                        else:
+                            total_extra = sum(_da_contrib_breakdown.values()) if _da_contrib_breakdown else _da_breakeven_contrib
+                            gap_rows.append({
+                                "Option": "Save more",
+                                "Detail": f"+${total_extra:,.0f}/yr across accounts",
+                                "Projected Income": f"${_da_goal:,.0f}/yr (at goal)",
+                                "Note": "Ask the chatbot for a per-account breakdown",
+                            })
+
+                    st.dataframe(pd.DataFrame(gap_rows), use_container_width=True, hide_index=True)
+
+                    if _da_contrib_breakdown and not _da_contrib_irs_maxed and _da_breakeven_contrib is not None:
+                        with st.expander("Per-account contribution breakdown", expanded=False):
+                            bd_rows = [
+                                {"Account": acct, "Additional Annual Contribution": f"${amt:,.0f}"}
+                                for acct, amt in _da_contrib_breakdown.items()
+                                if amt > 0
+                            ]
+                            if bd_rows:
+                                st.dataframe(pd.DataFrame(bd_rows), use_container_width=True, hide_index=True)
 
     elif st.session_state.current_page == 'monte_carlo':
         # Show analytics consent dialog on first load
@@ -6354,39 +6079,33 @@ if not _RUNNING_TESTS:
             # Display as bar chart
             st.bar_chart(bins_balance_df)
     
-    # Page footer — skip on results page so st.chat_input isn't obscured
-    if st.session_state.get('current_page') != 'results':
-        st.markdown("---")
-        _, col_center, _ = st.columns([3, 2, 3])
-        with col_center:
-            if st.button(f"📋 What's new in v{VERSION}",use_container_width=True):
-                st.session_state.show_whats_new = True
-                st.rerun()
-        st.markdown(
-            f"""
-            <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
-                <div style='margin-bottom: 8px;'>
-                    <strong style='color: #1f77b4;'>Smart Retire AI v{VERSION}</strong>
-                </div>
-                <div style='margin-bottom: 8px; color: #888;'>
-                    Advanced Retirement Planning with Asset Classification & Tax Optimization
-                </div>
-                <div style='margin-bottom: 8px;'>
-                    <span style='color: #555;'>© 2025-2026 Smart Retire AI. All rights reserved.</span>
-                </div>
-                <div>
-                    <span style='color: #555;'>Questions? Contact us: </span>
-                    <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4; text-decoration: none; font-weight: 500;'>
-                        smartretireai@gmail.com
-                    </a>
-                </div>
-                <div style='margin-top: 12px; font-size: 0.75em; color: #999;'>
-                    <em>Disclaimer: This tool provides estimates for educational purposes. Consult a financial advisor for personalized advice.</em>
-                </div>
+    # Page footer
+    st.markdown("---")
+    st.markdown(
+        f"""
+        <div style='text-align: center; color: #666; font-size: 0.85em; padding: 20px 10px; background-color: #f8f9fa; border-radius: 8px; margin-top: 30px;'>
+            <div style='margin-bottom: 8px;'>
+                <strong style='color: #1f77b4;'>Smart Retire AI v{VERSION}</strong>
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+            <div style='margin-bottom: 8px; color: #888;'>
+                Advanced Retirement Planning with Asset Classification & Tax Optimization
+            </div>
+            <div style='margin-bottom: 8px;'>
+                <span style='color: #555;'>© 2025-2026 Smart Retire AI. All rights reserved.</span>
+            </div>
+            <div>
+                <span style='color: #555;'>Questions? Contact us: </span>
+                <a href='mailto:smartretireai@gmail.com' style='color: #1f77b4; text-decoration: none; font-weight: 500;'>
+                    smartretireai@gmail.com
+                </a>
+            </div>
+            <div style='margin-top: 12px; font-size: 0.75em; color: #999;'>
+                <em>Disclaimer: This tool provides estimates for educational purposes. Consult a financial advisor for personalized advice.</em>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     
     
 # ---------------------------

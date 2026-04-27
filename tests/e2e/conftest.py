@@ -11,7 +11,7 @@ from typing import Generator
 import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 
-APP_PORT = 8501
+APP_PORT = 8502  # dedicated test port — avoids conflicts with a dev server on 8501
 APP_URL = f"http://localhost:{APP_PORT}"
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 STREAMLIT_CMD = [
@@ -43,31 +43,29 @@ def _wait_for_port(host: str, port: int, timeout: float) -> bool:
 
 @pytest.fixture(scope="session")
 def streamlit_server() -> Generator[None, None, None]:
-    already_running = _wait_for_port("localhost", APP_PORT, timeout=1)
-    proc = None
-
-    if not already_running:
-        proc = subprocess.Popen(
-            STREAMLIT_CMD,
-            cwd=str(PROJECT_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env={**os.environ},
-        )
-        ready = _wait_for_port("localhost", APP_PORT, timeout=SERVER_STARTUP_TIMEOUT)
-        if not ready:
-            proc.terminate()
-            raise RuntimeError(f"Streamlit server did not start within {SERVER_STARTUP_TIMEOUT}s")
-        time.sleep(2)
+    # Always start a dedicated fin_advisor.py server on APP_PORT.
+    # Never reuse whatever happens to be running on that port — that risks
+    # accidentally hitting statement_uploader.py or another dev server.
+    proc = subprocess.Popen(
+        STREAMLIT_CMD,
+        cwd=str(PROJECT_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env={**os.environ},
+    )
+    ready = _wait_for_port("localhost", APP_PORT, timeout=SERVER_STARTUP_TIMEOUT)
+    if not ready:
+        proc.terminate()
+        raise RuntimeError(f"Streamlit server did not start within {SERVER_STARTUP_TIMEOUT}s")
+    time.sleep(2)
 
     yield
 
-    if proc is not None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 @pytest.fixture(scope="session")

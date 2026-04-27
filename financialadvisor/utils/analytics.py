@@ -306,7 +306,15 @@ def track_monte_carlo_run(num_simulations: int, volatility: float) -> None:
     })
 
 
-def track_statement_upload(success: bool, num_statements: int = 0, num_accounts: int = 0) -> None:
+def track_statement_upload(
+    success: bool,
+    num_statements: int = 0,
+    num_accounts: int = 0,
+    processor_type: str = "unknown",
+    execution_time_secs: float = 0.0,
+    num_warnings: int = 0,
+    token_usage: Optional[Dict[str, Any]] = None,
+) -> None:
     """
     Track AI statement upload attempt.
 
@@ -314,13 +322,25 @@ def track_statement_upload(success: bool, num_statements: int = 0, num_accounts:
         success: Whether the upload succeeded
         num_statements: Number of PDF statements uploaded
         num_accounts: Number of accounts extracted from statements
+        processor_type: "python" or "n8n"
+        execution_time_secs: Wall-clock seconds taken by the processor
+        num_warnings: Number of warnings returned by the processor
+        token_usage: Token counts from the Python processor (prompt/completion/total)
     """
     event = 'statement_upload_success' if success else 'statement_upload_failed'
-    track_event(event, {
+    props: Dict[str, Any] = {
         'success': success,
         'num_statements': num_statements,
-        'num_accounts': num_accounts if success else 0
-    })
+        'num_accounts': num_accounts if success else 0,
+        'processor_type': processor_type,
+        'execution_time_secs': round(execution_time_secs, 2),
+        'num_warnings': num_warnings,
+    }
+    if token_usage:
+        props['tokens_prompt'] = token_usage.get('prompt_tokens', 0)
+        props['tokens_completion'] = token_usage.get('completion_tokens', 0)
+        props['tokens_total'] = token_usage.get('total_tokens', 0)
+    track_event(event, props)
 
 
 # ==========================================
