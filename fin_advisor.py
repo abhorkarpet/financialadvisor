@@ -4415,6 +4415,7 @@ if not _RUNNING_TESTS:
                                 progress_bar = st.progress(0)
                                 status_text = st.empty()
         
+                                _processor_type = "unknown"
                                 try:
                                     start_time = time.time()
 
