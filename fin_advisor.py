@@ -5584,8 +5584,9 @@ if not _RUNNING_TESTS:
                     "volatility":   _mc["volatility"],
                     "num_sims":     _mc["num_simulations"],
                 }
-            except Exception:
-                pass  # MC unavailable — context section omitted gracefully
+            except Exception as _mc_err:
+                import logging as _logging
+                _logging.getLogger(__name__).debug("MC context skipped: %s", _mc_err)
 
             # --- Build chat context for results advisor ---
             if _CHAT_CONTEXT_AVAILABLE:
