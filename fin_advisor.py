@@ -2050,9 +2050,7 @@ def adjust_assets_dialog():
         _n_new = len(new_names)
         _n_total = len(_df)
         _skipped = _result_meta.get("skipped_dupes", 0)
-        st.success(
-            f"✅ Extraction Complete! (AI processing: {_ai_elapsed:.1f}s | Total: {_total_time:.1f}s)"
-        )
+        st.success("✅ Extraction Complete!")
         st.info(
             f"**{_n_new} new account(s)** added to your {_n_total}-account portfolio."
             + (f" {_skipped} duplicate(s) skipped." if _skipped else "")
@@ -2235,7 +2233,7 @@ def adjust_assets_dialog():
 
         progress_bar.progress(100)
         status_text.markdown(
-            f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)"
+            "**✅ Extraction Complete!**"
         )
 
         new_assets = _raw_accounts_to_assets(result["data"])
@@ -4518,7 +4516,7 @@ if not _RUNNING_TESTS:
         
                                     if result['success']:
                                         progress_bar.progress(100)
-                                        status_text.markdown(f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)")
+                                        status_text.markdown("**✅ Extraction Complete!**")
         
                                         # Parse response (handle both JSON and CSV formats)
                                         response_format = result.get('format', 'csv')
