@@ -2044,9 +2044,6 @@ def adjust_assets_dialog():
         new_names: set = st.session_state.get("adjust_assets_new_names", set())
         _df: pd.DataFrame = st.session_state.adjust_assets_table_df
 
-        # Timing summary banner
-        _ai_elapsed = _result_meta.get("ai_elapsed", 0)
-        _total_time = _result_meta.get("total_time", 0)
         _n_new = len(new_names)
         _n_total = len(_df)
         _skipped = _result_meta.get("skipped_dupes", 0)
@@ -2146,7 +2143,6 @@ def adjust_assets_dialog():
 
         try:
             import time as _time
-            start_time = _time.time()
 
             status_text.markdown("**📤 Phase 1/2: Uploading Files**")
             progress_bar.progress(10)
@@ -2212,13 +2208,10 @@ def adjust_assets_dialog():
             )
             progress_bar.progress(40)
 
-            ai_start_time = _time.time()
             if _processor_type == "python":
                 result = processor.upload_statements(files_to_upload, progress_callback=_progress_cb)
             else:
                 result = processor.upload_statements(files_to_upload)
-            ai_elapsed = _time.time() - ai_start_time
-            total_time = _time.time() - start_time
 
             progress_bar.progress(90)
 
@@ -2278,8 +2271,6 @@ def adjust_assets_dialog():
         st.session_state.adjust_assets_table_df = _assets_to_editor_df(merged)
         st.session_state.adjust_assets_new_names = {a.name.lower() for a in unique_new}
         st.session_state.adjust_assets_result = {
-            "ai_elapsed": ai_elapsed,
-            "total_time": total_time,
             "skipped_dupes": skipped,
             "warnings": all_warnings,
         }
@@ -4423,8 +4414,6 @@ if not _RUNNING_TESTS:
 
                                 _processor_type = "unknown"
                                 try:
-                                    start_time = time.time()
-
                                     # Phase 1: Upload (0-30%)
                                     status_text.markdown("**📤 Phase 1/2: Uploading Files**")
                                     progress_bar.progress(10)
@@ -4503,15 +4492,10 @@ if not _RUNNING_TESTS:
                                     progress_bar.progress(40)
 
                                     # Make the actual API call (blocking)
-                                    ai_start_time = time.time()
                                     if _processor_type == "python":
                                         result = client.upload_statements(files_to_upload, progress_callback=_progress_cb)
                                     else:
                                         result = client.upload_statements(files_to_upload)
-                                    ai_elapsed = time.time() - ai_start_time
-
-                                    # Show completion with total time
-                                    total_time = time.time() - start_time
                                     progress_bar.progress(90)
         
                                     if result['success']:
@@ -4628,7 +4612,7 @@ if not _RUNNING_TESTS:
                                             num_statements=len(files_to_upload),
                                             num_accounts=len(df_extracted),
                                             processor_type=_processor_type,
-                                            execution_time_secs=result.get('execution_time', total_time),
+                                            execution_time_secs=result.get('execution_time', 0.0),
                                             num_warnings=len(result.get('warnings', [])),
                                             token_usage=result.get('token_usage'),
                                         )
