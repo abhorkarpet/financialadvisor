@@ -198,7 +198,7 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(asset.tax_rate_pct, 15.0)
 
     def test_asset_from_editor_row_savings(self):
-        """Post-tax savings rows should not be treated as brokerage by default."""
+        """Post-tax savings rows should use interest-income behavior (gains taxed at ordinary income rate)."""
         asset = _asset_from_editor_row({
             "Account Name": "High-Yield Savings Account",
             "Tax Treatment": "Post-Tax",
@@ -208,7 +208,7 @@ class TestFinancialAdvisor(unittest.TestCase):
             "Tax Rate on Gains (%)": 0.0,
         })
         self.assertEqual(asset.asset_type, AssetType.POST_TAX)
-        self.assertEqual(asset.tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(asset.tax_behavior, TaxBehavior.INTEREST_INCOME)
         self.assertEqual(asset.tax_rate_pct, 0.0)
 
     def test_parse_money_input_accepts_human_formats(self):
@@ -281,7 +281,7 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(assets[0].tax_behavior, TaxBehavior.TAX_FREE)
         self.assertEqual(assets[1].tax_behavior, TaxBehavior.CAPITAL_GAINS)
         self.assertEqual(assets[1].tax_rate_pct, 15.0)
-        self.assertEqual(assets[2].tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(assets[2].tax_behavior, TaxBehavior.INTEREST_INCOME)
         self.assertEqual(assets[2].tax_rate_pct, 0.0)
 
     def test_tax_logic_hsa_split(self):
@@ -629,9 +629,9 @@ class TestResolveTaxSettings(unittest.TestCase):
         _, behavior, _ = _resolve_tax_settings("post-tax", "Brokerage Account")
         self.assertEqual(behavior, TaxBehavior.CAPITAL_GAINS)
 
-    def test_post_tax_savings_uses_no_additional_tax(self):
+    def test_post_tax_savings_uses_interest_income(self):
         _, behavior, _ = _resolve_tax_settings("post-tax", "High-Yield Savings Account")
-        self.assertEqual(behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(behavior, TaxBehavior.INTEREST_INCOME)
 
     def test_invalid_label_raises(self):
         with self.assertRaises(ValueError):

@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 15.0.0
+Version: 15.5.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "15.0.0"
+VERSION = "15.5.0"
 
 # Streamlit import
 import streamlit as st
@@ -631,9 +631,11 @@ def _asset_to_tax_treatment_label(asset: Asset) -> str:
     """Return the stable editor label for an asset's tax treatment."""
     if asset.tax_behavior == TaxBehavior.TAX_FREE:
         return "Tax-Free"
-    if asset.tax_behavior in (TaxBehavior.CAPITAL_GAINS, TaxBehavior.NO_ADDITIONAL_TAX):
-        return "Post-Tax"
-    return "Tax-Deferred"
+    if asset.asset_type == AssetType.PRE_TAX:
+        return "Pre-Tax"
+    if asset.asset_type == AssetType.TAX_DEFERRED:
+        return "Tax-Deferred"
+    return "Post-Tax"
 
 
 def _asset_from_editor_row(row: Dict[str, object]) -> Asset:
@@ -654,6 +656,36 @@ def _asset_from_editor_row(row: Dict[str, object]) -> Asset:
         tax_behavior=tax_behavior,
         tax_rate_pct=normalized_tax_rate,
     )
+
+
+def _raw_accounts_to_assets(accounts: List[Dict]) -> List[Asset]:
+    """Convert raw statement-processor account dicts to Asset objects."""
+    assets = []
+    for acct in accounts:
+        institution = (acct.get("institution") or "").strip()
+        name = (acct.get("account_name") or "Unknown Account").strip()
+        display_name = f"{institution} {name}".strip() if institution else name
+        balance = float(acct.get("ending_balance") or 0)
+        tax_treatment = acct.get("tax_treatment") or "post-tax"
+        account_type = (acct.get("account_type") or "").lower()
+
+        asset_type, tax_behavior, tax_rate = _resolve_tax_settings(tax_treatment, display_name)
+
+        if any(k in account_type for k in ("savings", "checking", "cash", "money market")):
+            growth_rate = 3.0
+        else:
+            growth_rate = 7.0
+
+        assets.append(Asset(
+            name=display_name,
+            asset_type=asset_type,
+            current_balance=balance,
+            annual_contribution=0.0,
+            growth_rate_pct=growth_rate,
+            tax_behavior=tax_behavior,
+            tax_rate_pct=tax_rate,
+        ))
+    return assets
 
 
 def create_default_assets() -> List[Asset]:
@@ -1910,6 +1942,359 @@ def monte_carlo_dialog():
             st.rerun()
 
 
+_ADJUST_EDITOR_COLUMN_CONFIG = {
+    "Account Name": st.column_config.TextColumn("Account Name"),
+    "Tax Treatment": st.column_config.SelectboxColumn(
+        "Tax Treatment",
+        options=["Pre-Tax", "Tax-Deferred", "Tax-Free", "Post-Tax"],
+        required=True,
+    ),
+    "Current Balance": st.column_config.NumberColumn(
+        "Current Balance", format="$%.2f", min_value=0
+    ),
+    "Annual Contribution": st.column_config.NumberColumn(
+        "Annual Contribution", format="$%.0f", min_value=0
+    ),
+    "Growth Rate (%)": st.column_config.NumberColumn(
+        "Growth Rate (%)", format="%.1f%%", min_value=0.0, max_value=30.0
+    ),
+    "Tax Rate on Gains (%)": st.column_config.NumberColumn(
+        "Tax Rate on Gains (%)", disabled=True, format="%.1f%%"
+    ),
+}
+
+
+def _assets_to_editor_df(assets) -> "pd.DataFrame":
+    """Convert a list of Asset objects to a DataFrame for st.data_editor."""
+    rows = [
+        {
+            "Account Name": a.name,
+            "Tax Treatment": _asset_to_tax_treatment_label(a),
+            "Current Balance": a.current_balance,
+            "Annual Contribution": a.annual_contribution,
+            "Growth Rate (%)": a.growth_rate_pct,
+            "Tax Rate on Gains (%)": a.tax_rate_pct,
+        }
+        for a in assets
+    ]
+    return pd.DataFrame(rows)
+
+
+@st.dialog("Manage Your Portfolio", width="large")
+def adjust_assets_dialog():
+    def _clear_preview():
+        st.session_state.pop("adjust_assets_table_df", None)
+        st.session_state.pop("adjust_assets_result", None)
+        st.session_state.pop("adjust_assets_new_names", None)
+        st.session_state.pop("adjust_assets_edit_mode", None)
+
+    def _do_clear_all():
+        _clear_preview()
+        clear_detailed_planning_asset_state(st.session_state)
+        for _k in ("results_chat_messages", "results_chat_context", "results_chat_whatif_modified"):
+            st.session_state.pop(_k, None)
+        st.session_state.show_adjust_assets_dialog = False
+        st.session_state.current_page = "onboarding"
+        st.session_state.onboarding_step = 2
+
+    # ── Edit mode: edit existing portfolio without uploading ──────────────
+    if st.session_state.get("adjust_assets_edit_mode"):
+        existing = list(st.session_state.get("assets", []))
+        st.caption(f"Edit your **{len(existing)} existing account(s)**. Changes take effect when you save.")
+
+        edit_df = st.data_editor(
+            _assets_to_editor_df(existing),
+            column_config=_ADJUST_EDITOR_COLUMN_CONFIG,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="adjust_assets_edit_editor",
+        )
+
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            if st.button("Save Changes", type="primary", use_container_width=True):
+                try:
+                    updated = [_asset_from_editor_row(r) for _, r in edit_df.iterrows()]
+                except Exception as _e:
+                    st.error(f"Could not save — check account data: {_e}")
+                    st.stop()
+                st.session_state.assets = updated
+                st.session_state.adjust_assets_toast = (
+                    f"Portfolio updated — now tracking {len(updated)} account(s)."
+                )
+                _clear_preview()
+                st.session_state.show_adjust_assets_dialog = False
+                st.rerun()
+        with col_cancel:
+            if st.button("← Back", use_container_width=True):
+                st.session_state.pop("adjust_assets_edit_mode", None)
+                st.rerun()
+
+        st.markdown("---")
+        st.markdown("**Start over from scratch?**")
+        if st.button("🗑️ Clear All Assets", use_container_width=True, key="clear_all_edit"):
+            _do_clear_all()
+            st.rerun()
+        return
+
+    # ── Phase 2: review & edit merged table ──────────────────────────────
+    if "adjust_assets_table_df" in st.session_state:
+        _result_meta = st.session_state.get("adjust_assets_result", {})
+        new_names: set = st.session_state.get("adjust_assets_new_names", set())
+        _df: pd.DataFrame = st.session_state.adjust_assets_table_df
+
+        # Timing summary banner
+        _ai_elapsed = _result_meta.get("ai_elapsed", 0)
+        _total_time = _result_meta.get("total_time", 0)
+        _n_new = len(new_names)
+        _n_total = len(_df)
+        _skipped = _result_meta.get("skipped_dupes", 0)
+        st.success(
+            f"✅ Extraction Complete! (AI processing: {_ai_elapsed:.1f}s | Total: {_total_time:.1f}s)"
+        )
+        st.info(
+            f"**{_n_new} new account(s)** added to your {_n_total}-account portfolio."
+            + (f" {_skipped} duplicate(s) skipped." if _skipped else "")
+        )
+
+        _warnings = _result_meta.get("warnings", [])
+        if _warnings:
+            with st.expander(f"⚠️ {len(_warnings)} warning(s)"):
+                for w in _warnings:
+                    st.markdown(f"- {w}")
+
+        st.markdown("Adjust contributions or growth rates, then save.")
+
+        edited_df = st.data_editor(
+            _df,
+            column_config=_ADJUST_EDITOR_COLUMN_CONFIG,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="adjust_assets_editor",
+        )
+
+        col_save, col_back = st.columns(2)
+        with col_save:
+            if st.button("Save & Update Portfolio", type="primary", use_container_width=True):
+                try:
+                    updated = [_asset_from_editor_row(r) for _, r in edited_df.iterrows()]
+                except Exception as _e:
+                    st.error(f"Could not save — check account data: {_e}")
+                    st.stop()
+
+                st.session_state.assets = updated
+
+                added_names = [a.name for a in updated if a.name.lower() in new_names]
+                if added_names:
+                    account_list = ", ".join(f"**{n}**" for n in added_names)
+                    ack = (
+                        f"I've added {len(added_names)} new account(s) to your portfolio: {account_list}. "
+                        "The projections above have been updated to reflect your complete portfolio. "
+                        "What would you like to explore about your updated retirement outlook?"
+                    )
+                    chat_msgs = st.session_state.get("results_chat_messages") or []
+                    chat_msgs.append({"role": "assistant", "content": ack})
+                    st.session_state.results_chat_messages = chat_msgs
+
+                st.session_state.adjust_assets_toast = (
+                    f"Portfolio updated — now tracking {len(updated)} account(s)."
+                )
+                _clear_preview()
+                st.session_state.show_adjust_assets_dialog = False
+                st.rerun()
+        with col_back:
+            if st.button("← Upload More", use_container_width=True):
+                _clear_preview()
+                st.rerun()
+
+        st.markdown("---")
+        st.markdown("**Start over from scratch?**")
+        if st.button("🗑️ Clear All Assets", use_container_width=True, key="clear_all_phase2"):
+            _do_clear_all()
+            st.rerun()
+        return
+
+    # ── Phase 1: upload ───────────────────────────────────────────────────
+    existing = list(st.session_state.get("assets", []))
+    st.caption(
+        f"Currently tracking **{len(existing)} account(s)**. "
+        "Uploaded statements will be merged — existing data is untouched."
+    )
+
+    uploaded = st.file_uploader(
+        "Upload additional statements (PDF or CSV)",
+        type=["pdf", "csv"],
+        accept_multiple_files=True,
+        key="adjust_assets_uploader",
+    )
+
+    if st.button(
+        "Process & Add to Portfolio",
+        type="primary",
+        use_container_width=True,
+        disabled=not uploaded,
+    ):
+        if not _N8N_AVAILABLE:
+            st.error("Statement processor not available. Check your API key configuration.")
+        else:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            try:
+                import time as _time
+                start_time = _time.time()
+
+                status_text.markdown("**📤 Phase 1/2: Uploading Files**")
+                progress_bar.progress(10)
+
+                processor = get_processor()
+                _processor_type = "python" if processor.__class__.__name__ == "StatementProcessor" else "n8n"
+
+                files_to_upload = [(f.name, f.getvalue()) for f in uploaded]
+
+                status_text.markdown(
+                    f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor..."
+                )
+                progress_bar.progress(25)
+
+                _total_files = len(files_to_upload)
+                _progress_per_file = 48 / max(_total_files, 1)
+
+                def _make_progress_callback(
+                    _status=status_text,
+                    _bar=progress_bar,
+                    _slice=_progress_per_file,
+                    _ai_start=_time.time(),
+                ):
+                    def _cb(stage, file_idx, total_files, filename, chunk_idx, total_chunks):
+                        short_name = filename if len(filename) <= 30 else f"…{filename[-27:]}"
+                        elapsed = int(_time.time() - _ai_start)
+                        file_label = f"file {file_idx + 1}/{total_files}"
+                        files_done_pct = file_idx * _slice
+                        if stage == "text_extract":
+                            within = 0.05 * _slice
+                            pct = int(40 + files_done_pct + within)
+                            _status.markdown(
+                                f"**📄 Phase 2/2: AI Processing** ({file_label}) "
+                                f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
+                            )
+                        elif stage == "ai_call":
+                            chunk_label = (
+                                f" (part {chunk_idx + 1}/{total_chunks})"
+                                if total_chunks > 1 else ""
+                            )
+                            within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
+                            pct = int(40 + files_done_pct + within)
+                            _status.markdown(
+                                f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
+                                f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
+                            )
+                        elif stage == "file_done":
+                            within = _slice
+                            pct = int(40 + files_done_pct + within)
+                            _status.markdown(
+                                f"**✅ Phase 2/2: AI Processing** ({file_label}) "
+                                f"— Done: **{short_name}** ⏱️ {elapsed}s"
+                            )
+                        else:
+                            pct = int(40 + files_done_pct)
+                        _bar.progress(min(pct, 88))
+                    return _cb
+
+                _progress_cb = _make_progress_callback() if _processor_type == "python" else None
+
+                status_text.markdown(
+                    f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
+                )
+                progress_bar.progress(40)
+
+                ai_start_time = _time.time()
+                if _processor_type == "python":
+                    result = processor.upload_statements(files_to_upload, progress_callback=_progress_cb)
+                else:
+                    result = processor.upload_statements(files_to_upload)
+                ai_elapsed = _time.time() - ai_start_time
+                total_time = _time.time() - start_time
+
+                progress_bar.progress(90)
+
+            except Exception as e:
+                st.error(f"Processing failed: {e}")
+                return
+
+            if not result.get("success") or not result.get("data"):
+                progress_bar.progress(100)
+                st.error("No accounts could be extracted from these files.")
+                return
+
+            progress_bar.progress(100)
+            status_text.markdown(
+                f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)"
+            )
+
+            new_assets = _raw_accounts_to_assets(result["data"])
+
+            # Deduplicate by name (case-insensitive) AND by balance
+            # (same exact balance = almost certainly the same account under a different label)
+            existing_names = {a.name.lower() for a in existing}
+            existing_balance_map = {
+                round(a.current_balance, 2): a.name
+                for a in existing
+                if a.current_balance > 0
+            }
+
+            unique_new: list = []
+            dupe_warnings: list = []
+            for a in new_assets:
+                if a.name.lower() in existing_names:
+                    dupe_warnings.append(
+                        f"Skipped **{a.name}** — same name as an existing account."
+                    )
+                elif a.current_balance > 0 and round(a.current_balance, 2) in existing_balance_map:
+                    matched = existing_balance_map[round(a.current_balance, 2)]
+                    dupe_warnings.append(
+                        f"Skipped **{a.name}** (${a.current_balance:,.2f}) "
+                        f"— balance matches existing account **{matched}**."
+                    )
+                else:
+                    unique_new.append(a)
+
+            skipped = len(new_assets) - len(unique_new)
+
+            if not unique_new:
+                st.warning("All extracted accounts already exist in your portfolio — nothing new to add.")
+                if dupe_warnings:
+                    with st.expander("Details"):
+                        for w in dupe_warnings:
+                            st.markdown(f"- {w}")
+                return
+
+            merged = existing + unique_new
+            all_warnings = dupe_warnings + list(result.get("warnings", []))
+            st.session_state.adjust_assets_table_df = _assets_to_editor_df(merged)
+            st.session_state.adjust_assets_new_names = {a.name.lower() for a in unique_new}
+            st.session_state.adjust_assets_result = {
+                "ai_elapsed": ai_elapsed,
+                "total_time": total_time,
+                "skipped_dupes": skipped,
+                "warnings": all_warnings,
+            }
+            st.rerun()
+
+    st.markdown("---")
+    col_edit, col_clear = st.columns(2)
+    with col_edit:
+        if st.button("✏️ Edit Existing Portfolio", use_container_width=True):
+            st.session_state.adjust_assets_edit_mode = True
+            st.rerun()
+    with col_clear:
+        if st.button("🗑️ Clear All Assets", use_container_width=True, key="clear_all_phase1"):
+            _do_clear_all()
+            st.rerun()
+
+
 @st.dialog("📊 Cash Flow Projection", width="large")
 def cashflow_dialog():
     """Dialog showing the year-by-year retirement cash flow table."""
@@ -2737,6 +3122,13 @@ def _render_results_chat_panel(opening_message: str) -> None:
         if st.button("📈 Detailed Analysis", use_container_width=True, key="results_detailed_analysis"):
             st.session_state.current_page = 'detailed_analysis'
             st.rerun()
+        if st.button("🏦 Adjust Assets", use_container_width=True, key="results_adjust_assets"):
+            st.session_state.show_adjust_assets_dialog = True
+            st.rerun()
+        if st.session_state.get("show_adjust_assets_dialog"):
+            adjust_assets_dialog()
+        if _toast := st.session_state.pop("adjust_assets_toast", None):
+            st.toast(_toast, icon="✅")
 
     with chat_col:
         # Render all messages (including the just-appended user message on Pass 1)
@@ -4893,9 +5285,9 @@ if not _RUNNING_TESTS:
                     - **Tax Rate**: `15%` (default capital gains rate)
                     - **Why**: Only the **gains** are taxed, not original contributions
                     - **Example**:
-                      - Contributed \$50,000, grew to \$100,000
-                      - Only \$50,000 gain taxed at 15% = \$7,500 tax
-                      - You keep \$92,500
+                      - Contributed $50,000, grew to $100,000
+                      - Only $50,000 gain taxed at 15% = $7,500 tax
+                      - You keep $92,500
 
                     #### **Tax-Deferred Accounts (HSA, Annuities)**
                     - **Tax Rate**: Varies by account type

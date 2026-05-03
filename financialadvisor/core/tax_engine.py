@@ -119,6 +119,13 @@ def apply_tax_logic(
         tax_liability = future_value * (retirement_tax_rate_pct / 100.0)
         after_tax_value = future_value - tax_liability
 
+    elif tax_behavior == TaxBehavior.INTEREST_INCOME or tax_behavior_value == "interest_income":
+        # Savings/checking: contributions already post-tax, gains taxed as ordinary income
+        cost_basis = asset.current_balance + total_contributions
+        gains = max(0, future_value - cost_basis)
+        tax_liability = gains * (retirement_tax_rate_pct / 100.0)
+        after_tax_value = future_value - tax_liability
+
     elif tax_behavior == TaxBehavior.NO_ADDITIONAL_TAX or tax_behavior_value == "no_additional_tax":
         after_tax_value = future_value
         tax_liability = 0.0
