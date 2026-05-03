@@ -2,17 +2,16 @@
 
 A Python/Streamlit web app for projecting retirement savings with multi-asset tax optimization, Monte Carlo simulation, AI-powered statement processing, and a GPT-4 chat advisor.
 
-
-**Current version: 14.0.0**
+**Current version: 15.5.0**
 
 ---
 
 ## Features
 
 ### Retirement Projection Engine
-- **Explicit Tax Modeling**: Pre-tax, tax-free Roth, brokerage capital gains, and tax-deferred/HSA-style account behaviors
+- **Explicit Tax Modeling**: Pre-tax, tax-free Roth, brokerage capital gains, HSA-style, and savings/checking interest income behaviors
 - **Per-Asset Growth Simulation**: Individual balance tracking with IRS tax bracket logic
-- **Tax Efficiency Analysis**: Capital gains, Roth tax-free withdrawals, HSA partial benefits
+- **Tax Efficiency Analysis**: Capital gains, Roth tax-free withdrawals, HSA partial benefits, ordinary income on savings interest
 - **Monte Carlo Simulation**: 1,000+ probabilistic scenarios with confidence intervals and probability of success
 
 ### Planning Modes
@@ -23,13 +22,21 @@ A Python/Streamlit web app for projecting retirement savings with multi-asset ta
 - Upload PDF financial statements; GPT-4.1 extracts and categorizes accounts automatically
 - Automatic tax classification (pre_tax / post_tax / tax_free) with tax bucket decomposition for 401k/403b accounts
 - Account-number-based deduplication — survives generic AI-assigned names across multi-file batches
+- Balance-based duplicate detection — catches same account under different institution label names
 - PII removal, multi-file batch processing, CSV/JSON export
 - Two processor backends, switchable via env var: **Python processor** (no n8n required) or **n8n webhook**
+
+### Portfolio Management
+- **"Manage Your Portfolio" dialog**: upload additional statements and merge into existing portfolio, edit accounts inline, or reset
+- Upload flow mirrors onboarding UX with Phase 1/2 progress bar and live per-file AI processing timing
+- Edit existing accounts without re-uploading: account name, tax treatment, balance, contributions, growth rate, add/delete rows
 
 ### Reporting
 - Real-time charts and visualizations
 - PDF report generation
 - Multi-scenario comparison
+- Cash flow projection with year-by-year portfolio balance and after-tax income chart
+- Income & Gap analysis: projected income vs goal, gap-closing options (retire later or save more)
 
 ---
 
@@ -100,12 +107,16 @@ integrations/
   processor_factory.py          # Returns active processor based on env var
   chat_advisor.py               # GPT-4 conversational planning
   gpt_system_prompt.txt         # Chat advisor system prompt
+  detailed_planning_system_prompt.txt  # System prompt for Detailed Planning advisor
+  detailed_setup_system_prompt.txt     # System prompt for Detailed Planning setup chat
 workflows/                      # n8n workflow JSON definitions
 tests/
-  test_fin_advisor.py           # Unit test suite
+  test_fin_advisor.py           # Unit test suite (127 tests)
+  test_statement_processor.py   # Statement processor unit tests
+  e2e/                          # End-to-end test suite
 docs/                           # Supplementary docs (deployment, setup guides, analysis)
 release-notes/                  # Historical release notes (prior versions)
-RELEASE_NOTES_v14.0.0.md        # Current release notes
+RELEASE_NOTES_v15.5.0.md        # Current release notes
 ```
 
 ---
