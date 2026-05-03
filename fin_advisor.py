@@ -6522,7 +6522,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and "--run-tests" in sys.argv:
-        suite = unittest.defaultTestLoader.discover("tests")
+        # Discover only unit tests; exclude e2e/ which requires Playwright + live server
+        import glob as _glob
+        import importlib as _importlib
+        _loader = unittest.defaultTestLoader
+        suite = unittest.TestSuite()
+        for _path in sorted(_glob.glob("tests/test_*.py")):
+            _mod = _path.replace("/", ".")[:-3]  # "tests/test_foo.py" → "tests.test_foo"
+            suite.addTests(_loader.loadTestsFromModule(_importlib.import_module(_mod)))
         test_result = unittest.TextTestRunner(verbosity=2).run(suite)
         sys.exit(0 if test_result.wasSuccessful() else 1)
     else:
