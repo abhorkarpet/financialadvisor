@@ -387,6 +387,27 @@ class N8NClient:
                     'error': 'No accounts found in response'
                 }
 
+            # Warn about duplicate accounts across files (same account_id or account_number_last4)
+            seen_account_ids: dict = {}
+            for account in all_accounts:
+                acct_id = account.get('account_id') or account.get('account_name')
+                last4 = str(account.get('account_number_last4', '')).strip()
+                # Build a dedup key: prefer last4 if present, fall back to account_id
+                dedup_key = last4 if last4 and last4 not in ('', 'nan', 'None') else acct_id
+                if not dedup_key:
+                    continue
+                source_file = account.get('_document_metadata', {}).get('source_file', 'unknown file')
+                if dedup_key in seen_account_ids:
+                    prev_file = seen_account_ids[dedup_key]
+                    if prev_file != source_file:
+                        label = f"…{last4}" if last4 and last4 not in ('', 'nan', 'None') else acct_id
+                        all_warnings.append(
+                            f"Duplicate account detected ({label}) appears in both "
+                            f"'{prev_file}' and '{source_file}' — review to avoid double-counting assets"
+                        )
+                else:
+                    seen_account_ids[dedup_key] = source_file
+
             return {
                 'success': True,
                 'data': all_accounts,  # List of account dictionaries

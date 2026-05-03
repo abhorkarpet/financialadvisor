@@ -20,6 +20,7 @@ class TaxBehavior(Enum):
     CAPITAL_GAINS = "capital_gains"
     HSA_SPLIT = "hsa_split"
     ORDINARY_INCOME = "ordinary_income"
+    INTEREST_INCOME = "interest_income"  # gains-only taxed at ordinary income rate (savings/checking)
     NO_ADDITIONAL_TAX = "no_additional_tax"
 
 
@@ -66,6 +67,8 @@ def infer_tax_behavior(asset_type, name: str, tax_rate_pct: float = 0.0) -> TaxB
     if normalized_asset_type == AssetType.POST_TAX:
         if "roth" in name_lower:
             return TaxBehavior.TAX_FREE
+        if any(keyword in name_lower for keyword in ("savings", "checking", "cash")):
+            return TaxBehavior.INTEREST_INCOME
         if tax_rate_pct > 0 or any(
             keyword in name_lower
             for keyword in ("brokerage", "taxable", "stock", "espp", "rsu", "equity", "mutual fund")

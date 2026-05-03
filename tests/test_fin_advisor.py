@@ -15,10 +15,22 @@ from fin_advisor import (
     TaxBehavior,
     UserInputs,
     _asset_from_editor_row,
+    _dedupe_ai_editor_rows,
+    _dedupe_uploaded_file_payloads,
+    _fmt_inr,
+    _format_money_input,
+    _humanize_ai_account_name,
+    _humanize_ai_account_type,
+    _parse_money_input,
+    _rmd_distribution_period,
+    _resolve_tax_settings,
     apply_tax_logic,
     clear_detailed_planning_asset_state,
     collect_detailed_planning_handoff_fields,
+    extract_release_overview,
+    find_required_portfolio,
     has_existing_detailed_asset_state,
+    simulate_retirement,
     years_to_retirement,
     future_value_with_contrib,
     parse_uploaded_csv,
@@ -186,7 +198,7 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(asset.tax_rate_pct, 15.0)
 
     def test_asset_from_editor_row_savings(self):
-        """Post-tax savings rows should not be treated as brokerage by default."""
+        """Post-tax savings rows should use interest-income behavior (gains taxed at ordinary income rate)."""
         asset = _asset_from_editor_row({
             "Account Name": "High-Yield Savings Account",
             "Tax Treatment": "Post-Tax",
@@ -196,8 +208,65 @@ class TestFinancialAdvisor(unittest.TestCase):
             "Tax Rate on Gains (%)": 0.0,
         })
         self.assertEqual(asset.asset_type, AssetType.POST_TAX)
-        self.assertEqual(asset.tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(asset.tax_behavior, TaxBehavior.INTEREST_INCOME)
         self.assertEqual(asset.tax_rate_pct, 0.0)
+
+    def test_parse_money_input_accepts_human_formats(self):
+        """Natural money parsing should handle k/m/$/comma formats."""
+        self.assertEqual(_parse_money_input("$200k", "Income Goal"), 200000.0)
+        self.assertEqual(_parse_money_input("2.5m", "Income Goal"), 2500000.0)
+        self.assertEqual(_parse_money_input("150,000", "Income Goal"), 150000.0)
+        self.assertEqual(_parse_money_input("5000", "Income Goal"), 5000.0)
+
+    def test_parse_money_input_rejects_bad_formats(self):
+        """Malformed money input should raise a clear validation error."""
+        with self.assertRaises(ValueError):
+            _parse_money_input("abc", "Income Goal")
+        with self.assertRaises(ValueError):
+            _parse_money_input("-10k", "Income Goal")
+
+    def test_format_money_input(self):
+        """Formatted money text should be friendly for text inputs."""
+        self.assertEqual(_format_money_input(0), "0")
+        self.assertEqual(_format_money_input(200000), "200,000")
+        self.assertEqual(_format_money_input(2500.5), "2,500.5")
+
+    def test_dedupe_uploaded_file_payloads(self):
+        """Byte-identical uploads should be skipped before sending to AI extraction."""
+        files, skipped = _dedupe_uploaded_file_payloads(
+            [
+                ("stmt1.pdf", b"abc"),
+                ("stmt2.pdf", b"abc"),
+                ("stmt3.pdf", b"xyz"),
+            ]
+        )
+        self.assertEqual([name for name, _ in files], ["stmt1.pdf", "stmt3.pdf"])
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("stmt2.pdf", skipped[0])
+
+    def test_dedupe_ai_editor_rows(self):
+        """Likely duplicate extracted account rows should be removed with a warning."""
+        import pandas as pd
+
+        df = pd.DataFrame(
+            [
+                {"#": "#1", "Institution": "Fidelity", "Account Name": "IRA", "Last 4": "1234", "Current Balance": 1000.0},
+                {"#": "#2", "Institution": "Fidelity", "Account Name": "IRA", "Last 4": "1234", "Current Balance": 1000.0},
+                {"#": "#3", "Institution": "Vanguard", "Account Name": "Brokerage", "Last 4": "5678", "Current Balance": 2000.0},
+            ]
+        )
+        deduped, warnings = _dedupe_ai_editor_rows(df)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(list(deduped["#"]), ["#1", "#2"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Potential duplicate removed", warnings[0])
+
+    def test_humanize_ai_labels(self):
+        """Extracted account labels should preserve IRA and 401(K) capitalization."""
+        self.assertEqual(_humanize_ai_account_type("ira"), "IRA")
+        self.assertEqual(_humanize_ai_account_type("401k"), "401(K)")
+        self.assertEqual(_humanize_ai_account_name("IRA"), "IRA")
+        self.assertEqual(_humanize_ai_account_name("401K"), "401(K)")
 
     def test_parse_uploaded_csv_preserves_tax_behaviors(self):
         """CSV parsing should resolve Roth, brokerage, and savings deterministically."""
@@ -212,7 +281,7 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertEqual(assets[0].tax_behavior, TaxBehavior.TAX_FREE)
         self.assertEqual(assets[1].tax_behavior, TaxBehavior.CAPITAL_GAINS)
         self.assertEqual(assets[1].tax_rate_pct, 15.0)
-        self.assertEqual(assets[2].tax_behavior, TaxBehavior.NO_ADDITIONAL_TAX)
+        self.assertEqual(assets[2].tax_behavior, TaxBehavior.INTEREST_INCOME)
         self.assertEqual(assets[2].tax_rate_pct, 0.0)
 
     def test_tax_logic_hsa_split(self):
@@ -301,6 +370,272 @@ class TestFinancialAdvisor(unittest.TestCase):
         self.assertNotIn("num_assets_manual", state)
         self.assertNotIn("ai_extracted_accounts", state)
         self.assertNotIn("csv_uploaded_assets", state)
+
+
+class TestFmtInr(unittest.TestCase):
+    """Indian number formatting — 3-digit last group, 2-digit groups above."""
+
+    def test_under_1000_unchanged(self):
+        self.assertEqual(_fmt_inr(999), "999")
+
+    def test_exactly_1000(self):
+        self.assertEqual(_fmt_inr(1000), "1,000")
+
+    def test_lakhs(self):
+        self.assertEqual(_fmt_inr(600_000), "6,00,000")
+
+    def test_crores(self):
+        self.assertEqual(_fmt_inr(10_000_000), "1,00,00,000")
+
+    def test_large_number(self):
+        self.assertEqual(_fmt_inr(8_589_300), "85,89,300")
+
+    def test_negative_number(self):
+        result = _fmt_inr(-600_000)
+        self.assertTrue(result.startswith("-"))
+        self.assertIn("6,00,000", result)
+
+    def test_zero(self):
+        self.assertEqual(_fmt_inr(0), "0")
+
+
+class TestExtractReleaseOverview(unittest.TestCase):
+    """Release notes overview extraction."""
+
+    _NOTES = """\
+# Release Notes v1.0.0
+
+## 🎯 Release Overview
+This is the overview text.
+
+---
+
+## Other Section
+More content.
+"""
+
+    def test_returns_overview_section(self):
+        result = extract_release_overview(self._NOTES)
+        self.assertIn("Release Overview", result)
+        self.assertIn("overview text", result)
+
+    def test_stops_before_next_section(self):
+        result = extract_release_overview(self._NOTES)
+        self.assertNotIn("Other Section", result)
+
+    def test_include_heading_false_strips_header(self):
+        result = extract_release_overview(self._NOTES, include_heading=False)
+        self.assertNotIn("## 🎯 Release Overview", result)
+        self.assertIn("overview text", result)
+
+    def test_none_content_returns_none(self):
+        self.assertIsNone(extract_release_overview(None))
+
+    def test_empty_string_returns_none(self):
+        self.assertIsNone(extract_release_overview(""))
+
+    def test_no_overview_marker_returns_full_content(self):
+        notes = "# Release Notes\n\nNo overview marker here."
+        result = extract_release_overview(notes)
+        self.assertIn("No overview marker", result)
+
+
+class TestRmdDistributionPeriod(unittest.TestCase):
+    """IRS Uniform Lifetime Table lookups and extrapolation."""
+
+    def test_below_73_returns_infinity(self):
+        self.assertEqual(_rmd_distribution_period(72), float("inf"))
+        self.assertEqual(_rmd_distribution_period(0), float("inf"))
+
+    def test_at_73_returns_table_value(self):
+        result = _rmd_distribution_period(73)
+        self.assertGreater(result, 0)
+        self.assertNotEqual(result, float("inf"))
+
+    def test_exact_table_age(self):
+        # Age 80 should be in the IRS table (distribution period ~20.2)
+        result = _rmd_distribution_period(80)
+        self.assertAlmostEqual(result, 20.2, delta=1.0)
+
+    def test_beyond_100_extrapolates(self):
+        result = _rmd_distribution_period(105)
+        self.assertGreater(result, 0)
+        self.assertLess(result, 10)
+
+    def test_distribution_period_decreases_with_age(self):
+        self.assertGreater(_rmd_distribution_period(73), _rmd_distribution_period(85))
+
+
+class TestSimulateRetirement(unittest.TestCase):
+    """Year-by-year retirement simulation boundary checks."""
+
+    def test_zero_balance_portfolio_stays_zero(self):
+        result = simulate_retirement(
+            pretax_bal=0, roth_bal=0, brokerage_bal=0, brokerage_cost_basis=0,
+            first_year_aftertax_target=50_000,
+            retirement_age=65, life_expectancy=85,
+            growth_rate=0.06, inflation_rate=0.03,
+            retirement_tax_rate_pct=22.0,
+        )
+        self.assertEqual(len(result), 20)
+        for row in result:
+            self.assertEqual(row["total_portfolio_end"], 0.0)
+
+    def test_returns_correct_number_of_years(self):
+        result = simulate_retirement(
+            pretax_bal=500_000, roth_bal=0, brokerage_bal=0, brokerage_cost_basis=0,
+            first_year_aftertax_target=30_000,
+            retirement_age=65, life_expectancy=80,
+            growth_rate=0.04, inflation_rate=0.02,
+            retirement_tax_rate_pct=15.0,
+        )
+        self.assertEqual(len(result), 15)  # 80 - 65
+
+    def test_roth_withdrawal_tax_free(self):
+        """Roth withdrawals should incur zero income tax."""
+        result = simulate_retirement(
+            pretax_bal=0, roth_bal=500_000, brokerage_bal=0, brokerage_cost_basis=0,
+            first_year_aftertax_target=20_000,
+            retirement_age=65, life_expectancy=70,
+            growth_rate=0.04, inflation_rate=0.0,
+            retirement_tax_rate_pct=22.0,
+        )
+        # First year: roth withdrawal should be tax-free
+        year1 = result[0]
+        self.assertEqual(year1.get("extra_pretax_tax", 0), 0.0)
+        self.assertIn("roth_withdrawal", year1)
+
+    def test_year_data_keys_present(self):
+        result = simulate_retirement(
+            pretax_bal=200_000, roth_bal=0, brokerage_bal=0, brokerage_cost_basis=0,
+            first_year_aftertax_target=10_000,
+            retirement_age=65, life_expectancy=70,
+            growth_rate=0.05, inflation_rate=0.02,
+            retirement_tax_rate_pct=20.0,
+        )
+        expected_keys = {"age", "total_portfolio_end"}
+        for key in expected_keys:
+            self.assertIn(key, result[0])
+
+
+class TestFindRequiredPortfolio(unittest.TestCase):
+    """Binary search for minimum pre-tax portfolio — boundary and consistency checks."""
+
+    def test_zero_income_goal_returns_zero_portfolio(self):
+        result = find_required_portfolio(
+            target_after_tax_income=0,
+            retirement_age=65,
+            life_expectancy=85,
+            retirement_tax_rate_pct=22.0,
+        )
+        self.assertEqual(result["required_pretax_portfolio"], 0.0)
+        self.assertEqual(result["confirmed_income"], 0.0)
+
+    def test_positive_income_goal_returns_positive_portfolio(self):
+        result = find_required_portfolio(
+            target_after_tax_income=50_000,
+            retirement_age=65,
+            life_expectancy=85,
+            retirement_tax_rate_pct=22.0,
+            growth_rate=0.04,
+            inflation_rate=0.03,
+        )
+        self.assertGreater(result["required_pretax_portfolio"], 0)
+
+    def test_longer_retirement_requires_more(self):
+        shorter = find_required_portfolio(
+            target_after_tax_income=40_000,
+            retirement_age=65,
+            life_expectancy=75,
+            retirement_tax_rate_pct=22.0,
+            growth_rate=0.04,
+            inflation_rate=0.02,
+        )
+        longer = find_required_portfolio(
+            target_after_tax_income=40_000,
+            retirement_age=65,
+            life_expectancy=90,
+            retirement_tax_rate_pct=22.0,
+            growth_rate=0.04,
+            inflation_rate=0.02,
+        )
+        self.assertGreater(
+            longer["required_pretax_portfolio"],
+            shorter["required_pretax_portfolio"],
+        )
+
+    def test_result_includes_expected_keys(self):
+        result = find_required_portfolio(
+            target_after_tax_income=30_000,
+            retirement_age=65,
+            life_expectancy=85,
+            retirement_tax_rate_pct=15.0,
+        )
+        for key in ("required_pretax_portfolio", "confirmed_income", "years_in_retirement"):
+            self.assertIn(key, result)
+
+    def test_life_expenses_added_to_requirement(self):
+        base = find_required_portfolio(
+            target_after_tax_income=40_000,
+            retirement_age=65,
+            life_expectancy=85,
+            retirement_tax_rate_pct=22.0,
+            growth_rate=0.04,
+            inflation_rate=0.02,
+        )
+        with_expenses = find_required_portfolio(
+            target_after_tax_income=40_000,
+            retirement_age=65,
+            life_expectancy=85,
+            retirement_tax_rate_pct=22.0,
+            growth_rate=0.04,
+            inflation_rate=0.02,
+            life_expenses=50_000,
+        )
+        self.assertGreater(
+            with_expenses["required_pretax_portfolio"],
+            base["required_pretax_portfolio"],
+        )
+
+
+class TestResolveTaxSettings(unittest.TestCase):
+    """UI tax label → internal AssetType + TaxBehavior conversion."""
+
+    def test_pre_tax_variants(self):
+        for label in ("pre-tax", "pre tax", "pre_tax"):
+            asset_type, behavior, rate = _resolve_tax_settings(label, "401k")
+            self.assertEqual(behavior, TaxBehavior.PRE_TAX)
+            self.assertEqual(rate, 0.0)
+
+    def test_tax_deferred_plain(self):
+        asset_type, behavior, rate = _resolve_tax_settings("tax-deferred", "My 401k")
+        self.assertEqual(behavior, TaxBehavior.PRE_TAX)
+
+    def test_tax_deferred_hsa(self):
+        asset_type, behavior, rate = _resolve_tax_settings("tax-deferred", "HSA Account")
+        self.assertEqual(behavior, TaxBehavior.HSA_SPLIT)
+
+    def test_tax_deferred_annuity(self):
+        asset_type, behavior, rate = _resolve_tax_settings("tax-deferred", "Variable Annuity")
+        self.assertEqual(behavior, TaxBehavior.ORDINARY_INCOME)
+
+    def test_tax_free_variants(self):
+        for label in ("tax-free", "tax free", "roth"):
+            asset_type, behavior, rate = _resolve_tax_settings(label, "Roth IRA")
+            self.assertEqual(behavior, TaxBehavior.TAX_FREE)
+            self.assertEqual(rate, 0.0)
+
+    def test_post_tax_brokerage_uses_capital_gains(self):
+        _, behavior, _ = _resolve_tax_settings("post-tax", "Brokerage Account")
+        self.assertEqual(behavior, TaxBehavior.CAPITAL_GAINS)
+
+    def test_post_tax_savings_uses_interest_income(self):
+        _, behavior, _ = _resolve_tax_settings("post-tax", "High-Yield Savings Account")
+        self.assertEqual(behavior, TaxBehavior.INTEREST_INCOME)
+
+    def test_invalid_label_raises(self):
+        with self.assertRaises(ValueError):
+            _resolve_tax_settings("banana", "Some Account")
 
 
 if __name__ == '__main__':
