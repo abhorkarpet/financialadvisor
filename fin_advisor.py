@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 15.5.0
+Version: 15.6.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "15.5.0"
+VERSION = "15.6.0"
 
 # Streamlit import
 import streamlit as st
@@ -89,7 +89,7 @@ except ImportError:
 try:
     from integrations.n8n_client import N8NError
     from integrations.statement_processor import StatementProcessor, StatementProcessorError
-    from integrations.processor_factory import get_processor
+    from integrations.processor_factory import get_processor, check_processor_configured
     from pypdf import PdfReader
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file
@@ -2137,151 +2137,155 @@ def adjust_assets_dialog():
         disabled=not uploaded,
     ):
         if not _N8N_AVAILABLE:
-            st.error("Statement processor not available. Check your API key configuration.")
-        else:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            st.error("Statement processor not available — required packages are missing.")
+            return
+        _proc_ok, _proc_err = check_processor_configured()
+        if not _proc_ok:
+            st.error(_proc_err)
+            return
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-            try:
-                import time as _time
-                start_time = _time.time()
+        try:
+            import time as _time
+            start_time = _time.time()
 
-                status_text.markdown("**📤 Phase 1/2: Uploading Files**")
-                progress_bar.progress(10)
+            status_text.markdown("**📤 Phase 1/2: Uploading Files**")
+            progress_bar.progress(10)
 
-                processor = get_processor()
-                _processor_type = "python" if processor.__class__.__name__ == "StatementProcessor" else "n8n"
+            processor = get_processor()
+            _processor_type = "python" if processor.__class__.__name__ == "StatementProcessor" else "n8n"
 
-                files_to_upload = [(f.name, f.getvalue()) for f in uploaded]
+            files_to_upload = [(f.name, f.getvalue()) for f in uploaded]
 
-                status_text.markdown(
-                    f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor..."
-                )
-                progress_bar.progress(25)
-
-                _total_files = len(files_to_upload)
-                _progress_per_file = 48 / max(_total_files, 1)
-
-                def _make_progress_callback(
-                    _status=status_text,
-                    _bar=progress_bar,
-                    _slice=_progress_per_file,
-                    _ai_start=_time.time(),
-                ):
-                    def _cb(stage, file_idx, total_files, filename, chunk_idx, total_chunks):
-                        short_name = filename if len(filename) <= 30 else f"…{filename[-27:]}"
-                        elapsed = int(_time.time() - _ai_start)
-                        file_label = f"file {file_idx + 1}/{total_files}"
-                        files_done_pct = file_idx * _slice
-                        if stage == "text_extract":
-                            within = 0.05 * _slice
-                            pct = int(40 + files_done_pct + within)
-                            _status.markdown(
-                                f"**📄 Phase 2/2: AI Processing** ({file_label}) "
-                                f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
-                            )
-                        elif stage == "ai_call":
-                            chunk_label = (
-                                f" (part {chunk_idx + 1}/{total_chunks})"
-                                if total_chunks > 1 else ""
-                            )
-                            within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
-                            pct = int(40 + files_done_pct + within)
-                            _status.markdown(
-                                f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
-                                f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
-                            )
-                        elif stage == "file_done":
-                            within = _slice
-                            pct = int(40 + files_done_pct + within)
-                            _status.markdown(
-                                f"**✅ Phase 2/2: AI Processing** ({file_label}) "
-                                f"— Done: **{short_name}** ⏱️ {elapsed}s"
-                            )
-                        else:
-                            pct = int(40 + files_done_pct)
-                        _bar.progress(min(pct, 88))
-                    return _cb
-
-                _progress_cb = _make_progress_callback() if _processor_type == "python" else None
-
-                status_text.markdown(
-                    f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
-                )
-                progress_bar.progress(40)
-
-                ai_start_time = _time.time()
-                if _processor_type == "python":
-                    result = processor.upload_statements(files_to_upload, progress_callback=_progress_cb)
-                else:
-                    result = processor.upload_statements(files_to_upload)
-                ai_elapsed = _time.time() - ai_start_time
-                total_time = _time.time() - start_time
-
-                progress_bar.progress(90)
-
-            except Exception as e:
-                st.error(f"Processing failed: {e}")
-                return
-
-            if not result.get("success") or not result.get("data"):
-                progress_bar.progress(100)
-                st.error("No accounts could be extracted from these files.")
-                return
-
-            progress_bar.progress(100)
             status_text.markdown(
-                f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)"
+                f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor..."
             )
+            progress_bar.progress(25)
 
-            new_assets = _raw_accounts_to_assets(result["data"])
+            _total_files = len(files_to_upload)
+            _progress_per_file = 48 / max(_total_files, 1)
 
-            # Deduplicate by name (case-insensitive) AND by balance
-            # (same exact balance = almost certainly the same account under a different label)
-            existing_names = {a.name.lower() for a in existing}
-            existing_balance_map = {
-                round(a.current_balance, 2): a.name
-                for a in existing
-                if a.current_balance > 0
-            }
+            def _make_progress_callback(
+                _status=status_text,
+                _bar=progress_bar,
+                _slice=_progress_per_file,
+                _ai_start=_time.time(),
+            ):
+                def _cb(stage, file_idx, total_files, filename, chunk_idx, total_chunks):
+                    short_name = filename if len(filename) <= 30 else f"…{filename[-27:]}"
+                    elapsed = int(_time.time() - _ai_start)
+                    file_label = f"file {file_idx + 1}/{total_files}"
+                    files_done_pct = file_idx * _slice
+                    if stage == "text_extract":
+                        within = 0.05 * _slice
+                        pct = int(40 + files_done_pct + within)
+                        _status.markdown(
+                            f"**📄 Phase 2/2: AI Processing** ({file_label}) "
+                            f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
+                        )
+                    elif stage == "ai_call":
+                        chunk_label = (
+                            f" (part {chunk_idx + 1}/{total_chunks})"
+                            if total_chunks > 1 else ""
+                        )
+                        within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
+                        pct = int(40 + files_done_pct + within)
+                        _status.markdown(
+                            f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
+                            f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
+                        )
+                    elif stage == "file_done":
+                        within = _slice
+                        pct = int(40 + files_done_pct + within)
+                        _status.markdown(
+                            f"**✅ Phase 2/2: AI Processing** ({file_label}) "
+                            f"— Done: **{short_name}** ⏱️ {elapsed}s"
+                        )
+                    else:
+                        pct = int(40 + files_done_pct)
+                    _bar.progress(min(pct, 88))
+                return _cb
 
-            unique_new: list = []
-            dupe_warnings: list = []
-            for a in new_assets:
-                if a.name.lower() in existing_names:
-                    dupe_warnings.append(
-                        f"Skipped **{a.name}** — same name as an existing account."
-                    )
-                elif a.current_balance > 0 and round(a.current_balance, 2) in existing_balance_map:
-                    matched = existing_balance_map[round(a.current_balance, 2)]
-                    dupe_warnings.append(
-                        f"Skipped **{a.name}** (${a.current_balance:,.2f}) "
-                        f"— balance matches existing account **{matched}**."
-                    )
-                else:
-                    unique_new.append(a)
+            _progress_cb = _make_progress_callback() if _processor_type == "python" else None
 
-            skipped = len(new_assets) - len(unique_new)
+            status_text.markdown(
+                f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
+            )
+            progress_bar.progress(40)
 
-            if not unique_new:
-                st.warning("All extracted accounts already exist in your portfolio — nothing new to add.")
-                if dupe_warnings:
-                    with st.expander("Details"):
-                        for w in dupe_warnings:
-                            st.markdown(f"- {w}")
-                return
+            ai_start_time = _time.time()
+            if _processor_type == "python":
+                result = processor.upload_statements(files_to_upload, progress_callback=_progress_cb)
+            else:
+                result = processor.upload_statements(files_to_upload)
+            ai_elapsed = _time.time() - ai_start_time
+            total_time = _time.time() - start_time
 
-            merged = existing + unique_new
-            all_warnings = dupe_warnings + list(result.get("warnings", []))
-            st.session_state.adjust_assets_table_df = _assets_to_editor_df(merged)
-            st.session_state.adjust_assets_new_names = {a.name.lower() for a in unique_new}
-            st.session_state.adjust_assets_result = {
-                "ai_elapsed": ai_elapsed,
-                "total_time": total_time,
-                "skipped_dupes": skipped,
-                "warnings": all_warnings,
-            }
-            st.rerun()
+            progress_bar.progress(90)
+
+        except Exception as e:
+            st.error(f"Processing failed: {e}")
+            return
+
+        if not result.get("success") or not result.get("data"):
+            progress_bar.progress(100)
+            st.error("No accounts could be extracted from these files.")
+            return
+
+        progress_bar.progress(100)
+        status_text.markdown(
+            f"**✅ Extraction Complete!** (AI processing: {ai_elapsed:.1f}s | Total: {total_time:.1f}s)"
+        )
+
+        new_assets = _raw_accounts_to_assets(result["data"])
+
+        # Deduplicate by name (case-insensitive) AND by balance
+        # (same exact balance = almost certainly the same account under a different label)
+        existing_names = {a.name.lower() for a in existing}
+        existing_balance_map = {
+            round(a.current_balance, 2): a.name
+            for a in existing
+            if a.current_balance > 0
+        }
+
+        unique_new: list = []
+        dupe_warnings: list = []
+        for a in new_assets:
+            if a.name.lower() in existing_names:
+                dupe_warnings.append(
+                    f"Skipped **{a.name}** — same name as an existing account."
+                )
+            elif a.current_balance > 0 and round(a.current_balance, 2) in existing_balance_map:
+                matched = existing_balance_map[round(a.current_balance, 2)]
+                dupe_warnings.append(
+                    f"Skipped **{a.name}** (${a.current_balance:,.2f}) "
+                    f"— balance matches existing account **{matched}**."
+                )
+            else:
+                unique_new.append(a)
+
+        skipped = len(new_assets) - len(unique_new)
+
+        if not unique_new:
+            st.warning("All extracted accounts already exist in your portfolio — nothing new to add.")
+            if dupe_warnings:
+                with st.expander("Details"):
+                    for w in dupe_warnings:
+                        st.markdown(f"- {w}")
+            return
+
+        merged = existing + unique_new
+        all_warnings = dupe_warnings + list(result.get("warnings", []))
+        st.session_state.adjust_assets_table_df = _assets_to_editor_df(merged)
+        st.session_state.adjust_assets_new_names = {a.name.lower() for a in unique_new}
+        st.session_state.adjust_assets_result = {
+            "ai_elapsed": ai_elapsed,
+            "total_time": total_time,
+            "skipped_dupes": skipped,
+            "warnings": all_warnings,
+        }
+        st.rerun()
 
     st.markdown("---")
     col_edit, col_clear = st.columns(2)
@@ -4411,10 +4415,14 @@ if not _RUNNING_TESTS:
                         if uploaded_files:
                             if st.button("🚀 Extract Account Data", type="primary",use_container_width=True):
                                 import time
-        
+                                _proc_ok, _proc_err = check_processor_configured()
+                                if not _proc_ok:
+                                    st.error(_proc_err)
+                                    st.stop()
+
                                 progress_bar = st.progress(0)
                                 status_text = st.empty()
-        
+
                                 _processor_type = "unknown"
                                 try:
                                     start_time = time.time()
