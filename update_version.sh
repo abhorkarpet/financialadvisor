@@ -189,6 +189,8 @@ if [[ $REPLY =~ ^[Nn]$ ]]; then
 else
     echo -e "${GREEN}Staging changes...${NC}"
     git add -u
+    # Also stage new files created by the Claude CLI steps (git add -u skips untracked files)
+    git add "RELEASE_NOTES_v${NEW_VERSION}.md" release-notes/ 2>/dev/null || true
 
     echo -e "${GREEN}Committing...${NC}"
     git commit -m "Bump version to $NEW_VERSION"
