@@ -125,6 +125,39 @@ echo "  • financialadvisor/__init__.py (__version__)"
 echo "  • setup.py (version)"
 echo ""
 
+# ── AI steps via Claude CLI ──────────────────────────────────────────
+echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}  AI Steps (Claude CLI)${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+echo ""
+
+if ! command -v claude &> /dev/null; then
+    echo -e "${YELLOW}⚠ 'claude' CLI not found — skipping AI steps.${NC}"
+    echo "  Update README.md, CLAUDE.md, and release notes manually."
+    echo ""
+else
+    # Update README.md and CLAUDE.md
+    echo -e "${CYAN}Updating README.md and CLAUDE.md...${NC}"
+    claude --allowedTools "Edit,Read" --output-format text -p \
+"Update the version number to ${NEW_VERSION} in two files:
+1. README.md — the line that reads '**Current version: X.Y.Z**' should become '**Current version: ${NEW_VERSION}**'
+2. CLAUDE.md — the line that reads 'Current version: **X.Y.Z**' should become 'Current version: **${NEW_VERSION}**'
+Make only those two targeted edits, nothing else."
+    echo -e "${GREEN}✓ README.md and CLAUDE.md updated${NC}"
+    echo ""
+
+    # Generate release notes
+    echo -e "${CYAN}Generating release notes for v${NEW_VERSION}...${NC}"
+    claude --allowedTools "Read,Write,Bash" --output-format text -p \
+"Create release notes for Smart Retire AI v${NEW_VERSION}:
+1. Run 'git log --oneline -30' to see recent commits
+2. Read one existing file from release-notes/ to match the format and style
+3. Write RELEASE_NOTES_v${NEW_VERSION}.md at the project root with sections: Release Overview, Features/Changes, Bug Fixes, UI Changes, Files Changed
+4. Find any RELEASE_NOTES_v*.md file at the project root that is NOT the newly created v${NEW_VERSION} file — for each one, copy it into the release-notes/ folder and delete the root copy"
+    echo -e "${GREEN}✓ Release notes created: RELEASE_NOTES_v${NEW_VERSION}.md${NC}"
+    echo ""
+fi
+
 # Interactive git workflow
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Git Workflow${NC}"
@@ -132,7 +165,7 @@ echo -e "${BLUE}═════════════════════�
 echo ""
 
 # Step 1: Review changes
-echo -e "${CYAN}Step 1/4: Review changes${NC}"
+echo -e "${CYAN}Step 1/3: Review changes${NC}"
 read -p "Run 'git diff' to review changes? (Y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Nn]$ ]]; then

@@ -20,11 +20,11 @@ from integrations.n8n_client import N8NClient, N8NError
 from integrations.statement_processor import StatementProcessor, StatementProcessorError
 from integrations.processor_factory import get_processor
 
-_USE_PYTHON_PROCESSOR = True  # TESTING: forced on; restore to env-var check when done
-_N8N_URL = None #os.getenv("N8N_STATEMENT_UPLOADER_URL") or os.getenv("N8N_WEBHOOK_URL")
+_USE_PYTHON_PROCESSOR = os.getenv("PYTHON_STATEMENT_PROCESSOR", "").lower() in ("true", "1", "yes")
+_N8N_URL = os.getenv("N8N_STATEMENT_UPLOADER_URL") or os.getenv("N8N_WEBHOOK_URL")
 _OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 # Comparison mode is possible only when both backends are configured
-_COMPARISON_AVAILABLE = False  # TESTING: disabled while Python-only mode is forced
+_COMPARISON_AVAILABLE = bool(_N8N_URL and _OPENAI_KEY)
 
 
 # Page configuration
