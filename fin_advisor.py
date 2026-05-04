@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 15.6.0
+Version: 15.8.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "15.6.0"
+VERSION = "15.8.0"
 
 # Streamlit import
 import streamlit as st
@@ -631,9 +631,7 @@ def _asset_to_tax_treatment_label(asset: Asset) -> str:
     """Return the stable editor label for an asset's tax treatment."""
     if asset.tax_behavior == TaxBehavior.TAX_FREE:
         return "Tax-Free"
-    if asset.asset_type == AssetType.PRE_TAX:
-        return "Pre-Tax"
-    if asset.asset_type == AssetType.TAX_DEFERRED:
+    if asset.asset_type in (AssetType.PRE_TAX, AssetType.TAX_DEFERRED):
         return "Tax-Deferred"
     return "Post-Tax"
 
@@ -4148,78 +4146,15 @@ if not _RUNNING_TESTS:
                     # Privacy and How It Works explanation
                     with st.expander("🔒 How It Works & Your Privacy", expanded=False):
                         st.markdown("""
-                        ### 🤖 What Happens to Your Statements?
-        
-                        **Your privacy is our priority.** Here's exactly what happens when you upload:
-        
-                        #### 📋 The Process (Simple Version):
-                        1. **Upload** → You select your PDF statements (401k, IRA, brokerage, etc.)
-                        2. **Extract** → AI reads the PDFs to find account numbers, balances, and types
-                        3. **Clean** → Personal information (SSN, address, full names) is automatically removed
-                        4. **Organize** → Data is structured into a clean table for you to review
-                        5. **You Control** → You can edit, delete, or clear any extracted data
-        
-                        ---
-        
-                        ### 🔐 Privacy & Security
-        
-                        **What we protect:**
-                        - ✅ **Personal Identifiable Information (PII)** is automatically scrubbed
-                        - ✅ **Social Security Numbers** are removed
-                        - ✅ **Full names and addresses** are stripped out
-                        - ✅ Only account types, balances, and institution names are kept
-        
-                        **What stays:**
-                        - 📊 Account balances (needed for retirement planning)
-                        - 🏦 Account types (401k, IRA, Roth, etc.)
-                        - 🏢 Institution names (Fidelity, Vanguard, etc.)
-                        - 🔢 Last 4 digits of account numbers (for your reference)
-        
-                        **Your data, your control:**
-                        - 💾 Data is processed temporarily and not permanently stored
-                        - ❌ No data is saved to our servers long-term
-                        - 🔄 You can clear extracted data anytime with "Clear and Upload New"
-                        - ✏️ You can edit any extracted information before using it
-        
-                        ---
-        
-                        ### 🛠️ Technical Details (For The Curious)
-        
-                        **AI Processing:**
-                        - Uses GPT-4 to intelligently read and categorize your statements
-                        - Identifies account types (401k, Roth IRA, Brokerage, etc.)
-                        - Extracts current balances and tax treatment
-                        - Handles complex statements with multiple account types
-        
-                        **Why it's better than manual:**
-                        - ⏱️ **Faster**: Seconds instead of minutes per statement
-                        - 🎯 **Accurate**: AI recognizes formats from 100+ financial institutions
-                        - 🧠 **Smart**: Automatically categorizes tax treatments (pre-tax, post-tax, tax-free)
-                        - 🔄 **Consistent**: Standardizes data across different statement formats
-        
-                        **Supported Documents:**
-                        - 401(k) and 403(b) statements
-                        - Traditional and Roth IRAs
-                        - Brokerage account statements
-                        - HSA statements
-                        - Bank account statements
-                        - Annuity statements
-        
-                        ---
-        
-                        ### ❓ Common Questions
-        
-                        **Q: Can I use scanned PDFs?**
-                        A: Yes! The AI can read both digital PDFs and scanned documents.
-        
-                        **Q: What if extraction makes a mistake?**
-                        A: You review and edit all extracted data before it's used. Plus, you can rate the accuracy to help us improve.
-        
-                        **Q: Is my data encrypted?**
-                        A: Yes, all uploads use secure HTTPS encryption.
-        
-                        **Q: What happens to my PDFs after processing?**
-                        A: PDFs are processed temporarily and deleted. Only the extracted data (balances, account types) is shown to you.
+                        **What happens when you upload:**
+                        1. AI reads your PDFs to find account numbers, balances, and account types
+                        2. Personal information (SSN, full names, addresses) is automatically removed
+                        3. You review and edit all extracted data before it's used
+
+                        **Your privacy:**
+                        - Only account balances, types, and institution names are retained
+                        - Data is not stored long-term; you can clear it anytime
+                        - All uploads use HTTPS encryption
                         """)
         
                     # Initialize session state for extracted data
