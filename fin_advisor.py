@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 15.8.0
+Version: 16.0.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "15.8.0"
+VERSION = "16.0.0"
 
 # Streamlit import
 import streamlit as st
@@ -350,7 +350,7 @@ def _apply_detailed_planning_handoff(*, reuse_existing_assets: bool) -> None:
     st.session_state.country = "US"
     st.session_state._prev_country = "US"
     st.session_state.onboarding_complete = False
-    st.session_state.current_page = "onboarding"
+    st.session_state.current_page = "detailed_planning"
     st.session_state.onboarding_step = 1
     st.session_state.show_detailed_asset_choice_dialog = False
     st.session_state.pending_detailed_switch_fields = None
@@ -359,6 +359,11 @@ def _apply_detailed_planning_handoff(*, reuse_existing_assets: bool) -> None:
     st.session_state.setup_messages = []
     st.session_state.setup_fields = {}
     st.session_state.setup_fields_locked = False
+    st.session_state.dp_goals_done = False
+    st.session_state.dp_calculated = False
+    st.session_state.dp_chat_messages = []
+    st.session_state.dp_chat_pending = False
+    st.session_state.pop("dp_assets_hash", None)
     st.rerun()
 
 
@@ -1992,7 +1997,7 @@ def adjust_assets_dialog():
         for _k in ("results_chat_messages", "results_chat_context", "results_chat_whatif_modified"):
             st.session_state.pop(_k, None)
         st.session_state.show_adjust_assets_dialog = False
-        st.session_state.current_page = "onboarding"
+        st.session_state.current_page = "detailed_planning"
         st.session_state.onboarding_step = 2
 
     # ── Edit mode: edit existing portfolio without uploading ──────────────
@@ -2447,7 +2452,7 @@ def show_mode_selection_page():
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Enter Details →",use_container_width=True, key="mode_select_detailed"):
             st.session_state.pop("planning_mode_choice", None)
-            st.session_state.current_page = "onboarding"
+            st.session_state.current_page = "detailed_planning"
             st.session_state.onboarding_step = 1
             st.rerun()
 
@@ -2916,6 +2921,521 @@ def _apply_setup_fields_to_session(fields: dict) -> None:
     st.session_state.whatif_legacy_goal = lg
 
     st.session_state.country = "US"
+
+
+def _dp_compute_results() -> bool:
+    """Run the retirement projection for Detailed Planning unified page.
+
+    Reads whatif_* values from session state. Writes last_result, last_inputs,
+    cashflow_sim_data, last_annual_retirement_income, gap-closing values,
+    results_chat_context. Returns True on success, False on validation failure.
+    """
+    current_year = datetime.now().year
+    age = current_year - st.session_state.birth_year
+    retirement_age = st.session_state.whatif_retirement_age
+    life_expectancy = st.session_state.whatif_life_expectancy
+    retirement_income_goal = st.session_state.whatif_retirement_income_goal
+    current_tax_rate = st.session_state.whatif_current_tax_rate
+    retirement_tax_rate = st.session_state.whatif_retirement_tax_rate
+    inflation_rate = st.session_state.whatif_inflation_rate
+    retirement_growth_rate = st.session_state.whatif_retirement_growth_rate
+    life_expenses = st.session_state.whatif_life_expenses
+    legacy_goal = st.session_state.get('whatif_legacy_goal', 0)
+    assets = st.session_state.assets
+
+    if int(retirement_age) < int(age):
+        st.error(f"⚠️ Retirement age ({int(retirement_age)}) is less than your current age ({int(age)}). Ask the chatbot to update your retirement age.")
+        return False
+
+    years_in_retirement = life_expectancy - retirement_age
+    if years_in_retirement <= 0:
+        st.error(f"⚠️ Life expectancy ({life_expectancy}) must be greater than retirement age ({retirement_age}).")
+        return False
+
+    try:
+        inputs = UserInputs(
+            age=int(age),
+            retirement_age=int(retirement_age),
+            life_expectancy=int(life_expectancy),
+            annual_income=0.0,
+            contribution_rate_pct=15.0,
+            expected_growth_rate_pct=7.0,
+            inflation_rate_pct=float(inflation_rate),
+            current_marginal_tax_rate_pct=float(current_tax_rate),
+            retirement_marginal_tax_rate_pct=float(retirement_tax_rate),
+            assets=assets
+        )
+
+        result = project(inputs)
+        st.session_state.last_result = result
+        st.session_state.last_inputs = inputs
+
+        total_after_tax_original = result['Total After-Tax Balance']
+        if life_expenses > total_after_tax_original:
+            st.error(f"⚠️ One-time expenses (${life_expenses:,.0f}) exceed projected after-tax balance (${total_after_tax_original:,.0f}). Reduce expenses or increase contributions.")
+            return False
+
+        # Retirement income simulation
+        pretax_fv = sum(
+            ar['pre_tax_value']
+            for ar, ai in zip(result['asset_results'], result['assets_input'])
+            if ai.asset_type in (AssetType.PRE_TAX, AssetType.TAX_DEFERRED)
+        )
+        roth_fv = sum(
+            ar['pre_tax_value']
+            for ar, ai in zip(result['asset_results'], result['assets_input'])
+            if ai.asset_type == AssetType.POST_TAX and 'roth' in ai.name.lower()
+        )
+        brok_fv = sum(
+            ar['pre_tax_value']
+            for ar, ai in zip(result['asset_results'], result['assets_input'])
+            if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+        )
+        brok_cost_basis = sum(
+            ar['total_contributions'] + ai.current_balance
+            for ar, ai in zip(result['asset_results'], result['assets_input'])
+            if ai.asset_type == AssetType.POST_TAX and 'roth' not in ai.name.lower()
+        )
+
+        total_fv_all = pretax_fv + roth_fv + brok_fv
+        if life_expenses > 0 and total_fv_all > 0:
+            frac = life_expenses / total_fv_all
+            pretax_fv       = max(0.0, pretax_fv       * (1.0 - frac))
+            roth_fv         = max(0.0, roth_fv         * (1.0 - frac))
+            brok_fv         = max(0.0, brok_fv         * (1.0 - frac))
+            brok_cost_basis = max(0.0, brok_cost_basis * (1.0 - frac))
+
+        annual_retirement_income, sim_data = find_sustainable_withdrawal(
+            pretax_fv, roth_fv, brok_fv, brok_cost_basis,
+            int(retirement_age), int(life_expectancy),
+            retirement_growth_rate / 100.0, inflation_rate / 100.0,
+            float(retirement_tax_rate),
+            legacy_goal=legacy_goal,
+        )
+        st.session_state.cashflow_sim_data = sim_data
+        st.session_state.last_annual_retirement_income = annual_retirement_income
+
+        # Gap-closing values
+        _current_age = datetime.now().year - st.session_state.birth_year
+        _breakeven_age: int | None = None
+        _income_at_breakeven: float = 0.0
+        _breakeven_contrib: int | None = None
+        _contrib_breakdown: dict = {}
+        _contrib_irs_maxed: bool = False
+        _assets_input = result.get("assets_input", assets)
+
+        if retirement_income_goal > 0 and annual_retirement_income < retirement_income_goal:
+            _breakeven_age, _income_at_breakeven = find_breakeven_retirement_age(
+                assets_input=_assets_input,
+                current_age=_current_age,
+                start_retirement_age=int(retirement_age),
+                life_expectancy=int(life_expectancy),
+                target_income=float(retirement_income_goal),
+                retirement_growth_rate=retirement_growth_rate / 100.0,
+                inflation_rate=inflation_rate / 100.0,
+                retirement_tax_rate_pct=float(retirement_tax_rate),
+                life_expenses=life_expenses,
+                legacy_goal=legacy_goal,
+            )
+            _breakeven_contrib, _contrib_breakdown, _contrib_irs_maxed = find_breakeven_contribution(
+                assets_input=_assets_input,
+                current_age=_current_age,
+                retirement_age=int(retirement_age),
+                life_expectancy=int(life_expectancy),
+                target_income=float(retirement_income_goal),
+                retirement_growth_rate=retirement_growth_rate / 100.0,
+                inflation_rate=inflation_rate / 100.0,
+                retirement_tax_rate_pct=float(retirement_tax_rate),
+                life_expenses=life_expenses,
+                legacy_goal=legacy_goal,
+            )
+
+        st.session_state.last_breakeven_age = _breakeven_age
+        st.session_state.last_income_at_breakeven = _income_at_breakeven
+        st.session_state.last_breakeven_contrib = _breakeven_contrib
+        st.session_state.last_contrib_breakdown = _contrib_breakdown
+        st.session_state.last_contrib_irs_maxed = _contrib_irs_maxed
+
+        # Monte Carlo for chat context
+        _mc_summary: dict = {}
+        try:
+            from financialadvisor.core.monte_carlo import (
+                run_monte_carlo_simulation,
+                calculate_probability_of_goal,
+            )
+            _mc = run_monte_carlo_simulation(inputs, num_simulations=500, seed=42)
+            _mc_prob = calculate_probability_of_goal(
+                _mc["outcomes"],
+                int(retirement_age), int(life_expectancy),
+                float(retirement_income_goal) if retirement_income_goal > 0 else 0.0,
+            )
+            _mc_summary = {
+                "income_p10":  _mc["income_percentiles"]["10th"],
+                "income_p50":  _mc["income_percentiles"]["50th"],
+                "income_p90":  _mc["income_percentiles"]["90th"],
+                "bal_p10":     _mc["percentiles"]["10th"],
+                "bal_p50":     _mc["percentiles"]["50th"],
+                "bal_p90":     _mc["percentiles"]["90th"],
+                "prob_success": _mc_prob,
+                "volatility":   _mc["volatility"],
+                "num_sims":     _mc["num_simulations"],
+            }
+        except Exception as _mc_err:
+            import logging as _logging
+            _logging.getLogger(__name__).debug("MC context skipped: %s", _mc_err)
+
+        st.session_state.dp_mc_summary = _mc_summary
+
+        # Build chat context
+        if _CHAT_CONTEXT_AVAILABLE:
+            _whatif_snapshot = {
+                "retirement_age":         retirement_age,
+                "life_expectancy":        life_expectancy,
+                "retirement_income_goal": retirement_income_goal,
+                "inflation_rate":         inflation_rate,
+                "retirement_growth_rate": retirement_growth_rate,
+                "retirement_tax_rate":    retirement_tax_rate,
+                "life_expenses":          life_expenses,
+                "legacy_goal":            legacy_goal,
+            }
+            st.session_state.results_chat_context = build_detailed_chat_context(
+                result=result,
+                inputs=inputs,
+                annual_retirement_income=annual_retirement_income,
+                sim_data=sim_data,
+                whatif_values=_whatif_snapshot,
+                assets=assets,
+                birth_year=st.session_state.get("birth_year"),
+                breakeven_retirement_age=_breakeven_age,
+                income_at_breakeven=_income_at_breakeven,
+                breakeven_contribution=_breakeven_contrib,
+                contrib_breakdown=_contrib_breakdown,
+                contrib_irs_maxed=_contrib_irs_maxed,
+                mc_summary=_mc_summary,
+            )
+
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error in calculation: {e}")
+        return False
+
+
+def _render_dp_top_bar() -> None:
+    """Full-width Key Results + Profile strip rendered above the chat/panel columns."""
+    fields = st.session_state.setup_fields
+    current_year = datetime.now().year
+    _dp_calc = st.session_state.dp_calculated
+
+    by = fields.get("birth_year") or st.session_state.get("birth_year")
+    ra = fields.get("retirement_age") or st.session_state.get("retirement_age")
+    le = fields.get("life_expectancy") or st.session_state.get("life_expectancy")
+    rig = fields.get("retirement_income_goal")
+    if rig is None:
+        rig = st.session_state.get("retirement_income_goal")
+
+    st.markdown("**📋 Your Profile**")
+    if by is not None:
+        age_val = current_year - int(by)
+        _l1 = f"Age **{age_val}**"
+        if ra is not None:
+            _l1 += f"  ·  Retire at **{int(ra)}** ({max(0, int(ra) - age_val)} yrs)"
+        st.caption(_l1)
+        if le is not None and ra is not None:
+            _l2 = f"Plan through **{int(le)}**  ·  **{int(le) - int(ra)} yrs** in retirement"
+            if rig is not None and float(rig) > 0:
+                _l2 += f"  ·  Goal **\\${float(rig):,.0f}/yr**"
+            st.caption(_l2)
+        elif rig is not None and float(rig) > 0:
+            st.caption(f"Income goal **\\${float(rig):,.0f}/yr**")
+    else:
+        st.caption("Answer the chat questions to fill this in.")
+
+    st.markdown("---")
+
+
+def _render_dp_right_panel() -> None:
+    """Right panel: accounts + action buttons."""
+    fields = st.session_state.setup_fields
+    _goals_done = st.session_state.dp_goals_done
+
+    by = fields.get("birth_year") or st.session_state.get("birth_year")
+    ra = fields.get("retirement_age") or st.session_state.get("retirement_age")
+
+    assets = st.session_state.get("assets", [])
+    n_assets = len(assets)
+    _no_acct = n_assets == 0
+    _no_acct_tip = "Add at least one account to enable this."
+    _dp_calc = st.session_state.dp_calculated
+
+    # ── Key Results ───────────────────────────────────────────────────
+    st.markdown("**📊 Key Results**")
+    if _dp_calc:
+        _ok = _dp_compute_results()
+        if _ok:
+            _result = st.session_state.last_result
+            _ai = st.session_state.last_annual_retirement_income
+            _life_exp = st.session_state.whatif_life_expenses
+            _after_tax = _result.get("Total After-Tax Balance", 0) - _life_exp
+            _rig2 = st.session_state.whatif_retirement_income_goal
+            _tax_eff = _result.get("Tax Efficiency (%)", 0)
+            _mc = st.session_state.get("dp_mc_summary", {})
+            _inc_line = f"Income **\\${_ai:,.0f}/yr**"
+            if _rig2 and float(_rig2) > 0:
+                _gap = _ai - float(_rig2)
+                _inc_line += f" ({'▲' if _gap >= 0 else '▼'} \\${abs(_gap):,.0f} vs goal)"
+            _mc_part = f"  ·  MC **{_mc['prob_success']:.0f}%**" if _mc.get("prob_success") is not None else ""
+            st.caption(f"Portfolio **\\${_after_tax:,.0f}**  ·  {_inc_line}")
+            st.caption(f"Tax efficiency **{_tax_eff:.1f}%**{_mc_part}")
+            if st.session_state.get("results_chat_whatif_modified"):
+                st.caption("⚠️ Scenario modified via chat.")
+    else:
+        st.caption("Your projection will appear here once accounts are added.")
+
+    st.markdown("---")
+
+    # ── Accounts ──────────────────────────────────────────────────────
+    st.markdown(f"**🏦 Your Accounts** ({n_assets})")
+
+    _can_add = by is not None and ra is not None
+    _btn_type = "primary" if (_no_acct and _can_add) else "secondary"
+    if st.button(
+        "+ Add / Manage Accounts",
+        use_container_width=True,
+        type=_btn_type,
+        disabled=not _can_add,
+        help=None if _can_add else "Share your birth year and retirement age in the chat first.",
+        key="dp_add_accounts_btn",
+    ):
+        st.session_state.show_adjust_assets_dialog = True
+        st.rerun()
+    if st.session_state.get("show_adjust_assets_dialog"):
+        adjust_assets_dialog()
+    if _toast := st.session_state.pop("adjust_assets_toast", None):
+        st.toast(_toast, icon="✅")
+
+    if assets:
+        # Auto-calculate whenever accounts change (hash-based detection)
+        _current_hash = hash(tuple(
+            (a.name, a.current_balance, a.annual_contribution)
+            for a in sorted(assets, key=lambda x: x.name)
+        ))
+        if _goals_done and _current_hash != st.session_state.get("dp_assets_hash"):
+            st.session_state.dp_assets_hash = _current_hash  # update first to prevent loop
+            _ok = _dp_compute_results()
+            if _ok:
+                _ai = st.session_state.last_annual_retirement_income
+                _rig = st.session_state.whatif_retirement_income_goal
+                _co_income = f"\\${_ai:,.0f}"
+                _is_update = st.session_state.dp_calculated
+                if _rig and float(_rig) > 0:
+                    _gap = float(_rig) - _ai
+                    _co_goal = f"\\${float(_rig):,.0f}"
+                    if _gap > 0:
+                        _opener = (
+                            f"{'Updated projection — p' if _is_update else 'P'}ortfolio projects **{_co_income}/year** "
+                            f"— **\\${_gap:,.0f} below** your {_co_goal} goal.\n\n"
+                            f"Ask me anything — how this is calculated, RMDs, Social Security, "
+                            f"what-ifs, or Monte Carlo scenarios."
+                        )
+                    else:
+                        _opener = (
+                            f"{'Updated — p' if _is_update else 'G'}reat news — portfolio projects **{_co_income}/year**, "
+                            f"meeting your {_co_goal} goal! "
+                            f"Ask me about what-ifs, RMDs, or Monte Carlo scenarios."
+                        )
+                else:
+                    _opener = (
+                        f"{'Updated — p' if _is_update else 'P'}ortfolio projects **{_co_income}/year** in retirement.\n\n"
+                        f"Ask me anything — how this is calculated, RMDs, Social Security, "
+                        f"what-if scenarios, or Monte Carlo simulations."
+                    )
+                st.session_state.dp_chat_messages.append({"role": "assistant", "content": _opener})
+                st.session_state.dp_calculated = True
+            st.rerun()
+    else:
+        st.caption("No accounts yet — add accounts above to see your projection.")
+
+    st.markdown("---")
+
+    # ── Section D: Action Buttons (always visible, 2×2 grid) ─────────
+    _b1, _b2 = st.columns(2)
+    with _b1:
+        if st.button(
+            "📥 PDF Report",
+            use_container_width=True,
+            disabled=_no_acct,
+            help=_no_acct_tip if _no_acct else None,
+            key="dp_pdf_btn",
+        ):
+            generate_report_dialog()
+        if st.button(
+            "📈 Detailed Analysis",
+            use_container_width=True,
+            disabled=_no_acct,
+            help=_no_acct_tip if _no_acct else None,
+            key="dp_detailed_btn",
+        ):
+            st.session_state.results_source = 'detailed_planning'
+            st.session_state.current_page = 'detailed_analysis'
+            st.rerun()
+    with _b2:
+        if st.button(
+            "📊 Cash Flow",
+            use_container_width=True,
+            disabled=_no_acct,
+            help=_no_acct_tip if _no_acct else None,
+            key="dp_cashflow_btn",
+        ):
+            cashflow_dialog()
+        if st.button("🗑 Reset", use_container_width=True, key="dp_reset_btn"):
+            clear_detailed_planning_asset_state(st.session_state)
+            for _k in ("dp_goals_done", "dp_calculated", "dp_chat_pending"):
+                st.session_state[_k] = False
+            st.session_state.dp_chat_messages = []
+            st.session_state.setup_fields = {}
+            st.session_state.setup_fields_locked = False
+            st.session_state.results_chat_whatif_modified = False
+            st.session_state.pop("dp_assets_hash", None)
+            st.rerun()
+
+
+def _render_dp_chat() -> None:
+    """Unified chat for Detailed Planning — handles goal collection and results advisor in one stream."""
+    # Initialize with opening message
+    if not st.session_state.dp_chat_messages:
+        st.session_state.dp_chat_messages = [{
+            "role": "assistant",
+            "content": (
+                "Hi! I'll guide you through retirement planning.\n\n"
+                "Let's start with your goals — **what year were you born, and when are you hoping to retire** "
+                "(default is 65)? If you have a target annual retirement income in mind, share that too!\n\n"
+                "Once we have your goals set, add your accounts using the panel on the right."
+            ),
+        }]
+
+    # Pass 2: API call pending
+    if (
+        st.session_state.get("dp_chat_pending")
+        and st.session_state.dp_chat_messages
+        and st.session_state.dp_chat_messages[-1]["role"] == "user"
+    ):
+        st.session_state.dp_chat_pending = False
+        _api_key = os.getenv("OPENAI_API_KEY") or (
+            st.secrets.get("OPENAI_API_KEY") if hasattr(st, "secrets") else None
+        )
+        if not st.session_state.dp_calculated:
+            # Goals phase — setup advisor
+            try:
+                display_msg, fields = chat_with_setup_advisor(
+                    st.session_state.dp_chat_messages,
+                    openai_api_key=_api_key,
+                )
+                st.session_state.dp_chat_messages.append({"role": "assistant", "content": display_msg})
+                if not st.session_state.dp_goals_done:
+                    for k, v in fields.items():
+                        if v is not None and k != "done":
+                            st.session_state.setup_fields[k] = v
+                    if fields.get("done"):
+                        _apply_setup_fields_to_session(st.session_state.setup_fields)
+                        st.session_state.dp_goals_done = True
+            except Exception as _err:
+                st.session_state.dp_chat_messages.append({
+                    "role": "assistant",
+                    "content": f"Sorry, I hit a snag: {_err}. Please try again.",
+                })
+        else:
+            # Results phase — results advisor
+            try:
+                context = st.session_state.results_chat_context or ""
+                display_msg, whatif_changes = chat_with_results_advisor(
+                    st.session_state.dp_chat_messages,
+                    calc_context=context,
+                    openai_api_key=_api_key,
+                )
+                st.session_state.dp_chat_messages.append({"role": "assistant", "content": display_msg})
+                if whatif_changes:
+                    _whatif_key_map = {
+                        "retirement_age":         "whatif_retirement_age",
+                        "life_expectancy":        "whatif_life_expectancy",
+                        "retirement_income_goal": "whatif_retirement_income_goal",
+                        "inflation_rate":         "whatif_inflation_rate",
+                        "retirement_growth_rate": "whatif_retirement_growth_rate",
+                        "retirement_tax_rate":    "whatif_retirement_tax_rate",
+                        "life_expenses":          "whatif_life_expenses",
+                        "legacy_goal":            "whatif_legacy_goal",
+                    }
+                    for param, session_key in _whatif_key_map.items():
+                        if param in whatif_changes and whatif_changes[param] is not None:
+                            st.session_state[session_key] = whatif_changes[param]
+                    st.session_state.results_chat_whatif_modified = True
+            except Exception as _err:
+                st.session_state.dp_chat_messages.append({
+                    "role": "assistant",
+                    "content": f"Sorry, I hit a snag: {_err}. Please try again.",
+                })
+        st.rerun()
+
+    # Render messages
+    msg_container = st.container(height=460)
+    with msg_container:
+        for msg in st.session_state.dp_chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        if st.session_state.get("dp_chat_pending"):
+            with st.chat_message("assistant"):
+                st.markdown("_Thinking…_")
+
+    # Download transcript
+    if len(st.session_state.dp_chat_messages) > 1:
+        _transcript_md = _build_chat_transcript_md(st.session_state.dp_chat_messages)
+        st.download_button(
+            "⬇️ Download chat transcript",
+            data=_transcript_md,
+            file_name="smart_retire_chat.md",
+            mime="text/markdown",
+            key="dp_download_transcript",
+        )
+
+    if not _CHAT_AVAILABLE:
+        st.warning("⚠️ Chat advisor requires `OPENAI_API_KEY`. Set it in your `.env` file.")
+        return
+
+    _placeholder = (
+        "Ask about your results, run what-ifs, or explore scenarios…"
+        if st.session_state.dp_calculated
+        else "Type your answer here…"
+    )
+    if user_input := st.chat_input(_placeholder, key="dp_chat_input"):
+        st.session_state.dp_chat_messages.append({"role": "user", "content": user_input})
+        st.session_state.dp_chat_pending = True
+        st.rerun()
+
+
+def show_detailed_planning() -> None:
+    """Unified Detailed Planning page — single persistent chat + evolving right panel."""
+    #st.markdown("---")
+    _header_col, _switch_col = st.columns([4, 1.5])
+    with _header_col:
+        st.subheader("📝 Detailed Planning")
+    with _switch_col:
+        if st.button("Switch to Simple Planning", use_container_width=True, key="dp_switch_simple_btn"):
+            switch_to_simple_planning_from_onboarding()
+
+    st.caption(
+        "Detailed Planning is US-focused — USD values and US tax rules apply throughout. "
+        "Use Simple Planning for India or a quick estimate."
+    )
+    st.markdown("---")
+
+    _render_dp_top_bar()
+
+    chat_col, panel_col = st.columns([3, 2], gap="medium")
+    with chat_col:
+        _render_dp_chat()
+    with panel_col:
+        _render_dp_right_panel()
+
 
 
 def show_detailed_setup_chat() -> None:
@@ -3747,6 +4267,18 @@ if not _RUNNING_TESTS:
     if 'results_chat_pending' not in st.session_state:
         st.session_state.results_chat_pending = False
 
+    # Detailed Planning — unified page state
+    if 'dp_goals_done' not in st.session_state:
+        st.session_state.dp_goals_done = False
+    if 'dp_calculated' not in st.session_state:
+        st.session_state.dp_calculated = False
+    if 'dp_chat_messages' not in st.session_state:
+        st.session_state.dp_chat_messages = []
+    if 'dp_chat_pending' not in st.session_state:
+        st.session_state.dp_chat_pending = False
+    if 'dp_assets_hash' not in st.session_state:
+        st.session_state.dp_assets_hash = None
+
     # ==========================================
     # SIDEBAR - Advanced Settings (Collapsed by Default)
     # ==========================================
@@ -3943,12 +4475,15 @@ if not _RUNNING_TESTS:
     # Home button — visible from sub-pages so users can always return to Results
     if st.session_state.get('current_page') in ('detailed_analysis', 'monte_carlo'):
         st.sidebar.markdown("---")
-        if st.sidebar.button("🏠 Results Dashboard",use_container_width=True, type="primary"):
-            st.session_state.current_page = 'results'
+        if st.sidebar.button("🏠 Back to Planning",use_container_width=True, type="primary"):
+            if st.session_state.get('results_source') == 'detailed_planning':
+                st.session_state.current_page = 'detailed_planning'
+            else:
+                st.session_state.current_page = 'results'
             st.rerun()
 
     # Reset button — show during onboarding and after completion
-    if st.session_state.onboarding_complete or st.session_state.get('current_page') == 'onboarding':
+    if st.session_state.onboarding_complete or st.session_state.get('current_page') in ('onboarding', 'detailed_planning'):
         st.sidebar.markdown("---")
         if st.sidebar.button("🔄 Reset Onboarding",use_container_width=True):
             st.session_state.onboarding_step = 1
@@ -4082,1225 +4617,9 @@ if not _RUNNING_TESTS:
             detailed_planning_asset_choice_dialog()
         show_chat_mode_page()
 
-    elif st.session_state.current_page == 'onboarding':
-        if st.session_state.onboarding_step == 1:
-            show_detailed_setup_chat()
-        else:
-            # ==========================================
-            # STEP 2: Asset Configuration
-            # ==========================================
-            st.markdown("---")
-            st.progress(1.0, text="**Step 2 of 2**")
-            _back_col, _header_col, _switch_col = st.columns([1, 3, 1.5])
-            with _back_col:
-                if st.button("← Back", key="back_to_personal_info",use_container_width=True):
-                    st.session_state.onboarding_step = 1
-                    st.rerun()
-            with _header_col:
-                st.subheader("🏦 Asset Configuration")
-            with _switch_col:
-                if st.button(
-                    "Switch to Simple Planning",
-                    use_container_width=True,
-                    key="switch_to_simple_from_onboarding_2",
-                ):
-                    switch_to_simple_planning_from_onboarding()
-            st.markdown("---")
-            st.info("Detailed Planning currently supports US households only. USD values and US tax guidance are used throughout this setup. Use Simple Planning for India or for a quick estimate.")
-            # Track step 2 started
-            track_onboarding_step_started(2, country=st.session_state.get('country', 'US'))
-    
-            # Show contribution reminder dialog if flagged
-            if st.session_state.get('show_contribution_reminder', False):
-                contribution_reminder_dialog()
+    elif st.session_state.current_page in ('onboarding', 'detailed_planning'):
+        show_detailed_planning()
 
-            _is_india = st.session_state.get('country') == 'India'
-            _sym = "₹" if _is_india else "$"
-            _corpus_label = "Corpus" if _is_india else "Portfolio"
-
-            # Simplified setup options (removed Default Portfolio and Legacy Mode)
-            # Pre-select "Configure Individual Assets" if the user previously used it
-            if 'setup_method_radio' not in st.session_state and 'num_assets_manual' in st.session_state:
-                st.session_state.setup_method_radio = "Configure Individual Assets"
-
-            setup_option = st.radio(
-                "Choose how to configure your accounts:",
-                ["**Upload Financial Statements (AI) - Recommended**", "Upload CSV File", "Configure Individual Assets"],
-                key="setup_method_radio",
-                help="Select how you want to add your retirement accounts"
-            )
-    
-            # Track asset configuration method selected
-            track_event('asset_config_method_selected', {'method': setup_option})
-
-            # Initialize from session state to preserve user's work when switching modes
-            assets: List[Asset] = list(st.session_state.get('assets', []))
-
-            if setup_option == "**Upload Financial Statements (AI) - Recommended**":
-                if not _N8N_AVAILABLE:
-                    st.error("❌ **n8n integration not available**")
-                    st.info("Please install required packages: `pip install pypdf python-dotenv requests`")
-                else:
-                    st.info("🤖 **AI-Powered Statement Upload**: Upload your financial PDFs and let AI extract your account data automatically.")
-        
-                    # Privacy and How It Works explanation
-                    with st.expander("🔒 How It Works & Your Privacy", expanded=False):
-                        st.markdown("""
-                        **What happens when you upload:**
-                        1. AI reads your PDFs to find account numbers, balances, and account types
-                        2. Personal information (SSN, full names, addresses) is automatically removed
-                        3. You review and edit all extracted data before it's used
-
-                        **Your privacy:**
-                        - Only account balances, types, and institution names are retained
-                        - Data is not stored long-term; you can clear it anytime
-                        - All uploads use HTTPS encryption
-                        """)
-        
-                    # Initialize session state for extracted data
-                    if 'ai_extracted_accounts' not in st.session_state:
-                        st.session_state.ai_extracted_accounts = None
-                    if 'ai_tax_buckets' not in st.session_state:
-                        st.session_state.ai_tax_buckets = {}
-                    if 'ai_warnings' not in st.session_state:
-                        st.session_state.ai_warnings = []
-                    if 'ai_edited_table' not in st.session_state:
-                        st.session_state.ai_edited_table = None
-        
-                    # Initialize variables for this run
-                    df_extracted = None
-                    tax_buckets_by_account = {}
-        
-                    # Check if we already have extracted data
-                    if st.session_state.ai_extracted_accounts is not None:
-                        st.success(f"✅ Using previously extracted {len(st.session_state.ai_extracted_accounts)} accounts")
-        
-                        # Add button to clear and re-upload
-                        if st.button("🔄 Clear and Upload New Statements", type="secondary"):
-                            st.session_state.ai_extracted_accounts = None
-                            st.session_state.ai_tax_buckets = {}
-                            st.session_state.ai_warnings = []
-                            st.session_state.ai_edited_table = None
-                            # Clear widget states
-                            if 'ai_table_data' in st.session_state:
-                                del st.session_state.ai_table_data
-                            # Clear initialization flag
-                            if 'ai_table_initialized' in st.session_state:
-                                del st.session_state.ai_table_initialized
-                            st.rerun()
-
-                        # Add button to edit accounts in modal
-                        edit_accounts_clicked_existing = st.button("✏️ Edit Accounts", type="primary", key="edit_accounts_button")
-                        if edit_accounts_clicked_existing:
-                            edit_ai_accounts_dialog()
-
-                        # Use existing data
-                        df_extracted = st.session_state.ai_extracted_accounts
-
-                        # Filter out internal/debug columns (those starting with underscore) and store clean version
-                        if df_extracted is not None and hasattr(df_extracted, 'columns'):
-                            # Filter columns
-                            cols_to_keep = [col for col in df_extracted.columns if not col.startswith('_')]
-                            df_extracted = df_extracted[cols_to_keep]
-                            # Update session state with clean version to maintain same reference
-                            st.session_state.ai_extracted_accounts = df_extracted
-
-                        tax_buckets_by_account = st.session_state.ai_tax_buckets
-                        warnings = st.session_state.ai_warnings
-
-                        # Display warnings if any
-                        if warnings and len(warnings) > 0:
-                            with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
-                                for warning in warnings:
-                                    st.warning(warning)
-
-                        # **NEW: Display the editable table for previously extracted data**
-                        # This ensures the table persists when navigating between steps
-                        if df_extracted is not None:
-                            # Check if we have a properly formatted edited table in session state
-                            # The edited table has the correct column structure for display
-                            if 'ai_edited_table' in st.session_state and st.session_state.ai_edited_table is not None:
-                                # Check if it has the expected display columns (not raw extraction columns)
-                                # These are the key columns that indicate a properly formatted table
-                                expected_cols = ["Account Name", "Current Balance", "Annual Contribution", "Growth Rate (%)", "Tax Treatment"]
-                                if all(col in st.session_state.ai_edited_table.columns for col in expected_cols):
-                                    # Use the formatted table with all user edits preserved
-                                    df_display = st.session_state.ai_edited_table.copy()
-                                else:
-                                    # Fall back to raw extraction (user needs to clear and re-extract)
-                                    df_display = None
-                            else:
-                                # No edited table yet (shouldn't happen in reload view)
-                                df_display = None
-
-                            if df_display is not None:
-                                with st.expander("📋 Extracted Accounts", expanded=True):
-
-                                    # Define column configuration - MUST MATCH the original extraction config
-                                    # Note: Column widths adjusted to emphasize amounts over names
-                                    column_config = {
-                                        "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
-                                        "Institution": st.column_config.TextColumn(
-                                            "Institution",
-                                            disabled=True,
-                                            help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                            width="small"
-                                        ),
-                                        "Account Name": st.column_config.TextColumn(
-                                            "Account Name",
-                                            help="Account name/description from statement",
-                                            width="small"
-                                        ),
-                                        "Last 4": st.column_config.TextColumn(
-                                            "Last 4",
-                                            disabled=True,
-                                            help="Last 4 digits of account number",
-                                            width="small"
-                                        ),
-                                        "Account Type": st.column_config.TextColumn(
-                                            "Account Type",
-                                            disabled=True,
-                                            help="Type of account (401k, IRA, Savings, etc.)",
-                                            width="small"
-                                        ),
-                                        "Tax Treatment": st.column_config.SelectboxColumn(
-                                            "Tax Treatment",
-                                            options=TAX_TREATMENT_OPTIONS,
-                                            help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth), Post-Tax (Brokerage)"
-                                        ),
-                                        "Current Balance": st.column_config.NumberColumn(
-                                            "Current Balance ($)",
-                                            min_value=0,
-                                            format="$%d",
-                                            help="Current account balance"
-                                        ),
-                                        "Annual Contribution": st.column_config.NumberColumn(
-                                            "Annual Contribution ($)",
-                                            min_value=0,
-                                            format="$%d",
-                                            help="How much you contribute annually"
-                                        ),
-                                        "Growth Rate (%)": st.column_config.NumberColumn(
-                                            "Growth Rate (%)",
-                                            min_value=0.0,
-                                            max_value=20.0,
-                                            format="%.1f%%",
-                                            help="Expected annual growth rate"
-                                        ),
-                                        "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                            "Tax Rate on Gains (%)",
-                                            min_value=0.0,
-                                            max_value=50.0,
-                                            format="%.1f%%",
-                                            help="Tax rate on gains (capital gains or income tax)"
-                                        )
-                                    }
-
-                                    # Hide noisy metadata columns — keep data, suppress display
-                                    if "Income Eligibility" in df_display.columns:
-                                        column_config["Income Eligibility"] = None
-                                    if "Purpose" in df_display.columns:
-                                        column_config["Purpose"] = None
-
-                                    # Display read-only table - use Edit button above to modify
-                                    st.dataframe(
-                                        df_display,
-                                        column_config=column_config,
-                                        use_container_width=True,
-                                        hide_index=True
-                                    )
-                            else:
-                                # No properly formatted table available - show message
-                                st.warning("⚠️ Please click '🔄 Clear and Upload New Statements' above and re-extract your data.")
-        
-                        # CRITICAL: Convert edited table to assets on every rerun
-                        # This ensures assets persist even when user changes personal info
-                        if st.session_state.ai_edited_table is not None:
-                            edited_df = st.session_state.ai_edited_table
-                            try:
-                                assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
-        
-                                st.info(f"📊 Using {len(assets)} AI-extracted accounts for retirement analysis")
-        
-                            except Exception as e:
-                                st.error(f"❌ Error loading AI-extracted accounts: {str(e)}")
-                                st.info("💡 Try clicking '🔄 Clear and Upload New Statements' and re-uploading.")
-        
-                    else:
-                        # Upload financial statement PDFs
-                        uploaded_files = st.file_uploader(
-                            "📤 Upload Financial Statement PDFs",
-                            type=['pdf'],
-                            accept_multiple_files=True,
-                            help="Upload 401(k), IRA, brokerage, or bank statements",
-                            key=f"ai_statement_uploader_{st.session_state.ai_upload_widget_version}",
-                        )
-        
-                        if uploaded_files:
-                            if st.button("🚀 Extract Account Data", type="primary",use_container_width=True):
-                                import time
-                                _proc_ok, _proc_err = check_processor_configured()
-                                if not _proc_ok:
-                                    st.error(_proc_err)
-                                    st.stop()
-
-                                progress_bar = st.progress(0)
-                                status_text = st.empty()
-
-                                _processor_type = "unknown"
-                                try:
-                                    # Phase 1: Upload (0-30%)
-                                    status_text.markdown("**📤 Phase 1/2: Uploading Files**")
-                                    progress_bar.progress(10)
-
-                                    # Initialize processor (Python or n8n based on PYTHON_STATEMENT_PROCESSOR env var)
-                                    client = get_processor()
-                                    _processor_type = "python" if client.__class__.__name__ == "StatementProcessor" else "n8n"
-                                    track_event('statement_extraction_initiated', {
-                                        'num_files': len(uploaded_files),
-                                        'processor_type': _processor_type,
-                                    })
-
-                                    files_to_upload = [(f.name, f.getvalue()) for f in uploaded_files]
-                                    files_to_upload, skipped_names = _dedupe_uploaded_file_payloads(files_to_upload)
-                                    if skipped_names:
-                                        st.warning(f"⚠️ Skipped {len(skipped_names)} duplicate file(s): {', '.join(skipped_names)}")
-                                    if not files_to_upload:
-                                        raise ValueError("All selected files were duplicates. Please upload at least one unique statement.")
-
-                                    status_text.markdown(f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor...")
-                                    progress_bar.progress(25)
-        
-                                    # Phase 2: Processing (40-90%) — live per-file progress via callback
-                                    _total_files = len(files_to_upload)
-                                    # 40% base; each file gets an equal slice of the 40→88% band
-                                    _progress_per_file = 48 / max(_total_files, 1)
-
-                                    def _make_progress_callback(
-                                        _status=status_text,
-                                        _bar=progress_bar,
-                                        _slice=_progress_per_file,
-                                        _ai_start=time.time(),
-                                    ):
-                                        def _cb(stage, file_idx, total_files, filename, chunk_idx, total_chunks):
-                                            short_name = filename if len(filename) <= 30 else f"…{filename[-27:]}"
-                                            elapsed = int(time.time() - _ai_start)
-                                            file_label = f"file {file_idx + 1}/{total_files}"
-                                            # Progress: 40 + files_done*slice + within-file fraction
-                                            files_done_pct = file_idx * _slice
-                                            if stage == "text_extract":
-                                                within = 0.05 * _slice
-                                                pct = int(40 + files_done_pct + within)
-                                                _status.markdown(
-                                                    f"**📄 Phase 2/2: AI Processing** ({file_label}) "
-                                                    f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
-                                                )
-                                            elif stage == "ai_call":
-                                                chunk_label = (
-                                                    f" (part {chunk_idx + 1}/{total_chunks})"
-                                                    if total_chunks > 1 else ""
-                                                )
-                                                within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
-                                                pct = int(40 + files_done_pct + within)
-                                                _status.markdown(
-                                                    f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
-                                                    f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
-                                                )
-                                            elif stage == "file_done":
-                                                within = _slice
-                                                pct = int(40 + files_done_pct + within)
-                                                _status.markdown(
-                                                    f"**✅ Phase 2/2: AI Processing** ({file_label}) "
-                                                    f"— Done: **{short_name}** ⏱️ {elapsed}s"
-                                                )
-                                            else:
-                                                pct = int(40 + files_done_pct)
-                                            _bar.progress(min(pct, 88))
-                                        return _cb
-
-                                    _progress_cb = _make_progress_callback() if _processor_type == "python" else None
-
-                                    # Initial Phase 2 message (shown before first callback fires)
-                                    status_text.markdown(
-                                        f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
-                                    )
-                                    progress_bar.progress(40)
-
-                                    # Make the actual API call (blocking)
-                                    if _processor_type == "python":
-                                        result = client.upload_statements(files_to_upload, progress_callback=_progress_cb)
-                                    else:
-                                        result = client.upload_statements(files_to_upload)
-                                    progress_bar.progress(90)
-        
-                                    if result['success']:
-                                        progress_bar.progress(100)
-                                        status_text.markdown("**✅ Extraction Complete!**")
-        
-                                        # Parse response (handle both JSON and CSV formats)
-                                        response_format = result.get('format', 'csv')
-                                        tax_buckets_by_account = {}
-        
-                                        if response_format == 'json':
-                                            # Split accounts with multiple tax sources BEFORE creating DataFrame
-                                            split_accounts = []
-                                            for account in result['data']:
-                                                # Check if account has multiple non-zero tax sources
-                                                raw_tax_sources = account.get('_raw_tax_sources', [])
-                                                non_zero_sources = [s for s in raw_tax_sources if s.get('balance', 0) > 0]
-        
-                                                if len(non_zero_sources) > 1:
-                                                    # Split into separate accounts
-                                                    for source in non_zero_sources:
-                                                        split_account = account.copy()
-                                                        source_label = source['label']
-                                                        source_balance = source['balance']
-        
-                                                        # Determine tax treatment from source label
-                                                        if 'roth' in source_label.lower():
-                                                            tax_treatment = 'tax_free'
-                                                            suffix = '- Roth'
-                                                        elif 'after tax' in source_label.lower() or 'after-tax' in source_label.lower():
-                                                            tax_treatment = 'post_tax'
-                                                            suffix = '- After-Tax'
-                                                        else:  # Employee Deferral, Traditional, etc.
-                                                            tax_treatment = 'tax_deferred'
-                                                            suffix = '- Traditional'
-        
-                                                        # Update split account
-                                                        split_account['account_name'] = f"{account.get('account_name', '401k')} {suffix}"
-                                                        split_account['ending_balance'] = source_balance
-                                                        split_account['tax_treatment'] = tax_treatment
-                                                        split_account['_tax_source_label'] = source_label
-                                                        # Remove _raw_tax_sources to avoid confusion
-                                                        split_account.pop('_raw_tax_sources', None)
-        
-                                                        split_accounts.append(split_account)
-                                                else:
-                                                    # Keep account as-is
-                                                    split_accounts.append(account)
-        
-                                            # Save tax_buckets or raw_tax_sources before converting to DataFrame
-                                            for idx, account in enumerate(split_accounts):
-                                                account_id = account.get('account_id') or account.get('account_name') or f"account_{idx}"
-        
-                                                # Check for processed tax_buckets first
-                                                if 'tax_buckets' in account and account['tax_buckets']:
-                                                    tax_buckets_by_account[account_id] = account['tax_buckets']
-                                                # Fall back to raw_tax_sources if available
-                                                elif '_raw_tax_sources' in account and account['_raw_tax_sources']:
-                                                    # Convert raw_tax_sources to bucket format for display
-                                                    raw_sources = account['_raw_tax_sources']
-                                                    buckets = []
-                                                    for source in raw_sources:
-                                                        if source.get('balance', 0) > 0:  # Only show non-zero balances
-                                                            # Map label to tax treatment
-                                                            label = source['label'].lower()
-                                                            if 'roth' in label:
-                                                                tax_treatment_bucket = 'tax_free'
-                                                            elif 'after tax' in label or 'after-tax' in label:
-                                                                tax_treatment_bucket = 'post_tax'
-                                                            else:  # Employee deferral, traditional, etc.
-                                                                tax_treatment_bucket = 'tax_deferred'
-        
-                                                            buckets.append({
-                                                                'bucket_type': source['label'],
-                                                                'tax_treatment': tax_treatment_bucket,
-                                                                'balance': source['balance']
-                                                            })
-                                                    if buckets:
-                                                        tax_buckets_by_account[account_id] = buckets
-        
-                                            # JSON format - already a list of dicts
-                                            df_extracted = pd.DataFrame(split_accounts)
-                                            # Rename JSON fields if needed
-                                            column_mapping = {
-                                                'account_name': 'label',
-                                                'ending_balance': 'value',
-                                                'balance_as_of_date': 'period_end',
-                                                'institution': 'document_type',
-                                                'account_id': 'account_id'
-                                            }
-                                            df_extracted = df_extracted.rename(columns={k: v for k, v in column_mapping.items() if k in df_extracted.columns})
-
-                                            # Filter out internal/debug columns (those starting with underscore)
-                                            df_extracted = df_extracted[[col for col in df_extracted.columns if not col.startswith('_')]]
-                                        else:
-                                            # CSV format
-                                            csv_content = result['data']
-                                            df_extracted = pd.read_csv(io.StringIO(csv_content))
-
-                                        # Convert to numeric
-                                        if 'value' in df_extracted.columns:
-                                            df_extracted['value'] = pd.to_numeric(df_extracted['value'], errors='coerce')
-                                        elif 'ending_balance' in df_extracted.columns:
-                                            df_extracted['value'] = pd.to_numeric(df_extracted['ending_balance'], errors='coerce')
-        
-                                        # Store in session state for persistence across reruns
-                                        st.session_state.ai_extracted_accounts = df_extracted
-                                        st.session_state.ai_tax_buckets = tax_buckets_by_account
-                                        st.session_state.ai_warnings = result.get('warnings', [])
-    
-                                        # Track successful statement upload
-                                        track_statement_upload(
-                                            success=True,
-                                            num_statements=len(files_to_upload),
-                                            num_accounts=len(df_extracted),
-                                            processor_type=_processor_type,
-                                            execution_time_secs=result.get('execution_time', 0.0),
-                                            num_warnings=len(result.get('warnings', [])),
-                                            token_usage=result.get('token_usage'),
-                                        )
-    
-                                        st.success(f"✅ Extracted {len(df_extracted)} accounts from your statements!")
-                                        st.info("💡 **Data saved!** You can now edit other fields without losing your extracted accounts.")
-        
-                                        # Edit button (outside expander for reliability)
-                                        edit_accounts_clicked_fresh = st.button("✏️ Edit Accounts", type="primary", key="edit_accounts_button")
-                                        if edit_accounts_clicked_fresh:
-                                            edit_ai_accounts_dialog()
-
-                                        # Display warnings if any
-                                        warnings = st.session_state.ai_warnings
-                                        if warnings and len(warnings) > 0:
-                                            with st.expander(f"⚠️ Processing Warnings ({len(warnings)})", expanded=False):
-                                                for warning in warnings:
-                                                    st.warning(warning)
-                                                                                     
-                                        # Map extracted data to Asset objects
-
-                                        with st.expander("📋 Extracted Accounts", expanded=True):
-        
-                                            # Check if we already have edited table data in session state
-                                            if st.session_state.ai_edited_table is not None:
-                                                # Use previously edited table
-                                                df_table = st.session_state.ai_edited_table
-                                            else:
-                                                # Create editable table from extracted data (first time)
-                                                table_data = []
-                                                for idx, row in df_extracted.iterrows():
-                                                    # Get account type first (we'll need it for inference)
-                                                    account_type_raw = row.get('account_type', '')
-                                                    account_type = _humanize_ai_account_type(account_type_raw)
-        
-                                                    # Map tax_treatment to AssetType (human-readable)
-                                                    # If tax_treatment is missing, infer from account_type
-                                                    tax_treatment = str(row.get('tax_treatment', '')).lower()
-            
-                                                    if not tax_treatment or tax_treatment == 'nan':
-                                                        # Infer from account_type
-                                                        account_type_lower = str(account_type_raw).lower()
-                                                        if account_type_lower in ['401k', '403b', '457', 'ira', 'traditional_ira']:
-                                                            tax_treatment = 'tax_deferred'
-                                                        elif account_type_lower in ['roth_401k', 'roth_ira', 'roth_403b']:
-                                                            tax_treatment = 'tax_free'
-                                                        elif account_type_lower == 'hsa':
-                                                            tax_treatment = 'tax_deferred'  # HSA is tax-deferred
-                                                        else:
-                                                            tax_treatment = 'post_tax'  # brokerage, savings, checking
-            
-                                                    # Map to display value
-                                                    if tax_treatment == 'pre_tax' or tax_treatment == 'tax_deferred':
-                                                        asset_type_display = 'Tax-Deferred'
-                                                    elif tax_treatment == 'post_tax':
-                                                        asset_type_display = 'Post-Tax'
-                                                    elif tax_treatment == 'tax_free':
-                                                        asset_type_display = 'Tax-Free'
-                                                    else:
-                                                        asset_type_display = 'Post-Tax'  # default
-            
-                                                    # Get account name and humanize it
-                                                    account_name_raw = str(row.get('label', f"Account {idx+1}"))
-            
-                                                    account_name = _humanize_ai_account_name(account_name_raw)
-            
-                                                    # Get institution and account number for display
-                                                    institution = str(row.get('document_type', ''))  # Institution is stored in document_type
-                                                    account_number_last4 = str(row.get('account_number_last4', '')) if pd.notna(row.get('account_number_last4')) else ''
-            
-                                                    # Get current balance
-                                                    current_balance = float(row.get('value', 0))
-            
-                                                    # Helper function to humanize income eligibility
-                                                    def humanize_eligibility(value: str) -> str:
-                                                        mappings = {
-                                                            'eligible': '✅ Eligible',
-                                                            'conditionally_eligible': '⚠️ Conditionally Eligible',
-                                                            'not_eligible': '❌ Not Eligible'
-                                                        }
-                                                        return mappings.get(str(value).lower(), value)
-            
-                                                    # Helper function to humanize purpose
-                                                    def humanize_purpose(value: str) -> str:
-                                                        mappings = {
-                                                            'income': 'Retirement Income',
-                                                            'general_income': 'General Income',
-                                                            'healthcare_only': 'Healthcare Only (HSA)',
-                                                            'education_only': 'Education Only (529)',
-                                                            'employment_compensation': 'Employment Compensation',
-                                                            'restricted_other': 'Restricted/Other'
-                                                        }
-                                                        return mappings.get(str(value).lower(), value)
-            
-                                                    # Get income eligibility and purpose if available
-                                                    income_eligibility = row.get('income_eligibility', '')
-                                                    purpose = row.get('purpose', '')
-            
-                                                    # Set default growth rate based on account type
-                                                    account_type_lower = str(account_type_raw).lower()
-                                                    if account_type_lower in ['savings', 'checking']:
-                                                        account_growth_rate = 3.0  # HYSA/Savings: conservative rate
-                                                    else:
-                                                        # Use the user's default growth rate for all investment accounts
-                                                        account_growth_rate = 7
-            
-                                                    _, inferred_behavior, default_tax_rate = _resolve_tax_settings(
-                                                        asset_type_display,
-                                                        account_name,
-                                                        0.0,
-                                                    )
-
-                                                    table_row = {
-                                                        "#": f"#{idx+1}",
-                                                        "Institution": institution,
-                                                        "Account Name": account_name,
-                                                        "Last 4": account_number_last4,
-                                                        "Account Type": account_type,
-                                                        "Tax Treatment": "Post-Tax" if inferred_behavior == TaxBehavior.NO_ADDITIONAL_TAX else asset_type_display,
-                                                        "Current Balance": current_balance,
-                                                        "Annual Contribution": 0.0,  # User needs to fill
-                                                        "Growth Rate (%)": account_growth_rate,
-                                                        "Tax Rate on Gains (%)": 15.0 if inferred_behavior == TaxBehavior.CAPITAL_GAINS else default_tax_rate
-                                                    }
-            
-                                                    # Add income eligibility if available
-                                                    if income_eligibility:
-                                                        table_row["Income Eligibility"] = humanize_eligibility(income_eligibility)
-            
-                                                    # Add purpose if available
-                                                    if purpose:
-                                                        table_row["Purpose"] = humanize_purpose(purpose)
-            
-                                                    table_data.append(table_row)
-        
-                                                # Create DataFrame from table_data
-                                                df_table = pd.DataFrame(table_data)
-                                                df_table, dedupe_warnings = _dedupe_ai_editor_rows(df_table)
-                                                if dedupe_warnings:
-                                                    st.session_state.ai_warnings = st.session_state.get('ai_warnings', []) + dedupe_warnings
-
-                                                # Initialize ai_edited_table ONLY on first extraction
-                                                # Use a flag to prevent overwriting user edits on reruns
-                                                if 'ai_table_initialized' not in st.session_state:
-                                                    st.session_state.ai_edited_table = df_table.copy()
-                                                    st.session_state.ai_table_initialized = True
-
-                                            #st.info("💡 **Edit your data in the table. Changes save automatically as you type.**")
-
-                                            # Define column configuration
-                                            # Note: Column widths adjusted to emphasize amounts over names
-                                            column_config = {
-                                                "#": st.column_config.TextColumn("#", disabled=True, help="Row number", width="small"),
-                                                "Institution": st.column_config.TextColumn(
-                                                    "Institution",
-                                                    disabled=True,
-                                                    help="Financial institution (e.g., Fidelity, Morgan Stanley)",
-                                                    width="small"
-                                                ),
-                                                "Account Name": st.column_config.TextColumn(
-                                                    "Account Name",
-                                                    help="Account name/description from statement",
-                                                    width="small"
-                                                ),
-                                                "Last 4": st.column_config.TextColumn(
-                                                    "Last 4",
-                                                    disabled=True,
-                                                    help="Last 4 digits of account number",
-                                                    width="small"
-                                                ),
-                                                "Account Type": st.column_config.TextColumn(
-                                                    "Account Type",
-                                                    disabled=True,
-                                                    help="Type of account (401k, IRA, Savings, etc.) - extracted from statement",
-                                                    width="small"
-                                                ),
-                                                "Tax Treatment": st.column_config.SelectboxColumn(
-                                                    "Tax Treatment",
-                                                    options=TAX_TREATMENT_OPTIONS,
-                                                    help="Tax treatment: Tax-Deferred (401k/IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                                                ),
-                                                "Current Balance": st.column_config.NumberColumn(
-                                                    "Current Balance ($)",
-                                                    min_value=0,
-                                                    format="$%d",
-                                                    help="Current account balance (extracted from statements)"
-                                                ),
-                                                "Annual Contribution": st.column_config.NumberColumn(
-                                                    "Annual Contribution ($)",
-                                                    min_value=0,
-                                                    format="$%d",
-                                                    help="How much you contribute annually to this account"
-                                                ),
-                                                "Growth Rate (%)": st.column_config.NumberColumn(
-                                                    "Growth Rate (%)",
-                                                    min_value=0,
-                                                    max_value=50,
-                                                    format="%.1f%%",
-                                                    help=f"Expected annual growth rate (your default: {7}%)"
-                                                ),
-                                                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                                    "Tax Rate on Gains (%)",
-                                                    min_value=0,
-                                                    max_value=50,
-                                                    format="%.1f%%",
-                                                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                                                )
-                                                ,"Income Eligibility": None,
-                                                "Purpose": None
-                                            }
-
-                                            # Display editable table - auto-saves on every change
-                                            edited_df = st.data_editor(
-                                                st.session_state.ai_edited_table if st.session_state.ai_edited_table is not None else df_table,
-                                                column_config=column_config,
-                                                use_container_width=True,
-                                                hide_index=True,
-                                                num_rows="dynamic",
-                                                key="ai_table_data"
-                                            )
-
-                                            # Auto-save edited data to session state
-                                            st.session_state.ai_edited_table = edited_df
-
-                                            # Extraction Quality Feedback Module
-                                            with st.expander("💬 Data Extraction Feedback", expanded=False):
-                                                st.info("📊 **How accurate is the extracted data?** Your feedback helps us improve AI extraction quality.")
-
-                                                feedback_col1, feedback_col2, feedback_col3 = st.columns([1, 1, 3])
-
-                                                with feedback_col1:
-                                                    if st.button("👍 Looks Good", key="extraction_feedback_good",use_container_width=True, type="secondary"):
-                                                        # Positive feedback - send email
-                                                        subject = "AI Extraction Feedback - Accurate Data"
-                                                        body = f"""Hi Smart Retire AI team,
-
-        The AI extraction worked great! Here are the details:
-
-        Number of accounts extracted: {len(edited_df)}
-        Institution(s): {', '.join(edited_df['Institution'].unique())}
-
-        The extracted data was accurate and saved me time.
-
-        Thank you!
-        """
-                                                        # URL encode the body
-                                                        body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                        email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                        st.markdown(f"✅ **Thanks for the feedback!** [Click here to send details]({email_url}) (optional)")
-
-                                                with feedback_col2:
-                                                    if st.button("👎 Needs Work", key="extraction_feedback_bad",use_container_width=True, type="secondary"):
-                                                        # Negative feedback - show form
-                                                        st.session_state.show_extraction_feedback_form = True
-
-                                                # Show detailed feedback form if user clicked "Needs Work"
-                                                if st.session_state.get('show_extraction_feedback_form', False):
-                                                    st.markdown("---")
-                                                    st.markdown("##### 📝 Tell us what went wrong")
-
-                                                    with st.form("extraction_feedback_form", clear_on_submit=True):
-                                                        issue_type = st.multiselect(
-                                                            "What issues did you encounter? (Select all that apply)",
-                                                            [
-                                                                "Wrong account balances",
-                                                                "Incorrect account types",
-                                                                "Wrong tax classification",
-                                                                "Missing accounts",
-                                                                "Duplicate accounts",
-                                                                "Wrong institution name",
-                                                                "Account numbers incorrect",
-                                                                "Other"
-                                                            ]
-                                                        )
-
-                                                        specific_issues = st.text_area(
-                                                            "Specific details about the issue:",
-                                                            placeholder="E.g., 'My 401k balance was extracted as $50,000 but should be $75,000' or 'Roth IRA was classified as Tax-Deferred instead of Tax-Free'",
-                                                            height=100
-                                                        )
-
-                                                        statement_type = st.text_input(
-                                                            "Statement type/institution (optional):",
-                                                            placeholder="E.g., 'Fidelity 401k' or 'Vanguard Roth IRA'"
-                                                        )
-
-                                                        submit_feedback = st.form_submit_button("📧 Send Feedback", type="primary",use_container_width=True)
-
-                                                        if submit_feedback:
-                                                            if issue_type and specific_issues:
-                                                                # Generate email
-                                                                subject = "AI Extraction Issue Report"
-                                                                issues_list = '\n'.join([f"- {issue}" for issue in issue_type])
-                                                                body = f"""Hi Smart Retire AI team,
-
-        I encountered issues with the AI extraction feature:
-
-        ISSUES ENCOUNTERED:
-        {issues_list}
-
-        SPECIFIC DETAILS:
-        {specific_issues}
-
-        STATEMENT INFO:
-        {statement_type if statement_type else 'Not provided'}
-
-        NUMBER OF ACCOUNTS: {len(edited_df)}
-        INSTITUTIONS: {', '.join(edited_df['Institution'].unique())}
-
-        Please investigate and improve the extraction accuracy.
-
-        Thank you!
-        """
-                                                                # URL encode the body
-                                                                body_encoded = body.replace(' ', '%20').replace('\n', '%0D%0A')
-                                                                email_url = f"mailto:smartretireai@gmail.com?subject={subject}&body={body_encoded}"
-                                                                st.success("✅ Thank you for the detailed feedback!")
-                                                                st.markdown(f"📧 [Click here to send your feedback via email]({email_url})")
-                                                                st.session_state.show_extraction_feedback_form = False
-                                                            else:
-                                                                st.error("⚠️ Please select at least one issue type and provide specific details.")
-        
-                                            # Convert edited dataframe to Asset objects
-                                            if not edited_df.empty:
-                                                try:
-                                                    assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
-        
-                                                    st.success(f"✅ {len(assets)} accounts ready for retirement analysis!")
-        
-                                                except Exception as e:
-                                                    st.error(f"❌ Error processing extracted data: {str(e)}")
-                                                    st.info("💡 Please check the values in the table.")
-        
-                                    else:
-                                        # Track failed statement upload
-                                        track_statement_upload(
-                                            success=False,
-                                            num_statements=len(uploaded_files),
-                                            num_accounts=0,
-                                            processor_type=_processor_type,
-                                            execution_time_secs=result.get('execution_time', 0.0),
-                                            num_warnings=len(result.get('warnings', [])),
-                                        )
-                                        track_error('statement_upload_failed', result.get('error', 'Unknown error'), {
-                                            'num_files': len(uploaded_files),
-                                            'processor_type': _processor_type,
-                                        })
-
-                                        progress_bar.progress(100)
-                                        status_text.text("✗ Extraction failed")
-                                        st.error(f"Extraction Error: {result.get('error', 'Unknown error')}")
-
-                                except (N8NError, StatementProcessorError) as e:
-                                    # Track processor configuration error
-                                    track_statement_upload(
-                                        success=False,
-                                        num_statements=len(uploaded_files),
-                                        num_accounts=0,
-                                        processor_type=_processor_type,
-                                    )
-                                    track_error('statement_upload_n8n_error', str(e), {
-                                        'num_files': len(uploaded_files),
-                                        'processor_type': _processor_type,
-                                    })
-
-                                    progress_bar.progress(100)
-                                    status_text.text("✗ Configuration error")
-                                    st.error(f"Configuration Error: {str(e)}")
-                                    st.info("💡 Check your .env file: set PYTHON_STATEMENT_PROCESSOR=true and OPENAI_API_KEY, or set N8N_WEBHOOK_URL for n8n.")
-    
-                                except Exception as e:
-                                    # Track unexpected error
-                                    track_statement_upload(
-                                        success=False,
-                                        num_statements=len(uploaded_files),
-                                        num_accounts=0,
-                                        processor_type=_processor_type,
-                                    )
-                                    track_error('statement_upload_error', str(e), {
-                                        'num_files': len(uploaded_files),
-                                        'processor_type': _processor_type,
-                                    })
-    
-                                    progress_bar.progress(100)
-                                    status_text.text("✗ Unexpected error")
-                                    st.error(f"Error: {str(e)}")
-        
-            elif setup_option == "Upload CSV File":
-                st.info("📁 **CSV Upload Method**: Download a template, modify it with your data, then upload it back.")
-                
-                # Download template button
-                csv_template = create_asset_template_csv()
-                st.download_button(
-                    label="📥 Download CSV Template",
-                    data=csv_template,
-                    file_name="asset_template.csv",
-                    mime="text/csv",
-                    help="Download a pre-filled template with example data"
-                )
-                
-                # Upload file
-                uploaded_file = st.file_uploader(
-                    "📤 Upload Your CSV File",
-                    type=['csv'],
-                    help="Upload your modified CSV file with your asset data",
-                    key=f"csv_asset_uploader_{st.session_state.csv_upload_widget_version}",
-                )
-
-                if uploaded_file is not None:
-                    try:
-                        # Check if this is a new file upload or the same file on rerun
-                        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
-                        is_new_upload = ('csv_uploaded_file_id' not in st.session_state or
-                                        st.session_state.csv_uploaded_file_id != file_id)
-
-                        if is_new_upload:
-                            # This is a new file - parse it and reset everything
-                            csv_content = uploaded_file.read().decode('utf-8')
-                            assets, csv_warnings = parse_uploaded_csv(csv_content)
-                            for w in csv_warnings:
-                                st.info(f"ℹ️ {w}")
-
-                            # Store file ID and assets in session state
-                            st.session_state.csv_uploaded_file_id = file_id
-                            st.session_state.csv_uploaded_assets = assets
-
-                            # Clear previous edits when a new file is uploaded
-                            if 'csv_uploaded_edited_table' in st.session_state:
-                                del st.session_state.csv_uploaded_edited_table
-
-                            st.success(f"✅ Successfully loaded {len(assets)} assets from CSV file!")
-                        else:
-                            # Same file on rerun - use assets from session state
-                            if 'csv_uploaded_assets' in st.session_state:
-                                assets = st.session_state.csv_uploaded_assets
-                        
-                        # Show uploaded assets in editable table format
-                        with st.expander("📋 Uploaded Assets (Editable)", expanded=True):
-                            # Helper function to convert asset type to human-readable format
-                            # Create editable table data
-                            table_data = []
-                            for i, asset in enumerate(assets):
-                                row = {
-                                    "Index": i,
-                                    "Account Name": asset.name,
-                                    "Tax Treatment": _asset_to_tax_treatment_label(asset),
-                                    "Current Balance": asset.current_balance,
-                                    "Annual Contribution": asset.annual_contribution,
-                                    "Growth Rate (%)": asset.growth_rate_pct,
-                                    "Tax Rate on Gains (%)": asset.tax_rate_pct
-                                }
-                                table_data.append(row)
-                            
-                            # Create editable dataframe
-                            df = pd.DataFrame(table_data)
-
-                            # Define column configuration for editing
-                            column_config = {
-                                "Index": st.column_config.NumberColumn("Index", disabled=True, help="Asset index (read-only)"),
-                                "Account Name": st.column_config.TextColumn("Account Name", help="Name of the account"),
-                                "Tax Treatment": st.column_config.SelectboxColumn(
-                                    "Tax Treatment",
-                                    options=TAX_TREATMENT_OPTIONS,
-                                    help="Tax treatment: Tax-Deferred (401k/Traditional IRA), Tax-Free (Roth IRA/Roth 401k), Post-Tax (Brokerage/Savings)"
-                                ),
-                                "Current Balance": st.column_config.NumberColumn(
-                                    "Current Balance ($)",
-                                    min_value=0,
-                                    format="$%d",
-                                    help="Current account balance"
-                                ),
-                                "Annual Contribution": st.column_config.NumberColumn(
-                                    "Annual Contribution ($)",
-                                    min_value=0,
-                                    format="$%d",
-                                    help="Annual contribution amount"
-                                ),
-                                "Growth Rate (%)": st.column_config.NumberColumn(
-                                    "Growth Rate (%)",
-                                    min_value=0,
-                                    max_value=50,
-                                    format="%.1f%%",
-                                    help=f"Expected annual growth rate (your default: {7}%)"
-                                ),
-                                "Tax Rate on Gains (%)": st.column_config.NumberColumn(
-                                    "Tax Rate on Gains (%)",
-                                    min_value=0,
-                                    max_value=50,
-                                    format="%.1f%%",
-                                    help="Tax rate on GAINS only: 0% for Roth/Tax-Deferred, 15% for brokerage capital gains"
-                                )
-                            }
-
-                            # Use edited table from session state if it exists, otherwise use fresh data
-                            # This prevents losing user edits on rerun
-                            if 'csv_uploaded_edited_table' in st.session_state and st.session_state.csv_uploaded_edited_table is not None:
-                                # Preserve user edits across reruns
-                                initial_data = st.session_state.csv_uploaded_edited_table
-                            else:
-                                # First time showing the table
-                                initial_data = df
-
-                            # Display editable table
-                            st.info("💡 **Edit your assets directly in the table below. Changes will be applied when you run the analysis.**")
-                            edited_df = st.data_editor(
-                                initial_data,
-                                column_config=column_config,
-                                use_container_width=True,
-                                hide_index=True,
-                                num_rows="dynamic",
-                                key="csv_uploaded_assets_table"  # Unique key for this table
-                            )
-
-                            # Save edited table to session state for persistence across reruns
-                            st.session_state.csv_uploaded_edited_table = edited_df
-                            
-                            # Convert edited dataframe back to Asset objects
-                            if not edited_df.empty:
-                                try:
-                                    updated_assets = [_asset_from_editor_row(row) for _, row in edited_df.iterrows()]
-                                    
-                                    # Update the assets list in both local and session state
-                                    assets = updated_assets
-                                    st.session_state.csv_uploaded_assets = updated_assets
-                                    st.success(f"✅ Assets updated! {len(assets)} assets ready for analysis.")
-                                    
-                                except Exception as e:
-                                    st.error(f"❌ Error updating assets: {str(e)}")
-                                    st.info("💡 Please check your input values and try again.")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error processing CSV file: {str(e)}")
-                        st.info("💡 **Tip**: Make sure your CSV has the correct format. Download the template and use it as a guide.")
-                
-            elif setup_option == "Configure Individual Assets":
-                st.info("🔧 **Manual Configuration**: Add each asset one by one using the form below.")
-
-                # Seed session state with asset count the first time (or when switching from another mode)
-                if 'num_assets_manual' not in st.session_state:
-                    st.session_state.num_assets_manual = max(len(assets), 1) if assets else 3
-                num_assets = st.number_input("Number of Assets", min_value=1, max_value=10, key="num_assets_manual", help="How many different accounts do you have?")
-
-                # Clear assets list to rebuild from form
-                configured_assets: List[Asset] = []
-
-                _ASSET_TYPE_LABELS = {
-                    AssetType.PRE_TAX: "Pre-Tax",
-                    AssetType.POST_TAX: "After-Tax",
-                    AssetType.TAX_DEFERRED: "Tax-Deferred",
-                }
-
-                for i in range(num_assets):
-                    # Get existing asset data if available
-                    existing_asset = assets[i] if i < len(assets) else None
-
-                    with st.expander(f"🏦 Asset {i+1}", expanded=(i==0)):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            asset_name = st.text_input(
-                                f"Asset Name {i+1}",
-                                value=existing_asset.name if existing_asset else f"Asset {i+1}",
-                                help="Name of your account"
-                            )
-
-                            # Find the index of the existing asset type in the options list
-                            default_type_index = 0
-                            if existing_asset:
-                                for idx, (name, atype) in enumerate(_DEF_ASSET_TYPES):
-                                    template_behavior = infer_tax_behavior(
-                                        atype,
-                                        name,
-                                        15.0 if name == "Brokerage Account" else 0.0,
-                                    )
-                                    if (
-                                        atype == existing_asset.asset_type
-                                        and template_behavior == existing_asset.tax_behavior
-                                    ):
-                                        default_type_index = idx
-                                        break
-
-                            asset_type_selection: Tuple[str, AssetType] = st.selectbox(
-                                f"Asset Type {i+1}",
-                                options=[(name, atype) for name, atype in _DEF_ASSET_TYPES],
-                                index=default_type_index,
-                                format_func=lambda x: f"{x[0]} — {_ASSET_TYPE_LABELS.get(x[1], x[1].value)}",
-                                help="Type of account for tax treatment"
-                            )
-                        with col2:
-                            current_balance = st.number_input(
-                                f"Current Balance {i+1} ($)",
-                                min_value=0,
-                                value=int(existing_asset.current_balance) if existing_asset else 10000,
-                                step=1000,
-                                help="Current account balance"
-                            )
-                            annual_contribution = st.number_input(
-                                f"Annual Contribution {i+1} ($)",
-                                min_value=0,
-                                value=int(existing_asset.annual_contribution) if existing_asset else 5000,
-                                step=500,
-                                help="How much you contribute annually"
-                            )
-                        with col3:
-                            growth_rate = st.slider(
-                                f"Growth Rate {i+1} (%)",
-                                0, 20,
-                                int(existing_asset.growth_rate_pct) if existing_asset else 7,
-                                help=f"Expected annual return (default: 7%)"
-                            )
-                            inferred_behavior = infer_tax_behavior(
-                                asset_type_selection[1],
-                                asset_name,
-                                existing_asset.tax_rate_pct if existing_asset else 0.0,
-                            )
-                            if inferred_behavior == TaxBehavior.CAPITAL_GAINS:
-                                tax_rate = st.slider(
-                                    f"Capital Gains Rate {i+1} (%)",
-                                    0, 30,
-                                    int(existing_asset.tax_rate_pct) if existing_asset and existing_asset.tax_rate_pct > 0 else 15,
-                                    help="Capital gains tax rate"
-                                )
-                            else:
-                                tax_rate = 0
-
-                        configured_assets.append(Asset(
-                            name=asset_name,
-                            asset_type=asset_type_selection[1],
-                            current_balance=current_balance,
-                            annual_contribution=annual_contribution,
-                            growth_rate_pct=growth_rate,
-                            tax_behavior=inferred_behavior,
-                            tax_rate_pct=tax_rate
-                        ))
-
-                # Replace assets with newly configured ones
-                assets = configured_assets
-    
-            st.markdown("---")
-
-
-            # Tax Rate Explanation - only show for CSV/AI upload methods when assets exist (not for manual configuration)
-            if setup_option != "Configure Individual Assets" and len(assets) > 0:
-                with st.expander("📚 Understanding Tax Rates in Asset Configuration", expanded=False):
-                    st.markdown("""
-                    ### 🎯 Tax Rate Column Explained
-
-                    The **Tax Rate (%)** column specifies the tax rate that applies to **gains only** (not the full balance) for certain account types:
-
-                    #### **Pre-Tax Accounts (401k, Traditional IRA)**
-                    - **Tax Rate**: `0%` (not applicable here)
-                    - **Why**: The entire balance is taxed as ordinary income at withdrawal
-                    - **Example**: Withdraw $100,000 → pay tax on full amount at retirement tax rate
-
-                    #### **Post-Tax Accounts**
-                    **Roth IRA:**
-                    - **Tax Rate**: `0%` (always tax-free)
-                    - **Why**: No tax on withdrawals (contributions already taxed)
-                    - **Example**: Withdraw $100,000 tax-free
-
-                    **Brokerage Account:**
-                    - **Tax Rate**: `15%` (default capital gains rate)
-                    - **Why**: Only the **gains** are taxed, not original contributions
-                    - **Example**:
-                      - Contributed $50,000, grew to $100,000
-                      - Only $50,000 gain taxed at 15% = $7,500 tax
-                      - You keep $92,500
-
-                    #### **Tax-Deferred Accounts (HSA, Annuities)**
-                    - **Tax Rate**: Varies by account type
-                    - **HSA**: `0%` for medical expenses, retirement tax rate for other withdrawals
-                    - **Annuities**: Retirement tax rate on full amount
-
-                    💡 **Key Insight**: This helps calculate how much you'll actually have available for retirement spending after taxes.
-                    """)
-
-                # Reference to Advanced Settings for default growth rate
-                st.info("💡 **Note:** To set a default growth rate for all accounts, use **Advanced Settings** in the sidebar. This rate will auto-populate when you add accounts below.")
-        
-        
-            # Save assets to session state
-            st.session_state.assets = assets
-        
-            # Navigation buttons for Step 2
-            st.markdown("---")
-    
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                if st.button("← Previous: Personal Info",use_container_width=True):
-                    st.session_state.onboarding_step = 1
-                    st.rerun()
-            with col3:
-                # Disable complete button if no assets configured
-                has_assets = len(assets) > 0
-                button_disabled = not has_assets
-    
-                if st.button(
-                    "Complete Setup → View Results",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=button_disabled,
-                    help="Configure at least one asset to complete onboarding" if button_disabled else "Save your data and view retirement projections"
-                ):
-                    # Check if user has set any meaningful contributions
-                    total_contributions = sum(asset.annual_contribution for asset in assets)
-                    has_contributions = total_contributions > 0
-    
-                    # Show reminder if no contributions and user hasn't dismissed it yet
-                    if not has_contributions and not st.session_state.get('contribution_reminder_dismissed', False):
-                        st.session_state.show_contribution_reminder = True
-                        st.rerun()
-                    else:
-                        # Track step 2 completed
-                        track_onboarding_step_completed(
-                            2,
-                            country=st.session_state.get('country', 'US'),
-                            num_accounts=len(assets),
-                            setup_method=setup_option,
-                            total_balance=sum(asset.current_balance for asset in assets)
-                        )
-    
-                        # Save baseline values from onboarding
-                        st.session_state.baseline_retirement_age = st.session_state.retirement_age
-                        st.session_state.baseline_life_expectancy = st.session_state.life_expectancy
-                        st.session_state.baseline_retirement_income_goal = st.session_state.retirement_income_goal
-                        st.session_state.baseline_life_expenses = st.session_state.get('life_expenses', 0)
-                        st.session_state.baseline_legacy_goal = st.session_state.get('legacy_goal', 0)
-
-                        # Initialize what-if values to match baseline
-                        st.session_state.whatif_retirement_age = st.session_state.retirement_age
-                        st.session_state.whatif_life_expectancy = st.session_state.life_expectancy
-                        st.session_state.whatif_retirement_income_goal = st.session_state.retirement_income_goal
-                        st.session_state.whatif_life_expenses = st.session_state.get('life_expenses', 0)
-                        st.session_state.whatif_legacy_goal = st.session_state.get('legacy_goal', 0)
-    
-                        # Mark onboarding as complete and navigate to results page
-                        st.session_state.onboarding_complete = True
-                        st.session_state.current_page = 'results'
-                        st.session_state.results_source = 'onboarding'
-    
-                        # Track onboarding completed
-                        track_event('onboarding_completed', {
-                            'country': st.session_state.get('country', 'US'),
-                            'num_accounts': len(assets),
-                            'setup_method': setup_option,
-                            'has_retirement_goal': st.session_state.retirement_income_goal > 0
-                        }, user_properties={'country': st.session_state.get('country', 'US')})
-    
-                        st.rerun()
-        
-            # Show warning if no assets configured
-            if not has_assets:
-                st.warning("⚠️ Please configure at least one asset before completing onboarding.")
-    
     elif st.session_state.current_page == 'results':
 
         # ==========================================
@@ -5317,7 +4636,7 @@ if not _RUNNING_TESTS:
             if st.session_state.get('results_source') == 'chat_mode':
                 st.session_state.current_page = 'chat_mode'
             else:
-                st.session_state.current_page = 'onboarding'
+                st.session_state.current_page = 'detailed_planning'
             st.rerun()
     
         st.markdown("---")
@@ -5763,8 +5082,11 @@ if not _RUNNING_TESTS:
 
         track_page_view('detailed_analysis')
 
-        if st.button("← Back to Results"):
-            st.session_state.current_page = 'results'
+        if st.button("← Back"):
+            if st.session_state.get('results_source') == 'detailed_planning':
+                st.session_state.current_page = 'detailed_planning'
+            else:
+                st.session_state.current_page = 'results'
             st.rerun()
 
         st.markdown("---")
