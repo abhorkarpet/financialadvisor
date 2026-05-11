@@ -213,6 +213,52 @@ else
 fi
 echo ""
 
+# Step 4: Create pull request
+echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}  Git Workflow${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+echo ""
+
+echo -e "${CYAN}Step 4/4: Create pull request${NC}"
+if ! command -v gh &> /dev/null; then
+    echo -e "${YELLOW}⚠ 'gh' CLI not found — skipping PR creation.${NC}"
+    echo "  Create the PR manually at https://github.com"
+    echo ""
+else
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
+        echo -e "${YELLOW}⚠ Already on ${CURRENT_BRANCH} — skipping PR creation.${NC}"
+        echo ""
+    else
+        read -p "Create a PR to merge '${CURRENT_BRANCH}' → main? (Y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            echo -e "${YELLOW}Skipped PR creation. You can create it manually later:${NC}"
+            echo "  gh pr create --title \"release: v${NEW_VERSION}\" --base main"
+        else
+            echo -e "${GREEN}Creating pull request...${NC}"
+            PR_URL=$(gh pr create \
+                --title "release: v${NEW_VERSION}" \
+                --base main \
+                --body "$(cat <<EOF
+## Smart Retire AI v${NEW_VERSION}
+
+Bumps the version to **${NEW_VERSION}** and includes all changes on this branch.
+
+### Checklist
+- [ ] Version bumped in \`fin_advisor.py\`, \`financialadvisor/__init__.py\`, \`setup.py\`
+- [ ] README.md and CLAUDE.md updated
+- [ ] Release notes created
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)")
+            echo -e "${GREEN}✓ PR created: ${PR_URL}${NC}"
+        fi
+        echo ""
+    fi
+fi
+
 echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  Release v${NEW_VERSION} complete! 🚀${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
