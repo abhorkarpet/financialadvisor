@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 16.5.0
+Version: 16.6.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "16.5.0"
+VERSION = "16.6.0"
 
 # Streamlit import
 import streamlit as st
@@ -4486,6 +4486,12 @@ if not _RUNNING_TESTS:
             st.session_state.setup_messages = []
             st.session_state.setup_fields = {}
             st.session_state.setup_fields_locked = False
+            if st.session_state.get('current_page') == 'detailed_planning':
+                clear_detailed_planning_asset_state(st.session_state)
+                st.session_state.dp_goals_done = False
+                st.session_state.dp_calculated = False
+                st.session_state.dp_chat_messages = []
+                st.session_state.dp_assets_hash = None
             st.rerun()
     
     # Initialize session state for what-if scenario values (used on results page)
