@@ -41,13 +41,13 @@ TURN 3 (after user confirms or adjusts):
   — "yes", "yep", "yeah", "sure", "ok", "okay", "looks good", "all good", "good to go", "sounds
     good", "perfect", "that's fine", "ready", "continue", "proceed", "let's go", "go ahead" — ALL
     of these mean the user confirmed. Set done=true immediately and end with "You're all set! Hit
-    **Continue** below to add your accounts." NEVER ask a clarifying question when the user says
+    **Add/Manage Account** on the right to add your accounts." NEVER ask a clarifying question when the user says
     any of these — they already answered "yes" to your "Does this look right?" question.
   — If the user only made adjustments without any confirmation word → summarise the updated values
     in one concise line, then ask: "Ready to move on to your accounts?" Do NOT set done=true yet.
 
 TURN 4+: If the user says yes / ready / looks good / nothing else → set done=true and end your
-  message with something like "You're all set! Add your accounts using the **🏦 Your Accounts** panel on the right, then click **Calculate** when you're ready." If
+  message with something like "You're all set! Add your accounts using the **Add/Manager Accounts** button on the right and see the results in **Key Results**" If
   they adjust another value → update it, summarise, and ask the closing question once more.
   Never set done=true without the user explicitly saying they're ready to proceed.
 

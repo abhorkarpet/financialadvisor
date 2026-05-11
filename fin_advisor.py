@@ -16,7 +16,7 @@ Usage:
         $ python3 fin_advisor.py --run-tests
 
 Author: AI Assistant
-Version: 16.0.0
+Version: 16.5.0
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # Version Management
-VERSION = "16.0.0"
+VERSION = "16.5.0"
 
 # Streamlit import
 import streamlit as st
@@ -2156,7 +2156,7 @@ def adjust_assets_dialog():
             files_to_upload = [(f.name, f.getvalue()) for f in uploaded]
 
             status_text.markdown(
-                f"**📤 Phase 1/2: Uploading** {len(files_to_upload)} file(s) to AI processor..."
+                f"**📤 Uploading** {len(files_to_upload)} file(s)…"
             )
             progress_bar.progress(25)
 
@@ -2178,26 +2178,23 @@ def adjust_assets_dialog():
                         within = 0.05 * _slice
                         pct = int(40 + files_done_pct + within)
                         _status.markdown(
-                            f"**📄 Phase 2/2: AI Processing** ({file_label}) "
-                            f"— Reading PDF: **{short_name}** ⏱️ {elapsed}s"
+                            f"**📄 Reading** {short_name} ({file_label}) ⏱️ {elapsed}s"
                         )
                     elif stage == "ai_call":
                         chunk_label = (
-                            f" (part {chunk_idx + 1}/{total_chunks})"
+                            f" part {chunk_idx + 1}/{total_chunks}"
                             if total_chunks > 1 else ""
                         )
                         within = (0.1 + 0.85 * (chunk_idx / max(total_chunks, 1))) * _slice
                         pct = int(40 + files_done_pct + within)
                         _status.markdown(
-                            f"**🤖 Phase 2/2: AI Processing** ({file_label}) "
-                            f"— Analyzing **{short_name}**{chunk_label} with GPT-4 ⏱️ {elapsed}s"
+                            f"**🤖 Analyzing** {short_name}{chunk_label} ({file_label}) ⏱️ {elapsed}s"
                         )
                     elif stage == "file_done":
                         within = _slice
                         pct = int(40 + files_done_pct + within)
                         _status.markdown(
-                            f"**✅ Phase 2/2: AI Processing** ({file_label}) "
-                            f"— Done: **{short_name}** ⏱️ {elapsed}s"
+                            f"**✅ Done** {short_name} ({file_label}) ⏱️ {elapsed}s"
                         )
                     else:
                         pct = int(40 + files_done_pct)
@@ -2207,7 +2204,7 @@ def adjust_assets_dialog():
             _progress_cb = _make_progress_callback() if _processor_type == "python" else None
 
             status_text.markdown(
-                f"**🤖 Phase 2/2: AI Processing** — Analyzing {_total_files} statement(s) with GPT-4..."
+                f"**🤖 Analyzing** {_total_files} statement(s)…"
             )
             progress_bar.progress(40)
 
@@ -3156,12 +3153,7 @@ def _render_dp_top_bar() -> None:
 
 def _render_dp_right_panel() -> None:
     """Right panel: accounts + action buttons."""
-    fields = st.session_state.setup_fields
     _goals_done = st.session_state.dp_goals_done
-
-    by = fields.get("birth_year") or st.session_state.get("birth_year")
-    ra = fields.get("retirement_age") or st.session_state.get("retirement_age")
-
     assets = st.session_state.get("assets", [])
     n_assets = len(assets)
     _no_acct = n_assets == 0
@@ -3184,9 +3176,10 @@ def _render_dp_right_panel() -> None:
             if _rig2 and float(_rig2) > 0:
                 _gap = _ai - float(_rig2)
                 _inc_line += f" ({'▲' if _gap >= 0 else '▼'} \\${abs(_gap):,.0f} vs goal)"
-            _mc_part = f"  ·  MC **{_mc['prob_success']:.0f}%**" if _mc.get("prob_success") is not None else ""
-            st.caption(f"Portfolio **\\${_after_tax:,.0f}**  ·  {_inc_line}")
-            st.caption(f"Tax efficiency **{_tax_eff:.1f}%**{_mc_part}")
+            _mc_part = f"  ·  Monte Carlo Simulation success probability **{_mc['prob_success']:.0f}%**" if _mc.get("prob_success") is not None else ""
+            st.markdown(f"Portfolio **\\${_after_tax:,.0f}**  ·  {_inc_line}")
+            st.markdown(f"Tax efficiency **{_tax_eff:.1f}%**{_mc_part}")
+            st.info(f"Does not account for Social Security, pensions, or other income sources.")
             if st.session_state.get("results_chat_whatif_modified"):
                 st.caption("⚠️ Scenario modified via chat.")
     else:
@@ -3197,14 +3190,13 @@ def _render_dp_right_panel() -> None:
     # ── Accounts ──────────────────────────────────────────────────────
     st.markdown(f"**🏦 Your Accounts** ({n_assets})")
 
-    _can_add = by is not None and ra is not None
-    _btn_type = "primary" if (_no_acct and _can_add) else "secondary"
+    _can_add = st.session_state.dp_goals_done
     if st.button(
         "+ Add / Manage Accounts",
         use_container_width=True,
-        type=_btn_type,
+        type="primary" if _can_add else "secondary",
         disabled=not _can_add,
-        help=None if _can_add else "Share your birth year and retirement age in the chat first.",
+        help=None if _can_add else "Complete the setup chat first.",
         key="dp_add_accounts_btn",
     ):
         st.session_state.show_adjust_assets_dialog = True
@@ -3214,7 +3206,8 @@ def _render_dp_right_panel() -> None:
     if _toast := st.session_state.pop("adjust_assets_toast", None):
         st.toast(_toast, icon="✅")
 
-    if assets:
+    _total_balance = sum(a.current_balance for a in assets)
+    if assets and _total_balance > 0:
         # Auto-calculate whenever accounts change (hash-based detection)
         _current_hash = hash(tuple(
             (a.name, a.current_balance, a.annual_contribution)
@@ -3253,6 +3246,8 @@ def _render_dp_right_panel() -> None:
                 st.session_state.dp_chat_messages.append({"role": "assistant", "content": _opener})
                 st.session_state.dp_calculated = True
             st.rerun()
+    elif _total_balance == 0 and assets:
+        st.caption("All accounts have a $0 balance — add balances to see your projection.")
     else:
         st.caption("No accounts yet — add accounts above to see your projection.")
 
